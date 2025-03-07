@@ -4,9 +4,11 @@ import * as React from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { Menu } from "lucide-react";
+import { SignedIn, SignedOut } from "@clerk/nextjs";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { SignInDialog } from "@/components/auth/sign-in-dialog";
 
 const navigation = [
   { name: "Docs", href: "/docs" },
@@ -18,7 +20,7 @@ export function Navbar() {
   const [isOpen, setIsOpen] = React.useState(false);
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-50 border-b bg-background/80 backdrop-blur-sm">
+    <header className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-xl">
       <nav className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
           {/* Logo */}
@@ -31,16 +33,28 @@ export function Navbar() {
           </div>
 
           {/* Desktop Navigation */}
-          <div className="hidden md:flex md:items-center md:space-x-8">
+          <div className="hidden md:flex md:items-center md:space-x-6">
             {navigation.map((item) => (
-              <Link key={item.name} href={item.href} className="text-muted-foreground hover:text-foreground transition-colors">
+              <Link key={item.name} href={item.href} className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
                 {item.name}
               </Link>
             ))}
             <ThemeToggle />
-            <Button asChild variant="default">
-              <Link href="/dashboard">Dashboard</Link>
-            </Button>
+            <SignedIn>
+              <Button
+                asChild
+                size="sm"
+                className="bg-gradient-to-r from-[hsl(var(--gradient-1))] to-[hsl(var(--gradient-2))] hover:opacity-90 text-white border-0 rounded-full px-6">
+                <Link href="/dashboard">Dashboard</Link>
+              </Button>
+            </SignedIn>
+            <SignedOut>
+              <SignInDialog>
+                <Button size="sm" variant="outline" className="rounded-full px-6">
+                  Sign In
+                </Button>
+              </SignInDialog>
+            </SignedOut>
           </div>
 
           {/* Mobile Navigation */}
@@ -60,11 +74,18 @@ export function Navbar() {
                       {item.name}
                     </Link>
                   ))}
-                  <Button asChild>
-                    <Link href="/dashboard" onClick={() => setIsOpen(false)}>
-                      Dashboard
-                    </Link>
-                  </Button>
+                  <SignedIn>
+                    <Button asChild className="bg-gradient-to-r from-[hsl(var(--gradient-1))] to-[hsl(var(--gradient-2))] hover:opacity-90 text-white border-0">
+                      <Link href="/dashboard" onClick={() => setIsOpen(false)}>
+                        Dashboard
+                      </Link>
+                    </Button>
+                  </SignedIn>
+                  <SignedOut>
+                    <SignInDialog>
+                      <Button variant="outline">Sign In</Button>
+                    </SignInDialog>
+                  </SignedOut>
                 </div>
               </SheetContent>
             </Sheet>
