@@ -17,6 +17,17 @@ const server = createServer(app);
 // Setup WebSocket server
 setupWebSocketServer(server);
 
+// CORS configuration
+const corsOptions = {
+  origin:
+    process.env.NODE_ENV === "production"
+      ? ["https://your-production-domain.com"] // Replace with your production domain
+      : ["http://localhost:3000"], // Next.js dev server
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "x-clerk-client-token"],
+  credentials: true,
+};
+
 // Global rate limiter
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -25,7 +36,7 @@ const limiter = rateLimit({
 });
 
 // Middleware
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(limiter);
 
