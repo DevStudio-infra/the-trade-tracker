@@ -11,9 +11,11 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { SignInDialog } from "@/components/auth/sign-in-dialog";
 
 const navigation = [
+  { name: "Features", href: "/features" },
+  { name: "Pricing", href: "/pricing" },
+  { name: "Contact", href: "/contact" },
   { name: "Docs", href: "/docs" },
   { name: "Blog", href: "/blog" },
-  { name: "Contact", href: "/contact" },
 ];
 
 export function Navbar() {

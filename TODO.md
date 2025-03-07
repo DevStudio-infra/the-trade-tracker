@@ -11,40 +11,53 @@
 
 ## Database & Storage
 
-- [ ] Set up Supabase database
-  - [ ] Configure database connection
-  - [ ] Set up row-level security policies
-  - [ ] Configure storage buckets for charts
-  - [ ] Set up encryption for sensitive data
-- [ ] Create Prisma models for:
-  - [ ] Users (with Clerk integration)
-  - [ ] UserAgreements
-  - [ ] UserOnboarding
-  - [ ] BrokerCredentials (with encryption)
-  - [ ] Trades
-  - [ ] Signals
-  - [ ] AI_Evaluations
-  - [ ] Chart_Images
-  - [ ] Credit_Purchases
-  - [ ] Credit_Transactions
-  - [ ] Strategies
-  - [ ] RAG_Embeddings
-  - [ ] Leaderboard
-  - [ ] Achievements
-  - [ ] Notifications
-  - [ ] Messages
-  - [ ] Follow_System
-  - [ ] Analytics
-- [ ] Set up Redis for candle data caching
-- [ ] Configure PGVector for RAG implementation
+- [x] Set up Supabase database
+  - [x] Configure database connection
+  - [x] Set up row-level security policies
+  - [x] Configure storage buckets for charts
+  - [x] Set up encryption for sensitive data
+- [x] Create Prisma models for:
+  - [x] Users (with Clerk integration)
+  - [x] UserAgreements
+  - [x] UserOnboarding
+  - [x] BrokerCredentials (with encryption)
+  - [x] Trades
+  - [x] Signals
+  - [x] AI_Evaluations
+  - [x] Chart_Images
+  - [x] Credit_Purchases
+  - [x] Credit_Transactions
+  - [x] Strategies
+  - [x] RAG_Embeddings
+  - [x] Leaderboard
+  - [x] Achievements
+  - [x] Notifications
+  - [x] Messages
+  - [x] Follow_System
+  - [x] Analytics
+- [x] Set up Redis for candle data caching
+- [x] Configure PGVector for RAG implementation
 
 ## Authentication & User Management
 
 - [ ] Set up Clerk authentication
+
   - [ ] Configure Clerk provider
-  - [ ] Set up OAuth providers (Google, GitHub)
+  - [ ] Set up OAuth providers (Google)
   - [ ] Implement sign-in/sign-up components
   - [ ] Configure webhooks for user events
+
+- [ ] Backend Authentication Integration
+
+  - [ ] Set up Clerk SDK in backend
+  - [ ] Create auth middleware for token validation
+  - [ ] Implement authenticated API client in frontend
+  - [ ] Add token validation to WebSocket connections
+  - [ ] Create user session management
+  - [ ] Set up rate limiting per user
+  - [ ] Implement API key rotation system
+  - [ ] Add request logging for security
+
 - [ ] Create protected routes
 - [ ] Implement user profile management with Clerk
 - [ ] Create user onboarding flow
