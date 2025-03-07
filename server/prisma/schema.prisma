@@ -17,6 +17,10 @@ model User {
     id                  String    @id // From Clerk
     createdAt           DateTime  @default(now()) @map("created_at")
     updatedAt           DateTime  @updatedAt @map("updated_at")
+    name                String?
+    tradingExperience   String?   @map("trading_experience")
+    preferredMarkets    String[]  @map("preferred_markets")
+    riskTolerance       String?   @map("risk_tolerance")
     subscriptionPlan    String    @default("Free") @map("subscription_plan")
     credits             Int       @default(6)
     lastLogin           DateTime? @map("last_login")
@@ -81,6 +85,7 @@ model BrokerCredential {
     brokerName  String    @map("broker_name")
     credentials Json
     isActive    Boolean   @default(true) @map("is_active")
+    isDemo      Boolean   @default(false) @map("is_demo")
     lastUsed    DateTime? @map("last_used")
     createdAt   DateTime  @default(now()) @map("created_at")
     updatedAt   DateTime  @updatedAt @map("updated_at")
