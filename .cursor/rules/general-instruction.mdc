@@ -1,0 +1,6 @@
+---
+description: for all code additions
+globs: 
+---
+
+Verify whether the modifications target the server or client folder before applying any changes, ensuring that updates are executed only within the relevant folde
