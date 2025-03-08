@@ -1,43 +1,17 @@
 import { Request, Response, NextFunction } from "express";
-import { createClerkClient } from "@clerk/backend";
+import { clerkClient, clerkMiddleware, requireAuth as clerkRequireAuth } from "@clerk/express";
 import { createLogger } from "../utils/logger";
 
-const clerk = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY! });
 const logger = createLogger("auth-middleware");
 
-interface AuthenticatedRequest extends Request {
+export interface AuthenticatedRequest extends Request {
   auth: {
     userId: string;
-    sessionId: string;
   };
 }
 
-export const authMiddleware = async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const sessionToken = req.headers.authorization?.split(" ")[1];
-    const clientToken = req.headers["x-clerk-client-token"] as string;
-
-    if (!sessionToken || !clientToken) {
-      return res.status(401).json({ error: "Unauthorized - Missing tokens" });
-    }
-
-    const session = await clerk.sessions.verifySession(sessionToken, clientToken);
-
-    if (!session) {
-      return res.status(401).json({ error: "Invalid session" });
-    }
-
-    (req as AuthenticatedRequest).auth = {
-      userId: session.userId,
-      sessionId: session.id,
-    };
-
-    next();
-  } catch (error) {
-    console.error("Auth error:", error);
-    return res.status(500).json({ error: "Internal server error" });
-  }
-};
+// Export Clerk's requireAuth middleware
+export const validateAuth = clerkRequireAuth();
 
 // Rate limiting middleware based on user ID
 export function rateLimit(maxRequests: number, windowMs: number) {

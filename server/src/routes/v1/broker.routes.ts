@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { requireAuth, AuthenticatedRequest } from "../../middleware/auth.middleware";
+import { validateAuth, AuthenticatedRequest } from "../../middleware/auth.middleware";
 import { BrokerService } from "../../services/broker/broker.service";
 import { createLogger } from "../../utils/logger";
 
@@ -8,7 +8,7 @@ const logger = createLogger("broker-routes");
 const brokerService = new BrokerService();
 
 // Get all broker connections
-router.get("/connections", requireAuth, async (req, res) => {
+router.get("/connections", validateAuth, async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).auth;
     const connections = await brokerService.getConnections(userId);
@@ -23,7 +23,7 @@ router.get("/connections", requireAuth, async (req, res) => {
 });
 
 // Add new broker connection
-router.post("/connect", requireAuth, async (req, res) => {
+router.post("/connect", validateAuth, async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).auth;
     const { brokerName, apiKey, apiSecret, isDemo } = req.body;
@@ -45,7 +45,7 @@ router.post("/connect", requireAuth, async (req, res) => {
 });
 
 // Update broker connection
-router.patch("/connections/:connectionId", requireAuth, async (req, res) => {
+router.patch("/connections/:connectionId", validateAuth, async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).auth;
     const { connectionId } = req.params;
@@ -67,7 +67,7 @@ router.patch("/connections/:connectionId", requireAuth, async (req, res) => {
 });
 
 // Delete broker connection
-router.delete("/connections/:connectionId", requireAuth, async (req, res) => {
+router.delete("/connections/:connectionId", validateAuth, async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).auth;
     const { connectionId } = req.params;
@@ -84,7 +84,7 @@ router.delete("/connections/:connectionId", requireAuth, async (req, res) => {
 });
 
 // Validate broker connection
-router.post("/connections/:connectionId/validate", requireAuth, async (req, res) => {
+router.post("/connections/:connectionId/validate", validateAuth, async (req, res) => {
   try {
     const { connectionId } = req.params;
     const isValid = await brokerService.validateConnection(connectionId);

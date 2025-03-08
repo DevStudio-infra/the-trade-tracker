@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { requireAuth, AuthenticatedRequest } from "../../middleware/auth.middleware";
+import { validateAuth, AuthenticatedRequest } from "../../middleware/auth.middleware";
 import { StripeService } from "../../services/stripe/stripe.service";
 import { createLogger } from "../../utils/logger";
 
@@ -8,7 +8,7 @@ const logger = createLogger("subscription-routes");
 const stripeService = new StripeService();
 
 // Create subscription checkout session
-router.post("/checkout", requireAuth, async (req, res) => {
+router.post("/checkout", validateAuth, async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).auth;
     const { url } = await stripeService.createSubscriptionCheckout(userId);
@@ -23,7 +23,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
 });
 
 // Create credit purchase checkout session
-router.post("/credits/checkout", requireAuth, async (req, res) => {
+router.post("/credits/checkout", validateAuth, async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).auth;
     const { packageType } = req.body;

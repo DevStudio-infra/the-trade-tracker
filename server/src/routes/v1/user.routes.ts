@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { requireAuth, rateLimit, AuthenticatedRequest } from "../../middleware/auth.middleware";
+import { validateAuth, rateLimit, AuthenticatedRequest } from "../../middleware/auth.middleware";
 import { prisma } from "../../lib/prisma";
 import { createLogger } from "../../utils/logger";
 
@@ -10,7 +10,7 @@ const logger = createLogger("user-routes");
 const userRateLimit = rateLimit(100, 60 * 1000); // 100 requests per minute
 
 // Get user profile
-router.get("/profile", requireAuth, userRateLimit, async (req, res) => {
+router.get("/profile", validateAuth, userRateLimit, async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).auth;
 
@@ -58,7 +58,7 @@ router.get("/profile", requireAuth, userRateLimit, async (req, res) => {
 });
 
 // Update user profile
-router.patch("/profile", requireAuth, userRateLimit, async (req, res) => {
+router.patch("/profile", validateAuth, userRateLimit, async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).auth;
     const { onboardingStep, onboardingCompleted } = req.body;
@@ -93,7 +93,7 @@ router.patch("/profile", requireAuth, userRateLimit, async (req, res) => {
 });
 
 // Handle onboarding step
-router.post("/onboarding/:step", requireAuth, userRateLimit, async (req, res) => {
+router.post("/onboarding/:step", validateAuth, userRateLimit, async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).auth;
     const step = parseInt(req.params.step, 10);
