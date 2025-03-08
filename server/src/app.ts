@@ -5,6 +5,8 @@ import { setupWebSocketServer } from "./websocket/server";
 import { createLogger } from "./utils/logger";
 import { rateLimit } from "express-rate-limit";
 import userRouter from "./routes/v1/user.routes";
+import subscriptionRouter from "./routes/v1/subscription.routes";
+import brokerRouter from "./routes/v1/broker.routes";
 
 const logger = createLogger("app");
 
@@ -42,6 +44,8 @@ app.use(limiter);
 
 // Routes
 app.use("/v1/user", userRouter);
+app.use("/v1/subscription", subscriptionRouter);
+app.use("/v1/broker", brokerRouter);
 
 // Error handling
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
