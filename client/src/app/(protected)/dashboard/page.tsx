@@ -1,48 +1,127 @@
-import { UserButton } from "@clerk/nextjs";
+"use client";
 
-export default function Dashboard() {
+import { PerformanceMetrics } from "@/components/dashboard/performance-metrics";
+import { RecentTrades } from "@/components/dashboard/recent-trades";
+import { ActiveSignals } from "@/components/dashboard/active-signals";
+import { AccountOverview } from "@/components/dashboard/account-overview";
+import { FloatingDock } from "@/components/ui/floating-dock";
+import { IconChartBar, IconUsers, IconSettings, IconBell, IconHome } from "@tabler/icons-react";
+import { DatePickerWithRange } from "@/components/ui/date-range-picker";
+import { mockStats } from "@/lib/mock-data";
+import { formatNumber } from "@/lib/utils";
+import { cn } from "@/lib/utils";
+
+const navigationItems = [
+  {
+    title: "Home",
+    icon: <IconHome className="h-full w-full text-neutral-300" />,
+    href: "/dashboard",
+  },
+  {
+    title: "Analytics",
+    icon: <IconChartBar className="h-full w-full text-neutral-300" />,
+    href: "/analytics",
+  },
+  {
+    title: "Reports",
+    icon: <IconUsers className="h-full w-full text-neutral-300" />,
+    href: "/reports",
+  },
+  {
+    title: "Notifications",
+    icon: <IconBell className="h-full w-full text-neutral-300" />,
+    href: "/notifications",
+  },
+  {
+    title: "Settings",
+    icon: <IconSettings className="h-full w-full text-neutral-300" />,
+    href: "/settings",
+  },
+];
+
+const gradients = {
+  revenue: "from-blue-500/5 to-blue-600/10",
+  trades: "from-blue-400/5 to-blue-500/10",
+  winRate: "from-blue-500/5 to-blue-400/10",
+  credits: "from-blue-600/5 to-blue-500/10",
+};
+
+export default function DashboardPage() {
   return (
-    <div className="min-h-screen bg-gray-100">
-      {/* Header */}
-      <header className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+    <>
+      <div className="min-h-screen bg-background">
+        {/* Subtle blue gradient background */}
+        <div className="fixed inset-0 dark:bg-gradient-to-br dark:from-[#050E1A] dark:via-black dark:to-black light:bg-gradient-to-br light:from-slate-100 light:to-white pointer-events-none" />
+
+        {/* Main content */}
+        <div className="relative p-6 space-y-6 max-w-[1600px] mx-auto">
           <div className="flex justify-between items-center">
-            <h1 className="text-2xl font-semibold text-gray-900">Dashboard</h1>
-            <UserButton afterSignOutUrl="/" />
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {/* Stats Card */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-lg font-medium text-gray-900 mb-2">Statistics</h2>
-            <p className="text-3xl font-bold text-blue-500">128</p>
-            <p className="text-sm text-gray-500">Total items</p>
+            <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+            <DatePickerWithRange />
           </div>
 
-          {/* Activity Card */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-lg font-medium text-gray-900 mb-2">Recent Activity</h2>
-            <ul className="space-y-3">
-              <li className="text-sm text-gray-600">Updated profile settings</li>
-              <li className="text-sm text-gray-600">Added new item</li>
-              <li className="text-sm text-gray-600">Completed task #123</li>
-            </ul>
-          </div>
+          <div className="grid gap-4">
+            {/* Stats Row */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              {[
+                { title: "Total Revenue", value: mockStats.totalRevenue, gradient: gradients.revenue },
+                { title: "Active Trades", value: mockStats.activeTrades, gradient: gradients.trades },
+                { title: "Win Rate", value: mockStats.winRate, gradient: gradients.winRate },
+                { title: "AI Credits", value: mockStats.aiCredits, gradient: gradients.credits },
+              ].map((stat) => (
+                <div
+                  key={stat.title}
+                  className={cn(
+                    "relative rounded-xl p-6 overflow-hidden backdrop-blur-sm",
+                    "border border-[#1E3A59]/20",
+                    "dark:bg-[#0A1A2F]/40 dark:shadow-[0_0_32px_0_rgba(15,39,68,0.2)]",
+                    "bg-white/40 shadow-lg"
+                  )}>
+                  {/* Gradient background */}
+                  <div className={cn("absolute inset-0 bg-gradient-to-br opacity-80", stat.gradient, "dark:opacity-40")} />
 
-          {/* Quick Actions Card */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-lg font-medium text-gray-900 mb-2">Quick Actions</h2>
-            <div className="space-y-2">
-              <button className="w-full bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600 transition-colors">Create New Item</button>
-              <button className="w-full bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300 transition-colors">View Reports</button>
+                  {/* Content */}
+                  <div className="relative">
+                    <h3 className="text-sm text-muted-foreground">{stat.title}</h3>
+                    <p className="text-2xl font-bold mt-2">
+                      {stat.title === "Total Revenue" ? "$" : ""}
+                      {formatNumber(stat.value.value)}
+                      {stat.title === "Win Rate" ? "%" : ""}
+                    </p>
+                    <p className="text-sm text-blue-500 dark:text-blue-400 mt-1">
+                      +{stat.value.change}
+                      {typeof stat.value.change === "number" && stat.value.change > 1 ? "%" : ""} from {stat.value.timeframe}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Main Content */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div className="lg:col-span-2">
+                <PerformanceMetrics />
+              </div>
+              <div className="space-y-4">
+                <RecentTrades />
+              </div>
+            </div>
+
+            {/* Active Signals */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div className="lg:col-span-2">
+                <ActiveSignals />
+              </div>
+              <div>
+                <AccountOverview />
+              </div>
             </div>
           </div>
         </div>
-      </main>
-    </div>
+      </div>
+
+      {/* Floating Dock Navigation */}
+      <FloatingDock items={navigationItems} />
+    </>
   );
 }

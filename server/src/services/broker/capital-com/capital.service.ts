@@ -1,11 +1,15 @@
-import axios, { AxiosInstance } from "axios";
+import axios, { AxiosInstance, AxiosHeaders } from "axios";
 import WebSocket from "ws";
 import { createLogger } from "../../../utils/logger";
 import { RateLimiter } from "../../../utils/rate-limiter";
 import { IBroker, IBrokerCredentials } from "../interfaces/broker.interface";
 import { MarketData, Order, Position, AccountBalance, Candle, OrderParameters, OrderType, OrderStatus } from "../interfaces/types";
 
-const logger = createLogger("capital-service");
+interface CapitalConfig extends IBrokerCredentials {
+  baseUrl?: string;
+  timeout?: number;
+  isDemo?: boolean;
+}
 
 export class CapitalService implements IBroker {
   private readonly baseUrl: string;
@@ -24,32 +28,62 @@ export class CapitalService implements IBroker {
   private lastError: Error | null = null;
   private pingInterval?: NodeJS.Timeout;
   private reconnectTimeout?: NodeJS.Timeout;
+  private readonly logger = createLogger("capital-service");
 
   // Rate limiters based on Capital.com API limits
   private readonly globalLimiter = new RateLimiter(10, 1000); // 10 requests per second
   private readonly orderLimiter = new RateLimiter(1, 100); // 1 request per 0.1 seconds for orders
   private readonly sessionLimiter = new RateLimiter(1, 1000); // 1 request per second for session
 
-  constructor(credentials: IBrokerCredentials) {
-    this.apiKey = credentials.apiKey;
-    this.apiSecret = credentials.apiSecret;
-    this.isDemo = credentials.isDemo || false;
-    this.baseUrl = this.isDemo ? "https://demo-api-capital.backend-capital.com" : "https://api-capital.backend-capital.com";
-    this.wsUrl = this.isDemo ? "wss://demo-streaming.capital.com" : "wss://streaming.capital.com";
+  constructor(private readonly config: CapitalConfig) {
+    this.apiKey = this.config.apiKey;
+    this.apiSecret = this.config.apiSecret;
+    this.isDemo = this.config.isDemo || false;
+    this.baseUrl = this.isDemo ? "https://demo-api-capital.backend-capital.com/api/v1" : "https://api-capital.backend-capital.com/api/v1";
+    this.wsUrl = this.isDemo ? "wss://demo-streaming.capital.com/connect" : "wss://streaming.capital.com/connect";
 
     this.client = axios.create({
       baseURL: this.baseUrl,
+      timeout: this.config.timeout,
       headers: {
         "Content-Type": "application/json",
-        "X-CAP-API-KEY": this.apiKey,
+        Accept: "application/json",
       },
     });
 
-    // Add response interceptor for error handling
+    // Add request interceptor for session token
+    this.client.interceptors.request.use((config) => {
+      if (this.sessionToken) {
+        config.headers = config.headers || {};
+        config.headers["X-SECURITY-TOKEN"] = this.sessionToken;
+      }
+      return config;
+    });
+
+    // Add rate limiting interceptor
+    this.client.interceptors.request.use(async (config) => {
+      await this.globalLimiter.acquire();
+      if (config.url?.includes("/positions") || config.url?.includes("/orders")) {
+        await this.orderLimiter.acquire();
+      }
+      if (config.url?.includes("/session")) {
+        await this.sessionLimiter.acquire();
+      }
+      return config;
+    });
+
+    // Add error handling interceptor
     this.client.interceptors.response.use(
       (response) => response,
       (error) => {
-        this.handleError("API request failed", error);
+        if (error.response?.status === 429) {
+          this.handleError("Rate limit exceeded", error);
+          throw new Error("Too many requests");
+        }
+        if (error.response?.data?.errorCode) {
+          this.handleError(error.response.data.message, error);
+          throw new Error(error.response.data.message);
+        }
         throw error;
       }
     );
@@ -57,48 +91,49 @@ export class CapitalService implements IBroker {
 
   async connect(credentials: IBrokerCredentials): Promise<void> {
     try {
-      await this.sessionLimiter.acquire();
-      const response = await this.client.post("/api/v1/session", {
-        identifier: this.apiKey,
-        password: this.apiSecret,
-      });
-
+      const response = await this.client.post("/api/v1/session", credentials);
       this.sessionToken = response.data.token;
-      this.connected = true;
+      if (this.sessionToken) {
+        this.client.defaults.headers["X-SECURITY-TOKEN"] = this.sessionToken;
+      }
 
-      // Initialize WebSocket connection
       await this.setupWebSocket();
-
-      logger.info("Connected to Capital.com API");
-    } catch (error) {
+      this.connected = true;
+      this.logger.info("Connected to Capital.com API");
+    } catch (error: any) {
+      // Handle rate limiting
+      if (error.response?.status === 429) {
+        // Wait for a second and retry
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        return this.connect(credentials);
+      }
       this.handleError("Connection failed", error);
       throw error;
     }
   }
 
   async disconnect(): Promise<void> {
-    this.connected = false;
-    this.clearPingInterval();
-
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
+    try {
+      this.clearPingInterval();
+      if (this.ws) {
+        this.ws.terminate();
+        this.ws = undefined;
+      }
+      this.connected = false;
+      this.sessionToken = undefined;
+      this.logger.info("Disconnected from Capital.com API");
+    } catch (error) {
+      this.handleError("Disconnect failed", error);
+      throw error;
     }
-
-    if (this.ws) {
-      this.ws.terminate();
-      this.ws = undefined;
-    }
-
-    this.sessionToken = undefined;
-    this.marketDataCallbacks.clear();
   }
 
   async validateCredentials(): Promise<boolean> {
     try {
-      await this.connect({ apiKey: this.apiKey, apiSecret: this.apiSecret, isDemo: this.isDemo });
-      await this.disconnect();
+      await this.client.get("/session");
       return true;
     } catch (error) {
+      this.handleError("Credential validation failed", error);
       return false;
     }
   }
@@ -109,16 +144,8 @@ export class CapitalService implements IBroker {
 
   async getMarketData(symbol: string): Promise<MarketData> {
     try {
-      await this.globalLimiter.acquire();
       const response = await this.client.get(`/api/v1/prices/${symbol}`);
-
-      return {
-        symbol,
-        bid: response.data.prices[0].bid,
-        ask: response.data.prices[0].offer,
-        timestamp: new Date(response.data.prices[0].snapshotTime).getTime(),
-        volume: response.data.prices[0].lastTradedVolume,
-      };
+      return response.data;
     } catch (error) {
       this.handleError("Failed to get market data", error);
       throw error;
@@ -127,25 +154,13 @@ export class CapitalService implements IBroker {
 
   async getCandles(symbol: string, timeframe: string, limit = 200): Promise<Candle[]> {
     try {
-      await this.globalLimiter.acquire();
-      const resolution = this.mapTimeframeToResolution(timeframe);
-      const response = await this.client.get(`/api/v1/prices/${symbol}/history`, {
+      const response = await this.client.get(`/api/v1/candles/${symbol}`, {
         params: {
-          resolution,
+          resolution: this.mapTimeframeToResolution(timeframe),
           limit,
-          from: new Date(Date.now() - limit * this.getTimeframeInMs(timeframe)).toISOString(),
-          to: new Date().toISOString(),
         },
       });
-
-      return response.data.prices.map((price: any) => ({
-        timestamp: new Date(price.snapshotTime).getTime(),
-        open: price.openPrice,
-        high: price.highPrice,
-        low: price.lowPrice,
-        close: price.closePrice,
-        volume: price.lastTradedVolume,
-      }));
+      return response.data.candles;
     } catch (error) {
       this.handleError("Failed to get candles", error);
       throw error;
@@ -153,20 +168,20 @@ export class CapitalService implements IBroker {
   }
 
   private mapTimeframeToResolution(timeframe: string): string {
-    const map: Record<string, string> = {
-      "1m": "MINUTE",
-      "5m": "MINUTE_5",
-      "15m": "MINUTE_15",
-      "30m": "MINUTE_30",
-      "1h": "HOUR",
-      "4h": "HOUR_4",
-      "1d": "DAY",
+    const map: { [key: string]: string } = {
+      "1m": "1",
+      "5m": "5",
+      "15m": "15",
+      "30m": "30",
+      "1h": "60",
+      "4h": "240",
+      "1d": "1440",
     };
-    return map[timeframe] || "HOUR";
+    return map[timeframe] || "60";
   }
 
   private getTimeframeInMs(timeframe: string): number {
-    const map: Record<string, number> = {
+    const map: { [key: string]: number } = {
       "1m": 60000,
       "5m": 300000,
       "15m": 900000,
@@ -184,7 +199,7 @@ export class CapitalService implements IBroker {
 
   private handleError(message: string, error: unknown): void {
     this.lastError = error instanceof Error ? error : new Error(String(error));
-    logger.error({
+    this.logger.error({
       message,
       error: this.lastError.message,
       stack: this.lastError.stack,
@@ -192,17 +207,17 @@ export class CapitalService implements IBroker {
   }
 
   private async setupWebSocket(): Promise<void> {
-    if (this.ws) {
-      this.ws.terminate();
+    if (!this.sessionToken) {
+      throw new Error("No session token available");
     }
 
     this.ws = new WebSocket(this.wsUrl);
 
     this.ws.on("open", () => {
-      logger.info("WebSocket connected");
-      this.wsReconnectAttempts = 0;
-      this.setupPingInterval();
+      this.logger.info("WebSocket connected");
       this.authenticate();
+      this.setupPingInterval();
+      this.wsReconnectAttempts = 0;
     });
 
     this.ws.on("message", (data: string) => {
@@ -210,19 +225,19 @@ export class CapitalService implements IBroker {
         const message = JSON.parse(data);
         this.handleWebSocketMessage(message);
       } catch (error) {
-        this.handleError("Error parsing WebSocket message", error);
+        this.handleError("Failed to parse WebSocket message", error);
       }
     });
 
     this.ws.on("close", () => {
-      logger.warn("WebSocket connection closed");
+      this.logger.warn("WebSocket disconnected");
       this.clearPingInterval();
       this.handleReconnect();
     });
 
     this.ws.on("error", (error) => {
       this.handleError("WebSocket error", error);
-      this.handleReconnect();
+      this.ws?.terminate();
     });
   }
 
@@ -243,7 +258,7 @@ export class CapitalService implements IBroker {
       if (this.ws?.readyState === WebSocket.OPEN) {
         this.ws.send(JSON.stringify({ action: "ping" }));
       }
-    }, 30000); // Send ping every 30 seconds
+    }, 30000);
   }
 
   private clearPingInterval(): void {
@@ -255,16 +270,20 @@ export class CapitalService implements IBroker {
 
   private handleReconnect(): void {
     if (this.wsReconnectAttempts >= this.maxReconnectAttempts) {
-      logger.error("Max reconnection attempts reached");
+      this.logger.error("Max reconnection attempts reached");
       return;
     }
 
-    const delay = this.reconnectDelay * Math.pow(2, this.wsReconnectAttempts);
+    const delay = Math.min(1000 * Math.pow(2, this.wsReconnectAttempts), 30000);
     this.wsReconnectAttempts++;
 
-    this.reconnectTimeout = setTimeout(() => {
-      logger.info(`Attempting to reconnect (${this.wsReconnectAttempts}/${this.maxReconnectAttempts})`);
-      this.setupWebSocket();
+    this.reconnectTimeout = setTimeout(async () => {
+      try {
+        await this.setupWebSocket();
+        await this.resubscribeToMarketData();
+      } catch (error) {
+        this.handleError("Reconnection failed", error);
+      }
     }, delay);
   }
 
@@ -273,31 +292,24 @@ export class CapitalService implements IBroker {
       case "PRICE_UPDATE":
         this.handlePriceUpdate(message.data);
         break;
-      case "AUTH_SUCCESS":
-        logger.info("WebSocket authentication successful");
-        this.resubscribeToMarketData();
-        break;
-      case "AUTH_FAILED":
-        logger.error("WebSocket authentication failed");
-        break;
-      case "pong":
-        // Handle ping response
+      case "PONG":
+        // Handle pong response if needed
         break;
       default:
-        logger.debug("Unhandled WebSocket message type:", message.type);
+        this.logger.debug("Unhandled WebSocket message type:", message.type);
     }
   }
 
   private handlePriceUpdate(data: any): void {
     const marketData: MarketData = {
       symbol: data.epic,
-      bid: parseFloat(data.bid),
-      ask: parseFloat(data.offer),
+      bid: data.bid,
+      ask: data.offer,
       timestamp: Date.now(),
-      volume: data.volume ? parseFloat(data.volume) : undefined,
+      volume: data.volume,
     };
 
-    const callbacks = this.marketDataCallbacks.get(marketData.symbol);
+    const callbacks = this.marketDataCallbacks.get(data.epic);
     if (callbacks) {
       callbacks.forEach((callback) => {
         try {
@@ -312,25 +324,27 @@ export class CapitalService implements IBroker {
   private async resubscribeToMarketData(): Promise<void> {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
-    const symbols = Array.from(this.marketDataCallbacks.keys());
-    for (const symbol of symbols) {
-      this.ws.send(
-        JSON.stringify({
-          action: "subscribe",
-          epic: symbol,
-        })
-      );
+    for (const symbol of this.marketDataCallbacks.keys()) {
+      try {
+        this.ws.send(
+          JSON.stringify({
+            action: "subscribe",
+            epic: symbol,
+          })
+        );
+      } catch (error) {
+        this.handleError("Failed to resubscribe to market data", error);
+      }
     }
   }
 
-  // Override the existing market data subscription methods
   async subscribeToMarketData(symbol: string, callback: (data: MarketData) => void): Promise<void> {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      throw new Error("WebSocket not connected");
+    }
+
     if (!this.marketDataCallbacks.has(symbol)) {
       this.marketDataCallbacks.set(symbol, new Set());
-    }
-    this.marketDataCallbacks.get(symbol)?.add(callback);
-
-    if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(
         JSON.stringify({
           action: "subscribe",
@@ -338,26 +352,25 @@ export class CapitalService implements IBroker {
         })
       );
     }
+
+    this.marketDataCallbacks.get(symbol)?.add(callback);
   }
 
   async unsubscribeFromMarketData(symbol: string): Promise<void> {
-    this.marketDataCallbacks.delete(symbol);
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(
-        JSON.stringify({
-          action: "unsubscribe",
-          epic: symbol,
-        })
-      );
-    }
+    this.marketDataCallbacks.delete(symbol);
+    this.ws.send(
+      JSON.stringify({
+        action: "unsubscribe",
+        epic: symbol,
+      })
+    );
   }
 
-  // Trading methods to be implemented next
   async getBalance(): Promise<AccountBalance> {
     try {
-      await this.globalLimiter.acquire();
-      const response = await this.client.get("/api/v1/accounts");
+      const response = await this.client.get("/accounts");
       const account = response.data.accounts[0];
 
       return {
@@ -375,22 +388,20 @@ export class CapitalService implements IBroker {
 
   async getPositions(): Promise<Position[]> {
     try {
-      await this.globalLimiter.acquire();
-      const response = await this.client.get("/api/v1/positions");
+      const response = await this.client.get("/positions");
 
       return response.data.positions.map((pos: any) => ({
-        id: pos.dealId,
-        symbol: pos.epic,
-        side: pos.direction === "BUY" ? "LONG" : "SHORT",
-        entryPrice: pos.openLevel,
-        currentPrice: pos.level,
-        quantity: pos.size,
-        unrealizedPnL: pos.profitLoss,
-        realizedPnL: 0, // Not provided by Capital.com API
-        leverage: pos.leverage,
-        liquidationPrice: pos.stopLevel,
-        createdAt: new Date(pos.createdDate),
-        updatedAt: new Date(pos.lastUpdated),
+        id: pos.position.dealId,
+        symbol: pos.position.epic,
+        side: pos.position.direction === "BUY" ? "LONG" : "SHORT",
+        entryPrice: pos.position.openLevel,
+        currentPrice: pos.position.currentLevel,
+        quantity: pos.position.dealSize,
+        unrealizedPnL: pos.position.profit,
+        realizedPnL: 0,
+        leverage: pos.position.leverage || 1,
+        createdAt: new Date(pos.position.createdDate),
+        updatedAt: new Date(),
       }));
     } catch (error) {
       this.handleError("Failed to get positions", error);
@@ -410,28 +421,24 @@ export class CapitalService implements IBroker {
 
   async getOrders(symbol?: string): Promise<Order[]> {
     try {
-      await this.globalLimiter.acquire();
-      const response = await this.client.get("/api/v1/workingorders");
-      let orders = response.data.workingOrders;
+      const response = await this.client.get("/workingorders");
+      const orders = response.data.workingOrders;
 
-      if (symbol) {
-        orders = orders.filter((order: any) => order.epic === symbol);
-      }
-
-      return orders.map((order: any) => ({
-        id: order.dealId,
-        symbol: order.epic,
-        type: this.mapOrderType(order.type),
-        side: order.direction,
-        quantity: order.size,
-        price: order.level,
-        stopPrice: order.stopLevel,
-        timeInForce: "GTC",
-        status: this.mapOrderStatus(order.status),
-        filledQuantity: 0,
-        createdAt: new Date(order.createdDate),
-        updatedAt: new Date(order.lastUpdated),
-      }));
+      return orders
+        .filter((order: any) => !symbol || order.epic === symbol)
+        .map((order: any) => ({
+          id: order.dealId,
+          symbol: order.epic,
+          type: this.mapOrderType(order.type),
+          side: order.direction === "BUY" ? "BUY" : "SELL",
+          quantity: order.size,
+          price: order.level,
+          stopPrice: order.stopLevel,
+          status: this.mapOrderStatus(order.status),
+          filledQuantity: 0,
+          createdAt: new Date(order.createdDate),
+          updatedAt: new Date(),
+        }));
     } catch (error) {
       this.handleError("Failed to get orders", error);
       throw error;
@@ -440,50 +447,48 @@ export class CapitalService implements IBroker {
 
   async getOrder(orderId: string): Promise<Order | null> {
     try {
-      await this.globalLimiter.acquire();
-      const response = await this.client.get(`/api/v1/workingorders/${orderId}`);
+      const response = await this.client.get(`/confirms/${orderId}`);
       const order = response.data;
 
       return {
         id: order.dealId,
         symbol: order.epic,
-        type: this.mapOrderType(order.type),
-        side: order.direction,
-        quantity: order.size,
+        type: this.mapOrderType(order.dealStatus),
+        side: order.direction === "BUY" ? "BUY" : "SELL",
+        quantity: order.dealSize,
         price: order.level,
         stopPrice: order.stopLevel,
-        timeInForce: "GTC",
         status: this.mapOrderStatus(order.status),
-        filledQuantity: 0,
+        filledQuantity: order.status === "ACCEPTED" ? order.dealSize : 0,
         createdAt: new Date(order.createdDate),
-        updatedAt: new Date(order.lastUpdated),
+        updatedAt: new Date(),
       };
     } catch (error) {
-      if (axios.isAxiosError(error) && error.response?.status === 404) {
-        return null;
-      }
       this.handleError("Failed to get order", error);
-      throw error;
+      return null;
     }
   }
 
   async createOrder(parameters: OrderParameters): Promise<Order> {
     try {
-      await this.orderLimiter.acquire();
-      const payload = {
+      const orderRequest = {
         epic: parameters.symbol,
         expiry: "-",
         direction: parameters.side,
         size: parameters.quantity,
         level: parameters.price,
         type: this.mapOrderTypeReverse(parameters.type),
-        timeInForce: parameters.timeInForce || "GTC",
-        leverage: parameters.leverage,
+        guaranteedStop: false,
         stopLevel: parameters.stopPrice,
+        timeInForce: parameters.timeInForce || "GTC",
       };
 
-      const response = await this.client.post("/api/v1/workingorders", payload);
-      const order = response.data;
+      const response = await this.client.post("/positions", orderRequest);
+      const dealRef = response.data.dealReference;
+
+      // Get the created order details
+      const confirmResponse = await this.client.get(`/confirms/${dealRef}`);
+      const order = confirmResponse.data;
 
       return {
         id: order.dealId,
@@ -493,9 +498,8 @@ export class CapitalService implements IBroker {
         quantity: parameters.quantity,
         price: parameters.price,
         stopPrice: parameters.stopPrice,
-        timeInForce: parameters.timeInForce || "GTC",
-        status: "PENDING",
-        filledQuantity: 0,
+        status: this.mapOrderStatus(order.status),
+        filledQuantity: order.status === "ACCEPTED" ? parameters.quantity : 0,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -507,42 +511,40 @@ export class CapitalService implements IBroker {
 
   async cancelOrder(orderId: string): Promise<boolean> {
     try {
-      await this.orderLimiter.acquire();
-      await this.client.delete(`/api/v1/workingorders/${orderId}`);
+      await this.client.delete(`/workingorders/${orderId}`);
       return true;
     } catch (error) {
-      if (axios.isAxiosError(error) && error.response?.status === 404) {
-        return false;
-      }
       this.handleError("Failed to cancel order", error);
-      throw error;
+      return false;
     }
   }
 
   async modifyOrder(orderId: string, parameters: Partial<OrderParameters>): Promise<Order> {
     try {
-      await this.orderLimiter.acquire();
       const currentOrder = await this.getOrder(orderId);
       if (!currentOrder) {
         throw new Error("Order not found");
       }
 
-      const payload = {
-        level: parameters.price || currentOrder.price,
-        stopLevel: parameters.stopPrice || currentOrder.stopPrice,
+      const orderRequest = {
+        epic: parameters.symbol || currentOrder.symbol,
+        expiry: "-",
+        direction: parameters.side || currentOrder.side,
         size: parameters.quantity || currentOrder.quantity,
+        level: parameters.price || currentOrder.price,
+        type: this.mapOrderTypeReverse(parameters.type || currentOrder.type),
+        guaranteedStop: false,
+        stopLevel: parameters.stopPrice || currentOrder.stopPrice,
       };
 
-      const response = await this.client.put(`/api/v1/workingorders/${orderId}`, payload);
-      const order = response.data;
+      await this.client.put(`/workingorders/${orderId}`, orderRequest);
+      const updatedOrder = await this.getOrder(orderId);
 
-      return {
-        ...currentOrder,
-        price: payload.level,
-        stopPrice: payload.stopLevel,
-        quantity: payload.size,
-        updatedAt: new Date(),
-      };
+      if (!updatedOrder) {
+        throw new Error("Failed to get updated order");
+      }
+
+      return updatedOrder;
     } catch (error) {
       this.handleError("Failed to modify order", error);
       throw error;
@@ -556,33 +558,35 @@ export class CapitalService implements IBroker {
         return false;
       }
 
-      await this.orderLimiter.acquire();
-      await this.client.post("/api/v1/positions/close", {
-        dealId: position.id,
+      await this.client.post("/positions/otc", {
+        epic: symbol,
+        expiry: "-",
+        direction: position.side === "LONG" ? "SELL" : "BUY",
+        size: position.quantity,
+        orderType: "MARKET",
       });
 
       return true;
     } catch (error) {
       this.handleError("Failed to close position", error);
-      throw error;
+      return false;
     }
   }
 
   async closeAllPositions(): Promise<boolean> {
     try {
       const positions = await this.getPositions();
-      const results = await Promise.all(positions.map((position) => this.closePosition(position.symbol)));
+      const results = await Promise.all(positions.map((pos) => this.closePosition(pos.symbol)));
       return results.every((result) => result);
     } catch (error) {
       this.handleError("Failed to close all positions", error);
-      throw error;
+      return false;
     }
   }
 
   async getMinQuantity(symbol: string): Promise<number> {
     try {
-      await this.globalLimiter.acquire();
-      const response = await this.client.get(`/api/v1/markets/${symbol}`);
+      const response = await this.client.get(`/markets/${symbol}`);
       return response.data.minDealSize;
     } catch (error) {
       this.handleError("Failed to get minimum quantity", error);
@@ -592,8 +596,7 @@ export class CapitalService implements IBroker {
 
   async getMaxLeverage(symbol: string): Promise<number> {
     try {
-      await this.globalLimiter.acquire();
-      const response = await this.client.get(`/api/v1/markets/${symbol}`);
+      const response = await this.client.get(`/markets/${symbol}`);
       return response.data.maxLeverage;
     } catch (error) {
       this.handleError("Failed to get maximum leverage", error);
@@ -603,6 +606,7 @@ export class CapitalService implements IBroker {
 
   private mapOrderType(type: string): OrderType {
     const map: Record<string, OrderType> = {
+      MARKET: "MARKET",
       LIMIT: "LIMIT",
       STOP: "STOP",
       STOP_LIMIT: "STOP_LIMIT",

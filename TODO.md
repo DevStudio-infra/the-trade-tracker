@@ -40,88 +40,91 @@
 
 ## Authentication & User Management
 
-- [ ] Set up Clerk authentication
+- [x] Set up Clerk authentication
 
-  - [ ] Configure Clerk provider
-  - [ ] Set up OAuth providers (Google)
-  - [ ] Implement sign-in/sign-up components
-  - [ ] Configure webhooks for user events
+  - [x] Configure Clerk provider
+  - [x] Set up OAuth providers (Google)
+  - [x] Implement sign-in/sign-up components
+  - [x] Configure webhooks for user events
 
-- [ ] Backend Authentication Integration
+- [x] Backend Authentication Integration
 
-  - [ ] Set up Clerk SDK in backend
-  - [ ] Create auth middleware for token validation
-  - [ ] Implement authenticated API client in frontend
-  - [ ] Add token validation to WebSocket connections
-  - [ ] Create user session management
-  - [ ] Set up rate limiting per user
+  - [x] Set up Clerk SDK in backend
+  - [x] Create auth middleware for token validation
+  - [x] Add request logging for security
+  - [x] Implement authenticated API client in frontend
+  - [x] Add token validation to WebSocket connections
+  - [x] Create user session management
+  - [x] Set up rate limiting per user
   - [ ] Implement API key rotation system
-  - [ ] Add request logging for security
 
-- [ ] Create protected routes
-- [ ] Implement user profile management with Clerk
-- [ ] Create user onboarding flow
-  - [ ] Design multi-step onboarding UI
-  - [ ] Implement terms acceptance tracking
-  - [ ] Add trading experience questionnaire
-  - [ ] Add optional broker connection introduction
-    - [ ] Display broker connection benefits
-    - [ ] Add "Connect Later" option
-    - [ ] Create smooth transition to dashboard for skipped connection
-- [ ] Implement subscription plans with Stripe
-  - [ ] Free tier (6 credits)
-  - [ ] Pro tier (100 credits)
-  - [ ] Extra credits purchase system
+- [x] Create protected routes
+- [x] Implement user profile management with Clerk
+- [x] Create user onboarding flow
+  - [x] Design multi-step onboarding UI
+  - [x] Implement terms acceptance tracking
+  - [x] Add trading experience questionnaire
+  - [x] Add optional broker connection introduction
+    - [x] Display broker connection benefits
+    - [x] Add "Connect Later" option
+    - [x] Create smooth transition to dashboard for skipped connection
+- [x] Implement subscription plans with Stripe
+  - [x] Free tier (6 credits)
+  - [x] Pro tier (100 credits)
+  - [x] Extra credits purchase system
 
 ## Account Management Features
 
-- [ ] Implement broker connection management
-  - [ ] Create broker connection interface
-  - [ ] Implement API key validation
-  - [ ] Add connection status monitoring
-  - [ ] Create broker settings management
-  - [ ] Add multiple broker support
-- [ ] Create strategy management interface
-  - [ ] Strategy browsing and selection
-  - [ ] Strategy configuration
-  - [ ] Performance tracking per strategy
+- [x] Implement broker connection management
+  - [x] Create broker connection interface
+  - [x] Implement API key validation
+  - [x] Add connection status monitoring
+  - [x] Add Capital.com integration
+  - [x] Implement secure credential storage
+  - [x] Add connection management endpoints
+    - [x] GET /v1/broker/connections
+    - [x] POST /v1/broker/connect
+    - [x] PATCH /v1/broker/connections/:id
+    - [x] DELETE /v1/broker/connections/:id
+    - [x] POST /v1/broker/connections/:id/validate
 
 ## Storage & Security
 
-- [ ] Set up Supabase storage
-  - [ ] Configure chart image bucket
-  - [ ] Set up access policies
-  - [ ] Implement automatic cleanup
-- [ ] Implement encryption system
-  - [ ] Set up encryption for broker credentials
-  - [ ] Configure secure key management
-  - [ ] Implement encryption/decryption utilities
+- [x] Set up Supabase storage
+  - [x] Configure chart image bucket
+  - [x] Set up access policies
+  - [x] Implement automatic cleanup
+- [x] Implement encryption system
+  - [x] Set up encryption for broker credentials
+  - [x] Configure secure key management
+  - [x] Implement encryption/decryption utilities
 
 ## Trading Integration
 
 ### Phase 1 - Broker Interface Layer
 
-- [ ] Design abstract broker interface
-  - [ ] Define standard order types and parameters
-  - [ ] Create unified market data structures
-  - [ ] Design common API response formats
-  - [ ] Implement error handling patterns
-  - [ ] Create broker connection management interface
-- [ ] Build base candle data pipeline
-  - [ ] Define candle data structure
-  - [ ] Implement Redis caching system
-  - [ ] Create TTL management system
-  - [ ] Set up automatic cache updates
+- [x] Design abstract broker interface
+  - [x] Define standard order types and parameters
+  - [x] Create unified market data structures
+  - [x] Design common API response formats
+  - [x] Implement error handling patterns
+  - [x] Create broker connection management interface
+- [x] Build base candle data pipeline
+  - [x] Define candle data structure
+  - [x] Implement Redis caching system
+  - [x] Create TTL management system
+  - [x] Set up automatic cache updates
 
 ### Phase 2 - Capital.com Implementation
 
-- [ ] Implement Capital.com adapter
-  - [ ] API key management
-  - [ ] Account connection
-  - [ ] Trading pair selection
-  - [ ] Real-time data streaming
-  - [ ] Order execution
-  - [ ] Market data normalization
+- [x] Implement Capital.com adapter
+  - [x] API key management
+  - [x] Account connection
+  - [x] Trading pair selection
+  - [x] Real-time data streaming
+  - [x] Order execution
+  - [x] Market data normalization
+  - [x] WebSocket implementation
 - [ ] Test and validate implementation
   - [ ] Unit tests for adapter
   - [ ] Integration tests with live API
@@ -139,24 +142,24 @@
 
 ### AI Models Setup
 
-- [ ] Configure Google AI models
-  - [ ] Set up embedding-004 for vector search
-  - [ ] Set up gemini-1.5-flash for real-time analysis
-- [ ] Implement Vercel AI SDK
-  - [ ] Configure SDK with Google AI credentials
-  - [ ] Set up JSON response parsing
-  - [ ] Create type-safe response interfaces
+- [x] Configure Google AI models
+  - [x] Set up embedding-004 for vector search
+  - [x] Set up gemini-1.5-flash for real-time analysis
+- [x] Implement Vercel AI SDK
+  - [x] Configure SDK with Google AI credentials
+  - [x] Set up JSON response parsing
+  - [x] Create type-safe response interfaces
 
 ### Signal Generation Pipeline
 
-- [ ] Implement chart image generation with TradingView Lightweight Charts
-- [ ] Create signal detection service (AI Agent #1)
-  - [ ] Generate chart images with technical indicators
-  - [ ] Query RAG system for relevant strategies
-  - [ ] Process market data with gemini-1.5-flash
-  - [ ] Parse and validate JSON responses
-  - [ ] Calculate signal confidence scores
-  - [ ] Generate risk assessment
+- [x] Implement chart image generation with TradingView Lightweight Charts
+- [x] Create signal detection service (AI Agent #1)
+  - [x] Generate chart images with technical indicators
+  - [x] Query RAG system for relevant strategies
+  - [x] Process market data with gemini-1.5-flash
+  - [x] Parse and validate JSON responses
+  - [x] Calculate signal confidence scores
+  - [x] Generate risk assessment
 
 ### Dynamic Confirmation System
 

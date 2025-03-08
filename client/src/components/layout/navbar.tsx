@@ -14,8 +14,6 @@ const navigation = [
   { name: "Features", href: "/features" },
   { name: "Pricing", href: "/pricing" },
   { name: "Contact", href: "/contact" },
-  { name: "Docs", href: "/docs" },
-  { name: "Blog", href: "/blog" },
 ];
 
 export function Navbar() {
