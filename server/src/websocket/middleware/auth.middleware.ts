@@ -1,10 +1,10 @@
 import { WebSocket } from "ws";
 import { IncomingMessage } from "http";
-import { Clerk } from "@clerk/backend";
+import { createClerkClient } from "@clerk/backend";
 import { createLogger } from "../../utils/logger";
 import { parse } from "url";
 
-const clerk = Clerk({ secretKey: process.env.CLERK_SECRET_KEY });
+const clerk = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY });
 const logger = createLogger("websocket-auth");
 
 export interface AuthenticatedWebSocket extends WebSocket {

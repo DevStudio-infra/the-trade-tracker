@@ -1,61 +1,43 @@
 import { Request, Response, NextFunction } from "express";
-import { Clerk } from "@clerk/backend";
+import { createClerkClient } from "@clerk/backend";
 import { createLogger } from "../utils/logger";
 
-if (!process.env.CLERK_SECRET_KEY) {
-  throw new Error("Missing CLERK_SECRET_KEY environment variable");
-}
-
-const clerk = Clerk({ secretKey: process.env.CLERK_SECRET_KEY });
+const clerk = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY! });
 const logger = createLogger("auth-middleware");
 
-export interface AuthenticatedRequest extends Request {
+interface AuthenticatedRequest extends Request {
   auth: {
     userId: string;
     sessionId: string;
-    session: any; // Clerk Session type
   };
 }
 
-export async function requireAuth(req: Request, res: Response, next: NextFunction) {
+export const authMiddleware = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const sessionToken = req.headers.authorization?.split(" ")[1];
     const clientToken = req.headers["x-clerk-client-token"] as string;
 
-    if (!sessionToken) {
-      logger.warn("No session token provided");
-      return res.status(401).json({ error: "Unauthorized" });
+    if (!sessionToken || !clientToken) {
+      return res.status(401).json({ error: "Unauthorized - Missing tokens" });
     }
 
     const session = await clerk.sessions.verifySession(sessionToken, clientToken);
 
     if (!session) {
-      logger.warn("Invalid session token");
-      return res.status(401).json({ error: "Unauthorized" });
+      return res.status(401).json({ error: "Invalid session" });
     }
 
-    // Add auth data to request
     (req as AuthenticatedRequest).auth = {
       userId: session.userId,
       sessionId: session.id,
-      session,
     };
-
-    logger.info({
-      message: "User authenticated",
-      userId: session.userId,
-      sessionId: session.id,
-    });
 
     next();
   } catch (error) {
-    logger.error({
-      message: "Authentication error",
-      error: error instanceof Error ? error.message : "Unknown error",
-    });
-    return res.status(401).json({ error: "Unauthorized" });
+    console.error("Auth error:", error);
+    return res.status(500).json({ error: "Internal server error" });
   }
-}
+};
 
 // Rate limiting middleware based on user ID
 export function rateLimit(maxRequests: number, windowMs: number) {
