@@ -119,26 +119,85 @@ Example Risk Calculation Flow:
 
 - The knowledge DB is stored in **Supabase with PGVector** for vector search.
 
-- It contains:
-
-  - Strategy definitions
-  - Chart patterns
+- It contains pre-defined trading knowledge:
+  - Trading strategies and patterns
   - Risk management rules
   - Market condition descriptions
+  - Entry/exit rules
+  - Confirmation criteria
 
-Example Snippet:
+Example Strategy in RAG:
 
 ```json
 {
-  "EMA Pullback": {
-    "rules": "Price must pull back to 20 EMA in an uptrend.",
-    "confirmation_tf": "Higher TF must confirm uptrend."
+  "name": "EMA Pullback Strategy",
+  "description": "Momentum strategy using EMA pullbacks",
+  "rules": {
+    "entry": "Enter long when price pulls back to 20 EMA in uptrend",
+    "exit": "Exit when price breaks below 20 EMA or target reached",
+    "filters": ["Uptrend on higher timeframe", "RSI above 40"],
+    "timeframes": ["1H", "4H"]
   },
-  "Mean Reversion": {
-    "rules": "Price far from moving average, wait for engulfing candle.",
-    "confirmation_tf": "No confirmation needed."
+  "risk_management": {
+    "stop_loss": "Below recent swing low",
+    "take_profit": "2:1 minimum risk-reward",
+    "position_size": "Based on ATR"
   }
 }
+```
+
+### Bot Creation Flow
+
+1. **User Creates Bot Instance**:
+
+   - User selects trading pair (e.g., "EURUSD")
+   - Chooses timeframe (e.g., "1H")
+   - **Selects strategy** from available pre-defined strategies
+   - Sets risk parameters
+   - Configures optional filters
+
+2. **Signal Detection with RAG**:
+
+   - AI receives:
+     - Chart image + market data
+     - Selected strategy parameters
+     - User's risk settings
+   - RAG system enhances analysis by finding relevant knowledge
+   - Generates signals according to selected strategy rules
+
+3. **Final Analysis Example**:
+
+```json
+{
+  "context": {
+    "pair": "EURUSD",
+    "timeframe": "1H",
+    "strategy": "EMA Pullback Strategy"
+  },
+  "analysis": {
+    "market_condition": "Uptrend with pullback to EMA",
+    "strategy_rules_met": true,
+    "filters_passed": ["Uptrend confirmed on 4H", "RSI at 45"]
+  },
+  "signal": {
+    "type": "BUY",
+    "entry": 1.05,
+    "stop_loss": 1.047,
+    "take_profit": 1.056,
+    "confidence": 85
+  },
+  "reasoning": "Price pulling back to 20 EMA in confirmed uptrend. Higher timeframe trend aligned. Risk-reward ratio 2:1."
+}
+```
+
+4. **Dynamic Prompt Engineering**:
+
+```
+Base Prompt: "Analyze this chart for trading opportunities..."
++ Market Context: "Current market conditions and price action..."
++ Selected Strategy: "Using EMA Pullback Strategy rules..."
++ Risk Parameters: "User's configured risk settings..."
+= Final Prompt: "Analyze this chart for EMA pullback entries in uptrend, following the strategy's rules with user's risk parameters..."
 ```
 
 ---

@@ -1,138 +1,155 @@
-import { models, AI_CONFIG } from "../../../config/ai.config";
-import { prisma } from "../../../lib/prisma";
-import { generateChartImage } from "../../../utils/chart.utils";
-import { supabase } from "../../../lib/supabase";
-import { redis } from "../../../lib/redis";
-import { CandleData, SignalRequest, SignalResponse } from "./types";
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import { SignalRequest, SignalResponse } from "../../../types/ai.types";
+import { ChartGenerator } from "../chart-generator.service";
 
 export class SignalDetectionService {
-  private readonly model = models.analysis;
+  private genAI: GoogleGenerativeAI;
+  private model: any;
+  private chartGenerator: ChartGenerator;
+
+  constructor() {
+    this.genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY!);
+    this.model = this.genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    this.chartGenerator = new ChartGenerator();
+  }
 
   async detectSignal(request: SignalRequest): Promise<SignalResponse> {
     try {
-      // 1. Fetch candle data from Redis
-      const candles = await this.fetchCandleData(request.pair, request.timeframe);
+      console.log("Starting signal detection...");
 
-      // 2. Generate chart image
-      const chartImage = await generateChartImage(candles, request.strategies);
+      // Convert chart image to base64 for the prompt
+      const base64Image = request.chartImage.toString("base64");
+      console.log(`Image size: ${request.chartImage.length} bytes`);
+      console.log(`Base64 image size: ${base64Image.length} characters`);
 
-      // 3. Upload chart to Supabase storage
-      const { data: imageData, error: uploadError } = await supabase.storage
-        .from("charts")
-        .upload(`signals/${Date.now()}.png`, chartImage);
+      // Create prompt for the AI
+      const prompt = this.createPrompt(request);
 
-      if (uploadError) throw new Error("Failed to upload chart image");
-
-      // 4. Prepare prompt with chart data and strategies
-      const prompt = this.preparePrompt(candles, request.strategies);
-
-      // 5. Get AI analysis
-      const result = await this.model.generateContent(prompt);
-      const response = await result.response;
-      const analysis = JSON.parse(response.text());
-
-      // 6. Create signal record in database
-      const signal = await prisma.signal.create({
-        data: {
-          userId: request.userId,
-          pair: request.pair,
-          timeframe: request.timeframe,
-          signalType: analysis.signal,
-          confidence: analysis.confidence,
-          strategy: analysis.strategy,
-          stopLoss: analysis.risk_assessment.stop_loss,
-          takeProfit: analysis.risk_assessment.take_profit,
-          riskPercentScore: this.calculateRiskScore(analysis),
-          chartImageUrl: imageData.path,
-          status: "PENDING_CONFIRMATION",
-        },
-      });
-
-      // 7. Create AI evaluation record
-      await prisma.aIEvaluation.create({
-        data: {
-          signalId: signal.id,
-          evaluationType: "Initial_Analysis",
-          chartImageUrl: imageData.path,
-          promptUsed: prompt,
-          llmResponse: analysis,
-          metadata: {
-            model_version: AI_CONFIG.models.analysis.name,
-            chart_timeframe: request.timeframe,
-            indicators_used: request.strategies,
-            processing_time_ms: Date.now() - request.timestamp,
+      // Get response from AI
+      console.log("Sending request to AI model...");
+      const result = await this.model.generateContent({
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                inlineData: {
+                  mimeType: "image/png",
+                  data: base64Image,
+                },
+              },
+              { text: prompt },
+            ],
           },
+        ],
+        generationConfig: {
+          temperature: 0.7,
+          topP: 0.8,
+          topK: 40,
         },
       });
 
-      // 8. Return formatted response
+      console.log("Received response from AI model");
+      const response = result.response;
+      const analysisText = response.text();
+      console.log("Raw AI response:", analysisText);
+
+      // Parse the AI response
+      return this.parseAIResponse(analysisText, request.pair);
+    } catch (error) {
+      console.error("Signal detection failed:", error);
+      if (error instanceof Error) {
+        console.error("Error details:", error.message);
+        console.error("Error stack:", error.stack);
+      }
+      throw new Error("Failed to detect trading signal");
+    }
+  }
+
+  private createPrompt(request: SignalRequest): string {
+    return `
+You are an expert trading signal detector. Analyze this chart for ${request.pair} on the ${request.timeframe} timeframe.
+
+Available Strategies:
+
+1. EMA Pullback Strategy:
+   - Entry Rules:
+     * Price must be in an established trend (determined by EMA20 direction)
+     * Price pulls back to the EMA20 (touches or comes very close)
+     * RSI should not be extremely overbought (>70) for buys or oversold (<30) for sells
+   - Exit Rules:
+     * Stop loss: Below the recent swing low for buys, above swing high for sells
+     * Take profit: At least 2:1 risk-reward ratio
+
+2. Mean Reversion Strategy:
+   - Entry Rules:
+     * Price deviates significantly from EMA20 (at least 1% away)
+     * RSI shows overbought (>70) for sells or oversold (<30) for buys
+     * Price shows signs of reversal (such as rejection candles)
+   - Exit Rules:
+     * Stop loss: Beyond the extreme point of the deviation
+     * Take profit: When price returns to EMA20
+
+The chart shows price action with EMA20 (blue line) and RSI (orange line in bottom panel). RSI overbought level is 70 and oversold level is 30 (shown as horizontal lines in RSI panel).
+
+Please analyze:
+1. Current market condition and trend
+2. Price's position relative to EMA20
+3. RSI conditions and signals
+4. Potential trade setup based on the strategies above
+5. If a trade is identified:
+   - Specify entry price (current price)
+   - Calculate stop loss based on strategy rules
+   - Calculate take profit based on strategy rules
+   - Assign confidence score (0-100) based on how well setup matches rules
+   - Calculate risk assessment score (0-100) based on:
+     * Clean price action (no choppy movements)
+     * Clear trend direction
+     * RSI alignment
+     * Risk-reward ratio
+
+Provide your analysis in this JSON format:
+{
+    "signal": "BUY|SELL|NO_SIGNAL",
+    "confidence": number,
+    "strategy": "EMA_Pullback|Mean_Reversion",
+    "stop_loss": number,
+    "take_profit": number,
+    "risk_percent_score": number,
+    "analysis": {
+        "market_condition": "detailed description of current market conditions",
+        "strategy_rules_met": boolean,
+        "filters_passed": ["list of specific rules that were met"]
+    }
+}
+
+Analyze the chart image provided and give me your assessment.
+`;
+  }
+
+  private parseAIResponse(response: string, pair: string): SignalResponse {
+    try {
+      // Extract JSON from response
+      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error("No valid JSON found in AI response");
+      }
+
+      const parsed = JSON.parse(jsonMatch[0]);
+
       return {
-        signal_id: signal.id,
-        pair: request.pair,
-        signal_type: analysis.signal,
-        confidence: analysis.confidence,
-        strategy: analysis.strategy,
-        stop_loss: analysis.risk_assessment.stop_loss,
-        take_profit: analysis.risk_assessment.take_profit,
-        risk_percent_score: this.calculateRiskScore(analysis),
-        chart_image_url: imageData.path,
-        analysis: {
-          market_condition: analysis.analysis.market_condition,
-          key_levels: analysis.analysis.key_levels,
-          indicators: analysis.analysis.indicators,
-        },
+        pair,
+        signal: parsed.signal,
+        confidence: parsed.confidence,
+        strategy: parsed.strategy,
+        stop_loss: parsed.stop_loss,
+        take_profit: parsed.take_profit,
+        risk_percent_score: parsed.risk_percent_score,
+        analysis: parsed.analysis,
       };
     } catch (error) {
-      console.error("Signal detection error:", error);
-      throw new Error("Failed to generate trading signal");
+      console.error("Failed to parse AI response:", error);
+      throw new Error("Failed to parse signal detection response");
     }
-  }
-
-  private async fetchCandleData(pair: string, timeframe: string): Promise<CandleData[]> {
-    const cacheKey = `pair:${pair}:tf:${timeframe}:candles`;
-    const cachedData = await redis.get(cacheKey);
-
-    if (!cachedData) {
-      throw new Error("Candle data not found in cache");
-    }
-
-    return JSON.parse(cachedData);
-  }
-
-  private preparePrompt(candles: CandleData[], strategies: string[]): string {
-    const candleData = candles.map((c) => ({
-      timestamp: c.timestamp,
-      open: c.open,
-      high: c.high,
-      low: c.low,
-      close: c.close,
-      volume: c.volume,
-    }));
-
-    return JSON.stringify({
-      candles: candleData,
-      strategies: strategies,
-      request: "Analyze the provided candle data using the specified strategies and generate a trading signal if a valid setup is found.",
-    });
-  }
-
-  private calculateRiskScore(analysis: any): number {
-    const confidenceWeight = 0.4;
-    const riskRewardWeight = 0.3;
-    const marketConditionWeight = 0.3;
-
-    const confidenceScore = analysis.confidence;
-    const riskRewardScore = Math.min(analysis.risk_assessment.risk_reward_ratio * 20, 100);
-
-    let marketConditionScore = 0;
-    if (analysis.analysis.market_condition.toLowerCase().includes("strong")) {
-      marketConditionScore = 100;
-    } else if (analysis.analysis.market_condition.toLowerCase().includes("moderate")) {
-      marketConditionScore = 70;
-    } else {
-      marketConditionScore = 40;
-    }
-
-    return Math.round(confidenceScore * confidenceWeight + riskRewardScore * riskRewardWeight + marketConditionScore * marketConditionWeight);
   }
 }

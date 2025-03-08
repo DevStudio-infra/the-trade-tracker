@@ -20,11 +20,11 @@ export function RecentTrades() {
               <div key={trade.id} className="flex items-center justify-between p-4 rounded-lg border">
                 <div className="space-y-1">
                   <p className="font-medium">{trade.pair}</p>
-                  <p className="text-sm text-muted-foreground">{format(new Date(trade.closed_at), "MMM d, HH:mm")}</p>
+                  <p className="text-sm text-muted-foreground">{format(new Date(trade.created_at), "MMM d, HH:mm")}</p>
                 </div>
                 <div className="text-right space-y-1">
-                  <p className={`font-medium ${trade.profit_loss >= 0 ? "text-green-500" : "text-red-500"}`}>
-                    {trade.profit_loss >= 0 ? "+" : ""}${formatNumber(Math.abs(trade.profit_loss))}
+                  <p className={`font-medium ${trade.pnl >= 0 ? "text-green-500" : "text-red-500"}`}>
+                    {trade.pnl >= 0 ? "+" : ""}${formatNumber(Math.abs(trade.pnl))}
                   </p>
                   <p className="text-sm text-muted-foreground">
                     {trade.strategy_used} ({trade.confidence_score}%)

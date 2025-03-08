@@ -4,11 +4,13 @@ import * as React from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { Menu } from "lucide-react";
-import { SignedIn, SignedOut } from "@clerk/nextjs";
+import { SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { SignInDialog } from "@/components/auth/sign-in-dialog";
+import { ModeToggle } from "@/components/mode-toggle";
+import { NotificationsList } from "@/components/notifications/notifications-list";
 
 const navigation = [
   { name: "Features", href: "/features" },
@@ -55,6 +57,9 @@ export function Navbar() {
                 </Button>
               </SignInDialog>
             </SignedOut>
+            <NotificationsList notifications={[]} />
+            <ModeToggle />
+            <UserButton afterSignOutUrl="/" />
           </div>
 
           {/* Mobile Navigation */}
@@ -86,6 +91,9 @@ export function Navbar() {
                       <Button variant="outline">Sign In</Button>
                     </SignInDialog>
                   </SignedOut>
+                  <NotificationsList notifications={[]} />
+                  <ModeToggle />
+                  <UserButton afterSignOutUrl="/" />
                 </div>
               </SheetContent>
             </Sheet>

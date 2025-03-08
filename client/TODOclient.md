@@ -38,25 +38,25 @@
 
 ### Subscription & Credits
 
-- [ ] Add subscription management interface
-  - [ ] Plan selection and upgrade
-  - [ ] Payment history
-  - [ ] Credit balance display
-- [ ] Implement AI credits display and management
-  - [ ] Credits usage tracking
-  - [ ] Purchase additional credits
-  - [ ] Credit usage alerts
+- [x] Add subscription management interface
+  - [x] Plan selection and upgrade
+  - [x] Payment history
+  - [x] Credit balance display
+- [x] Implement AI credits display and management
+  - [x] Credits usage tracking
+  - [x] Purchase additional credits
+  - [x] Credit usage alerts
 
 ### Notifications & Alerts
 
-- [ ] Create signal notification system
-  - [ ] Real-time trade alerts
-  - [ ] Strategy updates
-  - [ ] Performance notifications
-- [ ] Implement in-app messaging
+- [x] Create signal notification system
+  - [x] Real-time trade alerts
+  - [x] Strategy updates
+  - [x] Performance notifications
+- [x] Implement in-app messaging
+  - [x] System announcements
   - [ ] User-to-user messaging
   - [ ] Support chat
-  - [ ] System announcements
 
 ### User Experience Enhancements
 
@@ -64,65 +64,66 @@
   - [ ] Interactive chart features
   - [ ] Technical indicators
   - [ ] Customizable timeframes
-- [ ] Implement dark mode toggle
-- [ ] Add accessibility features
-  - [ ] Keyboard navigation
-  - [ ] Screen reader support
-  - [ ] High contrast mode
+- [x] Implement dark mode toggle
+- [x] Add accessibility features
+  - [x] Keyboard navigation
+  - [x] Screen reader support
+  - [x] High contrast mode
+- [x] Fix Switch component visibility in light/dark modes
 
 ### State Management Setup
 
-- [ ] Configure Zustand Stores
+- [x] Configure Zustand Stores
 
-  - [ ] Trading Store
-    - [ ] Position management
-    - [ ] Order tracking
-    - [ ] Watchlist state
-  - [ ] Signals Store
-    - [ ] Active signals
-    - [ ] Signal history
-    - [ ] Chart configurations
-  - [ ] User Store
-    - [ ] Credits management
-    - [ ] Preferences
-    - [ ] Theme settings
-  - [ ] WebSocket Store
-    - [ ] Connection state
-    - [ ] Real-time data handling
-    - [ ] Reconnection logic
+  - [x] Trading Store
+    - [x] Position management
+    - [x] Order tracking
+    - [x] Watchlist state
+  - [x] Signals Store
+    - [x] Active signals
+    - [x] Signal history
+    - [x] Chart configurations
+  - [x] User Store
+    - [x] Credits management
+    - [x] Preferences
+    - [x] Theme settings
+  - [x] WebSocket Store
+    - [x] Connection state
+    - [x] Real-time data handling
+    - [x] Reconnection logic
 
 - [ ] Set up TanStack Query Infrastructure
 
-  - [ ] Configure QueryClient with trading-optimized settings
-    - [ ] Set up retry logic for failed requests
-    - [ ] Configure cache time for different data types
-    - [ ] Set up automatic background refetching
-    - [ ] Implement error handling policies
-  - [ ] Create base query hooks
-    - [ ] Price data streaming (1s updates)
-    - [ ] Trade history with infinite loading
-    - [ ] Signal feed with real-time updates
-    - [ ] Credit balance monitoring
-  - [ ] Implement mutation hooks
-    - [ ] Trade execution with optimistic updates
-    - [ ] Signal generation with loading states
-    - [ ] Credit purchase with immediate UI updates
-  - [ ] Set up prefetching strategies
-    - [ ] Prefetch next page of trade history
-    - [ ] Preload related symbols data
-    - [ ] Cache popular trading pairs
-  - [ ] Implement query invalidation rules
-    - [ ] After trade execution
-    - [ ] After credit purchase
-    - [ ] On WebSocket updates
-  - [ ] Add real-time synchronization
-    - [ ] WebSocket integration
-    - [ ] Polling fallback configuration
-    - [ ] Optimistic update patterns
-  - [ ] Set up devtools and monitoring
-    - [ ] TanStack Query devtools
-    - [ ] Performance monitoring
-    - [ ] Cache hit rate tracking
+  - [x] Configure QueryClient with trading-optimized settings
+    - [x] Set up retry logic for failed requests
+    - [x] Configure cache time for different data types
+    - [x] Set up automatic background refetching
+    - [x] Implement error handling policies
+  - [x] Create base query hooks
+    - [x] Price data streaming (1s updates)
+    - [x] Trade history with infinite loading
+    - [x] Signal feed with real-time updates
+    - [x] Credit balance monitoring
+  - [x] Implement mutation hooks
+    - [x] Trade execution with optimistic updates
+    - [x] Signal generation with loading states
+    - [x] Credit purchase with immediate UI updates
+  - [x] Set up prefetching strategies
+    - [x] Prefetch next page of trade history
+    - [x] Preload related symbols data
+    - [x] Cache popular trading pairs
+  - [x] Implement query invalidation rules
+    - [x] After trade execution
+    - [x] After credit purchase
+    - [x] On WebSocket updates
+  - [x] Add real-time synchronization
+    - [x] WebSocket integration
+    - [x] Polling fallback configuration
+    - [x] Optimistic update patterns
+  - [x] Set up devtools and monitoring
+    - [x] TanStack Query devtools
+    - [x] Performance monitoring
+    - [x] Cache hit rate tracking
 
 - [ ] Implement Store Integration
   - [ ] Connect WebSocket store with Trading store

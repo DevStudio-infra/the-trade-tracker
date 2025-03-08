@@ -4,6 +4,8 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { ClerkThemeProvider } from "@/components/clerk-theme-provider";
 import { Navbar } from "@/components/layout/navbar";
 import { QueryProvider } from "@/providers/query-provider";
+import { NotificationsProvider } from "@/providers/notifications-provider";
+import { Toaster } from "@/components/ui/toaster";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -32,8 +34,11 @@ export default function RootLayout({
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           <ClerkThemeProvider>
             <QueryProvider>
-              <Navbar />
-              <main className="pt-16">{children}</main>
+              <NotificationsProvider>
+                <Navbar />
+                <main className="pt-16">{children}</main>
+                <Toaster />
+              </NotificationsProvider>
             </QueryProvider>
           </ClerkThemeProvider>
         </ThemeProvider>

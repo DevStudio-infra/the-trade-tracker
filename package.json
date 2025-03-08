@@ -1,0 +1,10 @@
+{
+  "dependencies": {
+    "@clerk/backend": "^1.25.1",
+    "@clerk/clerk-sdk-node": "^5.1.6",
+    "@prisma/client": "^6.4.1"
+  },
+  "devDependencies": {
+    "prisma": "^6.4.1"
+  }
+}

@@ -4,40 +4,10 @@ import { PerformanceMetrics } from "@/components/dashboard/performance-metrics";
 import { RecentTrades } from "@/components/dashboard/recent-trades";
 import { ActiveSignals } from "@/components/dashboard/active-signals";
 import { AccountOverview } from "@/components/dashboard/account-overview";
-import { FloatingDock } from "@/components/ui/floating-dock";
-import { IconChartBar, IconUsers, IconSettings, IconBell, IconHome } from "@tabler/icons-react";
 import { DatePickerWithRange } from "@/components/ui/date-range-picker";
 import { mockStats } from "@/lib/mock-data";
 import { formatNumber } from "@/lib/utils";
 import { cn } from "@/lib/utils";
-
-const navigationItems = [
-  {
-    title: "Home",
-    icon: <IconHome className="h-full w-full text-neutral-300" />,
-    href: "/dashboard",
-  },
-  {
-    title: "Analytics",
-    icon: <IconChartBar className="h-full w-full text-neutral-300" />,
-    href: "/analytics",
-  },
-  {
-    title: "Reports",
-    icon: <IconUsers className="h-full w-full text-neutral-300" />,
-    href: "/reports",
-  },
-  {
-    title: "Notifications",
-    icon: <IconBell className="h-full w-full text-neutral-300" />,
-    href: "/notifications",
-  },
-  {
-    title: "Settings",
-    icon: <IconSettings className="h-full w-full text-neutral-300" />,
-    href: "/settings",
-  },
-];
 
 const gradients = {
   revenue: "from-blue-500/5 to-blue-600/10",
@@ -119,9 +89,6 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
-
-      {/* Floating Dock Navigation */}
-      <FloatingDock items={navigationItems} />
     </>
   );
 }

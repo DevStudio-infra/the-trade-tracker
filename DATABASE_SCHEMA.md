@@ -103,26 +103,50 @@ Example of credentials JSONB structure:
 ## Trades
 
 - **id**: UUID (Primary Key)
-- **user_id**: UUID (Foreign Key -> Users.id)
+- **user_id**: String (Foreign Key -> Users.id)
+- **bot_instance_id**: UUID (Foreign Key -> BotInstances.id)
+- **signal_id**: UUID (Foreign Key -> Signals.id)
 - **pair**: String
 - **entry_price**: Decimal
 - **exit_price**: Decimal
 - **quantity**: Decimal
 - **profit_loss**: Decimal
+- **risk_percentage**: Decimal
+- **risk_reward_ratio**: Decimal
 - **created_at**: Timestamp
 - **closed_at**: Timestamp
-- **strategy_used**: String
-- **confidence_score**: Integer
+- **metadata**: JSONB
+
+Example of metadata JSONB:
+
+```json
+{
+  "bot_strategy": "EMA Pullback Strategy",
+  "entry_reason": "Price pulled back to 20 EMA in uptrend",
+  "exit_reason": "Take profit hit",
+  "market_conditions": {
+    "trend": "uptrend",
+    "volatility": "medium",
+    "key_levels_respected": true
+  },
+  "strategy_rules_followed": true,
+  "performance_metrics": {
+    "max_drawdown": 0.5,
+    "time_in_trade": 14400,
+    "spread_cost": 0.00012
+  }
+}
+```
 
 ## Signals
 
 - **id**: UUID (Primary Key)
+- **bot_instance_id**: UUID (Foreign Key -> BotInstances.id)
 - **user_id**: String (Foreign Key -> Users.id)
 - **pair**: String
 - **timeframe**: String
 - **signal_type**: Enum (Buy, Sell, No Signal)
 - **confidence**: Integer
-- **strategy**: String
 - **stop_loss**: Decimal
 - **take_profit**: Decimal
 - **risk_percent_score**: Integer
@@ -132,10 +156,28 @@ Example of credentials JSONB structure:
 - **executed_at**: Timestamp
 - **trade_id**: UUID (Foreign Key -> Trades.id, nullable)
 
+Example of signal JSONB:
+
+```json
+{
+  "analysis": {
+    "market_condition": "Uptrend with pullback to EMA",
+    "strategy_rules_met": true,
+    "filters_passed": ["Uptrend confirmed on 4H", "RSI at 45"]
+  },
+  "execution_details": {
+    "entry_reason": "Price pulled back to 20 EMA in uptrend",
+    "risk_reward_ratio": 2.1,
+    "position_size": 0.1
+  }
+}
+```
+
 ## AI_Evaluations
 
 - **id**: UUID (Primary Key)
 - **signal_id**: UUID (Foreign Key -> Signals.id)
+- **bot_instance_id**: UUID (Foreign Key -> BotInstances.id)
 - **evaluation_type**: Enum (Initial_Analysis, Confirmation)
 - **chart_image_url**: String (Supabase Storage URL)
 - **prompt_used**: Text
@@ -149,19 +191,24 @@ Example of llm_response JSONB:
 {
   "analysis": {
     "market_condition": "Uptrend with strong momentum",
-    "key_levels": [1.234, 1.236],
+    "strategy_compliance": {
+      "rules_checked": ["EMA pullback", "RSI conditions", "Higher timeframe trend"],
+      "rules_passed": ["EMA pullback", "Higher timeframe trend"],
+      "rules_failed": ["RSI conditions"]
+    },
     "indicators": {
-      "ema": "Price above 20 EMA",
-      "rsi": "65 - Not overbought"
+      "ema": "Price pulling back to 20 EMA",
+      "rsi": "72 - Overbought condition"
     }
   },
-  "reasoning": "Price showing strong momentum with key support at 1.2340",
-  "confidence_score": 85,
-  "recommended_action": "BUY",
+  "reasoning": "While price is showing valid EMA pullback and higher timeframe trend is aligned, RSI indicates overbought conditions. Waiting for RSI to cool off.",
+  "confidence_score": 65,
+  "recommended_action": "WAIT",
   "risk_assessment": {
-    "stop_loss": 1.232,
-    "take_profit": 1.24,
-    "risk_reward_ratio": 2.5
+    "potential_entry": 1.234,
+    "potential_stop": 1.232,
+    "potential_target": 1.238,
+    "risk_reward_ratio": 2.0
   }
 }
 ```
@@ -172,7 +219,8 @@ Example of metadata JSONB:
 {
   "model_version": "gemini-1.5-flash",
   "chart_timeframe": "4H",
-  "indicators_used": ["EMA", "RSI", "Support/Resistance"],
+  "bot_strategy": "EMA Pullback Strategy",
+  "indicators_used": ["EMA(20)", "RSI(14)"],
   "processing_time_ms": 450
 }
 ```
@@ -237,8 +285,55 @@ Example of metadata JSONB:
 - **id**: UUID (Primary Key)
 - **name**: String (Unique)
 - **description**: Text
-- **rules**: Text
-- **confirmation_tf**: String
+- **rules**: JSONB
+- **timeframes**: String[]
+- **risk_parameters**: JSONB
+- **is_active**: Boolean
+- **created_at**: Timestamp
+
+Example of rules JSONB:
+
+```json
+{
+  "entry": {
+    "conditions": ["Price pulls back to 20 EMA", "RSI below 70"],
+    "filters": ["Uptrend on higher timeframe"]
+  },
+  "exit": {
+    "take_profit": "2:1 risk-reward ratio",
+    "stop_loss": "Below recent swing low"
+  },
+  "indicators": {
+    "ema": 20,
+    "rsi": 14
+  }
+}
+```
+
+## BotInstances
+
+- **id**: UUID (Primary Key)
+- **user_id**: String (Foreign Key -> Users.id)
+- **strategy_id**: UUID (Foreign Key -> Strategies.id)
+- **pair**: String
+- **timeframe**: String
+- **risk_settings**: JSONB
+- **is_active**: Boolean
+- **created_at**: Timestamp
+- **updated_at**: Timestamp
+
+Example of risk_settings JSONB:
+
+```json
+{
+  "max_risk_per_trade": 2,
+  "position_size_type": "fixed_risk",
+  "additional_filters": {
+    "minimum_rr": 2,
+    "maximum_spread": 3
+  }
+}
+```
 
 ## RAG_Embeddings
 
@@ -246,6 +341,18 @@ Example of metadata JSONB:
 - **strategy_id**: UUID (Foreign Key -> Strategies.id)
 - **embedding**: Vector
 - **created_at**: Timestamp
+- **metadata**: JSONB
+
+Example of metadata JSONB:
+
+```json
+{
+  "embedding_version": "004",
+  "strategy_type": "trend_following",
+  "market_conditions": ["uptrend", "ranging"],
+  "typical_timeframes": ["1H", "4H"]
+}
+```
 
 ## Leaderboard
 
