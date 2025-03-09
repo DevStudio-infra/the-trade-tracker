@@ -52,8 +52,8 @@ router.patch("/connections/:connectionId", validateAuth, async (req, res) => {
     const { isActive, isDemo } = req.body;
 
     const connection = await brokerService.updateConnection(userId, connectionId, {
-      isActive,
-      isDemo,
+      is_active: isActive,
+      is_demo: isDemo,
     });
 
     res.json(connection);

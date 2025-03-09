@@ -10,14 +10,14 @@ export class StripeService {
     try {
       const user = await prisma.user.findUnique({
         where: { id: userId },
-        select: { subscriptionPlan: true },
+        select: { subscription_plan: true },
       });
 
       if (!user) {
         throw new Error("User not found");
       }
 
-      if (user.subscriptionPlan === "Pro") {
+      if (user.subscription_plan === "Pro") {
         throw new Error("User already has a Pro subscription");
       }
 
@@ -54,14 +54,14 @@ export class StripeService {
     try {
       const user = await prisma.user.findUnique({
         where: { id: userId },
-        select: { subscriptionPlan: true },
+        select: { subscription_plan: true },
       });
 
       if (!user) {
         throw new Error("User not found");
       }
 
-      const isPro = user.subscriptionPlan === "Pro";
+      const isPro = user.subscription_plan === "Pro";
       const key = packageType as keyof typeof CREDIT_PACKAGES;
       let priceId = (isPro ? "PRO_CREDIT_SMALL" : "CREDIT_SMALL") as keyof typeof STRIPE_IDS.PRICES;
 
@@ -111,7 +111,7 @@ export class StripeService {
       await prisma.user.update({
         where: { id: userId },
         data: {
-          subscriptionPlan: "Pro",
+          subscription_plan: "Pro",
           credits: {
             increment: SUBSCRIPTION_PLANS.PRO.credits,
           },

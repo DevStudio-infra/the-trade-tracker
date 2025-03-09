@@ -31,10 +31,13 @@ export class ConfirmationService {
       const analysis = JSON.parse(response.text());
 
       // 6. Update signal status in database based on confirmation
-      await prisma.signal.update({
+      const signal = await prisma.signal.update({
         where: { id: request.signalId },
         data: {
           status: analysis.confirmed ? "CONFIRMED" : "REJECTED",
+        },
+        select: {
+          botInstanceId: true,
         },
       });
 
@@ -42,7 +45,8 @@ export class ConfirmationService {
       await prisma.aIEvaluation.create({
         data: {
           signalId: request.signalId,
-          evaluationType: "Confirmation",
+          botInstanceId: signal.botInstanceId,
+          evalType: "Confirmation",
           chartImageUrl: imageData.path,
           promptUsed: prompt,
           llmResponse: analysis,

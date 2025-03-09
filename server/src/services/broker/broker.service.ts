@@ -8,11 +8,15 @@ const logger = createLogger("broker-service");
 
 interface BrokerConnection {
   id: string;
-  brokerName: string;
-  isActive: boolean;
-  isDemo: boolean;
-  lastUsed: Date | null;
+  broker_name: string;
+  is_active: boolean;
+  is_demo: boolean;
+  last_used: Date | null;
   metadata: any;
+  user_id: string;
+  credentials: any;
+  created_at: Date;
+  updated_at: Date;
 }
 
 interface BrokerCredentials {
@@ -40,10 +44,10 @@ export class BrokerService {
       const encryptedCredentials = encryptCredentials(credentials);
       const connection = await prisma.brokerCredential.create({
         data: {
-          userId,
-          brokerName,
+          user_id: userId,
+          broker_name: brokerName,
           credentials: encryptedCredentials,
-          isDemo: credentials.isDemo || false,
+          is_demo: credentials.isDemo || false,
           metadata: {
             createdAt: new Date(),
             settings: {
@@ -54,11 +58,15 @@ export class BrokerService {
         },
         select: {
           id: true,
-          brokerName: true,
-          isActive: true,
-          isDemo: true,
-          lastUsed: true,
+          broker_name: true,
+          is_active: true,
+          is_demo: true,
+          last_used: true,
           metadata: true,
+          user_id: true,
+          credentials: true,
+          created_at: true,
+          updated_at: true,
         },
       });
 
@@ -84,14 +92,18 @@ export class BrokerService {
   async getConnections(userId: string): Promise<BrokerConnection[]> {
     try {
       const connections = await prisma.brokerCredential.findMany({
-        where: { userId },
+        where: { user_id: userId },
         select: {
           id: true,
-          brokerName: true,
-          isActive: true,
-          isDemo: true,
-          lastUsed: true,
+          broker_name: true,
+          is_active: true,
+          is_demo: true,
+          last_used: true,
           metadata: true,
+          user_id: true,
+          credentials: true,
+          created_at: true,
+          updated_at: true,
         },
       });
 
@@ -106,21 +118,25 @@ export class BrokerService {
     }
   }
 
-  async updateConnection(userId: string, connectionId: string, updates: Partial<{ isActive: boolean; isDemo: boolean }>): Promise<BrokerConnection> {
+  async updateConnection(userId: string, connectionId: string, updates: Partial<{ is_active: boolean; is_demo: boolean }>): Promise<BrokerConnection> {
     try {
       const connection = await prisma.brokerCredential.update({
         where: {
           id: connectionId,
-          userId, // Ensure the connection belongs to the user
+          user_id: userId, // Ensure the connection belongs to the user
         },
         data: updates,
         select: {
           id: true,
-          brokerName: true,
-          isActive: true,
-          isDemo: true,
-          lastUsed: true,
+          broker_name: true,
+          is_active: true,
+          is_demo: true,
+          last_used: true,
           metadata: true,
+          user_id: true,
+          credentials: true,
+          created_at: true,
+          updated_at: true,
         },
       });
 
@@ -148,7 +164,7 @@ export class BrokerService {
       await prisma.brokerCredential.delete({
         where: {
           id: connectionId,
-          userId, // Ensure the connection belongs to the user
+          user_id: userId, // Ensure the connection belongs to the user
         },
       });
 
@@ -178,7 +194,7 @@ export class BrokerService {
         throw new Error("Connection not found");
       }
 
-      const BrokerAPI = this.brokerAPIs.get(connection.brokerName);
+      const BrokerAPI = this.brokerAPIs.get(connection.broker_name);
       if (!BrokerAPI) {
         throw new Error("Unsupported broker");
       }
@@ -190,7 +206,7 @@ export class BrokerService {
       // Update last used timestamp
       await prisma.brokerCredential.update({
         where: { id: connectionId },
-        data: { lastUsed: new Date() },
+        data: { last_used: new Date() },
       });
 
       return true;

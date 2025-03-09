@@ -16,11 +16,11 @@ router.post("/analyze", validateAuth, validateCredits, (req, res) => {
 
   signalDetection
     .detectSignal({
-      userId,
       pair,
       timeframe,
       strategies,
-      timestamp: Date.now(),
+      chartImage: Buffer.from([]),
+      candles: [],
     })
     .then((signal) => {
       res.json({
@@ -53,6 +53,13 @@ router.post("/confirm/:signalId", validateAuth, validateCredits, (req, res) => {
         userId,
         status: "PENDING_CONFIRMATION",
       },
+      include: {
+        botInstance: {
+          select: {
+            strategyId: true,
+          },
+        },
+      },
     })
     .then((signal) => {
       if (!signal) {
@@ -69,7 +76,7 @@ router.post("/confirm/:signalId", validateAuth, validateCredits, (req, res) => {
         originalSignal: {
           type: signal.signalType as "BUY" | "SELL",
           confidence: signal.confidence,
-          strategy: signal.strategy,
+          strategy: signal.botInstance.strategyId,
           stopLoss: signal.stopLoss.toNumber(),
           takeProfit: signal.takeProfit.toNumber(),
         },
@@ -113,9 +120,14 @@ router.get("/history", validateAuth, (req, res) => {
       include: {
         evaluations: {
           select: {
-            evaluationType: true,
+            evalType: true,
             chartImageUrl: true,
             llmResponse: true,
+          },
+        },
+        botInstance: {
+          select: {
+            strategyId: true,
           },
         },
       },

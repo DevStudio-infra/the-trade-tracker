@@ -1,6 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { initializeStorageBuckets } from "../config/supabase.config";
-import { initializeRedis } from "../config/redis.config";
+import { initRedis } from "../config/redis.config";
 
 const prisma = new PrismaClient();
 
@@ -14,7 +14,7 @@ async function main() {
 
     // Initialize Redis
     console.log("Initializing Redis...");
-    await initializeRedis();
+    await initRedis();
 
     // Test database connection
     console.log("Testing database connection...");
@@ -29,14 +29,34 @@ async function main() {
         {
           name: "EMA Pullback",
           description: "A trend-following strategy that looks for pullbacks to the EMA in the direction of the trend.",
-          rules: "Price must pull back to 20 EMA in an uptrend. The higher timeframe must confirm the trend direction.",
-          confirmationTf: "4h",
+          rules: {
+            description: "Price must pull back to 20 EMA in an uptrend. The higher timeframe must confirm the trend direction.",
+            timeframes: ["15m", "1h", "4h"],
+            indicators: ["EMA20", "RSI"],
+          },
+          timeframes: ["15m", "1h", "4h"],
+          riskParameters: {
+            stopLossMultiplier: 1.5,
+            takeProfitMultiplier: 2.0,
+            maxRiskPercent: 2,
+          },
+          isActive: true,
         },
         {
           name: "Mean Reversion",
           description: "A strategy that identifies overbought/oversold conditions and trades the reversion to the mean.",
-          rules: "Price must be significantly deviated from the moving average. Wait for a reversal candlestick pattern.",
-          confirmationTf: "1h",
+          rules: {
+            description: "Price must be significantly deviated from the moving average. Wait for a reversal candlestick pattern.",
+            timeframes: ["15m", "1h", "4h"],
+            indicators: ["EMA20", "RSI"],
+          },
+          timeframes: ["15m", "1h", "4h"],
+          riskParameters: {
+            stopLossMultiplier: 1.2,
+            takeProfitMultiplier: 1.8,
+            maxRiskPercent: 1.5,
+          },
+          isActive: true,
         },
       ],
     });
