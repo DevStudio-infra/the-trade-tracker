@@ -8,6 +8,7 @@ import userRouter from "./routes/v1/user.routes";
 import subscriptionRouter from "./routes/v1/subscription.routes";
 import brokerRouter from "./routes/v1/broker.routes";
 import strategyRouter from "./routes/v1/strategies.routes";
+import webhookRouter from "./routes/v1/webhook.routes";
 
 const logger = createLogger("app");
 
@@ -48,6 +49,7 @@ app.use("/v1/user", userRouter);
 app.use("/v1/subscription", subscriptionRouter);
 app.use("/v1/broker", brokerRouter);
 app.use("/v1/strategies", strategyRouter);
+app.use("/v1/webhooks", webhookRouter);
 
 // Error handling
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
