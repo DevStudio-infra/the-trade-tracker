@@ -73,6 +73,7 @@ model Signal {
     botInstance   BotInstance    @relation(fields: [botInstanceId], references: [id])
     trade         Trade?         @relation(fields: [tradeId], references: [id])
     evaluations   AIEvaluation[]
+    User          User           @relation(fields: [userId], references: [id])
 
     @@map("signals")
 }
@@ -94,6 +95,7 @@ model Trade {
     metadata      Json
     botInstance   BotInstance @relation(fields: [botInstanceId], references: [id])
     signal        Signal?     @relation()
+    User          User        @relation(fields: [userId], references: [id])
 
     @@map("trades")
 }
@@ -112,4 +114,49 @@ model AIEvaluation {
     botInstance   BotInstance @relation(fields: [botInstanceId], references: [id])
 
     @@map("ai_evaluations")
+}
+
+model User {
+    id                   String             @id
+    subscription_plan    String             @default("Free")
+    credits              Int                @default(0)
+    onboarding_step      Int                @default(1)
+    onboarding_completed Boolean            @default(false)
+    is_active            Boolean            @default(true)
+    created_at           DateTime           @default(now())
+    updated_at           DateTime           @updatedAt
+    last_login           DateTime?
+    onboarding           UserOnboarding?
+    trades               Trade[]
+    signals              Signal[]
+    broker_credentials   BrokerCredential[]
+
+    @@map("users")
+}
+
+model UserOnboarding {
+    id         String   @id @default(uuid())
+    user_id    String   @unique
+    step       Int      @default(1)
+    status     String   @default("Not_Started")
+    data       Json
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+    user       User     @relation(fields: [user_id], references: [id])
+
+    @@map("user_onboarding")
+}
+
+model BrokerCredential {
+    id          String   @id @default(uuid())
+    user_id     String
+    broker_name String
+    credentials Json
+    is_demo     Boolean  @default(false)
+    metadata    Json
+    created_at  DateTime @default(now())
+    updated_at  DateTime @updatedAt
+    user        User     @relation(fields: [user_id], references: [id])
+
+    @@map("broker_credentials")
 }

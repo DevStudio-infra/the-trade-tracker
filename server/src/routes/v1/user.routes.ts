@@ -18,17 +18,17 @@ router.get("/profile", validateAuth, userRateLimit, async (req, res) => {
       where: { id: userId },
       select: {
         id: true,
-        subscriptionPlan: true,
+        subscription_plan: true,
         credits: true,
-        onboardingCompleted: true,
-        onboardingStep: true,
-        isActive: true,
-        createdAt: true,
+        onboarding_completed: true,
+        onboarding_step: true,
+        is_active: true,
+        created_at: true,
         _count: {
           select: {
             trades: true,
             signals: true,
-            brokerCredentials: true,
+            broker_credentials: true,
           },
         },
       },
@@ -61,25 +61,25 @@ router.get("/profile", validateAuth, userRateLimit, async (req, res) => {
 router.patch("/profile", validateAuth, userRateLimit, async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).auth;
-    const { onboardingStep, onboardingCompleted } = req.body;
+    const { onboarding_step, onboarding_completed } = req.body;
 
     const user = await prisma.user.update({
       where: { id: userId },
       data: {
-        onboardingStep: onboardingStep !== undefined ? onboardingStep : undefined,
-        onboardingCompleted: onboardingCompleted !== undefined ? onboardingCompleted : undefined,
+        onboarding_step: onboarding_step !== undefined ? onboarding_step : undefined,
+        onboarding_completed: onboarding_completed !== undefined ? onboarding_completed : undefined,
       },
       select: {
         id: true,
-        onboardingStep: true,
-        onboardingCompleted: true,
+        onboarding_step: true,
+        onboarding_completed: true,
       },
     });
 
     logger.info({
       message: "User profile updated",
       userId,
-      updates: { onboardingStep, onboardingCompleted },
+      updates: { onboarding_step, onboarding_completed },
     });
 
     res.json(user);
@@ -108,8 +108,8 @@ router.post("/onboarding/:step", validateAuth, userRateLimit, async (req, res) =
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
-        onboardingStep: true,
-        onboardingCompleted: true,
+        onboarding_step: true,
+        onboarding_completed: true,
       },
     });
 
@@ -118,10 +118,10 @@ router.post("/onboarding/:step", validateAuth, userRateLimit, async (req, res) =
     }
 
     // Validate step sequence
-    if (step !== user.onboardingStep) {
+    if (step !== user.onboarding_step) {
       return res.status(400).json({
         error: "Invalid step sequence",
-        currentStep: user.onboardingStep,
+        currentStep: user.onboarding_step,
       });
     }
 
@@ -130,10 +130,25 @@ router.post("/onboarding/:step", validateAuth, userRateLimit, async (req, res) =
       case 1: // Profile completion
         await prisma.user.update({
           where: { id: userId },
-          data: {
-            name: data.name,
-            tradingExperience: data.tradingExperience,
-            onboardingStep: 2,
+          data: { onboarding_step: 2 },
+        });
+        await prisma.userOnboarding.upsert({
+          where: { user_id: userId },
+          create: {
+            user_id: userId,
+            step: 2,
+            status: "In_Progress",
+            data: {
+              name: data.name,
+              trading_experience: data.trading_experience,
+            },
+          },
+          update: {
+            step: 2,
+            data: {
+              name: data.name,
+              trading_experience: data.trading_experience,
+            },
           },
         });
         break;
@@ -141,41 +156,56 @@ router.post("/onboarding/:step", validateAuth, userRateLimit, async (req, res) =
       case 2: // Trading preferences
         await prisma.user.update({
           where: { id: userId },
-          data: {
-            preferredMarkets: data.preferredMarkets,
-            riskTolerance: data.riskTolerance,
-            onboardingStep: 3,
+          data: { onboarding_step: 3 },
+        });
+        await prisma.userOnboarding.upsert({
+          where: { user_id: userId },
+          create: {
+            user_id: userId,
+            step: 3,
+            status: "In_Progress",
+            data: {
+              preferred_markets: data.preferred_markets,
+              risk_tolerance: data.risk_tolerance,
+            },
+          },
+          update: {
+            step: 3,
+            data: {
+              preferred_markets: data.preferred_markets,
+              risk_tolerance: data.risk_tolerance,
+            },
           },
         });
         break;
 
       case 3: // Optional broker connection
-        if (data.skipBroker) {
+        if (data.skip_broker) {
           // Skip broker connection
           await prisma.user.update({
             where: { id: userId },
-            data: { onboardingStep: 4 },
+            data: { onboarding_step: 4 },
           });
         } else {
           // Connect broker
           await prisma.brokerCredential.create({
             data: {
-              userId,
-              brokerName: data.brokerName,
+              user_id: userId,
+              broker_name: data.broker_name,
               credentials: data.credentials,
-              isDemo: data.isDemo || false,
+              is_demo: data.is_demo || false,
               metadata: {
-                createdAt: new Date(),
+                created_at: new Date(),
                 settings: {
                   leverage: "1:30",
-                  defaultLotSize: "0.01",
+                  default_lot_size: "0.01",
                 },
               },
             },
           });
           await prisma.user.update({
             where: { id: userId },
-            data: { onboardingStep: 4 },
+            data: { onboarding_step: 4 },
           });
         }
         break;
@@ -184,8 +214,8 @@ router.post("/onboarding/:step", validateAuth, userRateLimit, async (req, res) =
         await prisma.user.update({
           where: { id: userId },
           data: {
-            onboardingCompleted: true,
-            onboardingStep: 4,
+            onboarding_completed: true,
+            onboarding_step: 4,
           },
         });
         break;
@@ -195,13 +225,13 @@ router.post("/onboarding/:step", validateAuth, userRateLimit, async (req, res) =
       message: "Onboarding step completed",
       userId,
       step,
-      data: step === 3 ? { skipBroker: data.skipBroker } : data,
+      data: step === 3 ? { skip_broker: data.skip_broker } : data,
     });
 
     res.json({
       success: true,
       step,
-      isComplete: step === 4,
+      is_complete: step === 4,
     });
   } catch (error) {
     logger.error({
