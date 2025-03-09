@@ -1,54 +1,58 @@
 "use client";
 
+import * as React from "react";
 import { Check, ChevronsUpDown } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { cn } from "@/lib/utils";
-import { useState } from "react";
-
-const tradingPairs = [
-  { value: "EURUSD", label: "EUR/USD", price: "1.0842" },
-  { value: "GBPUSD", label: "GBP/USD", price: "1.2634" },
-  { value: "USDJPY", label: "USD/JPY", price: "151.42" },
-  { value: "AUDUSD", label: "AUD/USD", price: "0.6524" },
-  { value: "USDCAD", label: "USD/CAD", price: "1.3564" },
-  { value: "NZDUSD", label: "NZD/USD", price: "0.6098" },
-];
+import { brokers } from "@/lib/constants/trading";
 
 interface TradingPairSelectProps {
   value: string;
   onValueChange: (value: string) => void;
+  brokerId?: string;
 }
 
-export function TradingPairSelect({ value, onValueChange }: TradingPairSelectProps) {
-  const [open, setOpen] = useState(false);
+export function TradingPairSelect({
+  value,
+  onValueChange,
+  brokerId = "binance", // Default to Binance
+}: TradingPairSelectProps) {
+  const [open, setOpen] = React.useState(false);
+
+  const broker = brokers.find((b) => b.id === brokerId) || brokers[0];
+  const pairs = broker.pairs;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" role="combobox" aria-expanded={open} className="w-[200px] justify-between">
-          {value ? tradingPairs.find((pair) => pair.value === value)?.label : "Select pair..."}
+        <Button variant="outline" role="combobox" aria-expanded={open} className="w-full justify-between bg-white/40 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800">
+          {value ? pairs.find((pair) => pair.symbol === value)?.displayName : "Select pair..."}
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[200px] p-0">
+      <PopoverContent className="w-full p-0 bg-white/40 dark:bg-slate-900/40 backdrop-blur-sm border-slate-200 dark:border-slate-800">
         <Command>
-          <CommandInput placeholder="Search pair..." />
-          <CommandEmpty>No trading pair found.</CommandEmpty>
+          <CommandInput
+            placeholder="Search trading pair..."
+            className="border-none bg-transparent text-slate-900 dark:text-white placeholder:text-slate-500 dark:placeholder:text-slate-400"
+          />
+          <CommandEmpty className="py-2 text-center text-sm text-slate-500 dark:text-slate-400">No trading pair found.</CommandEmpty>
           <CommandGroup>
-            {tradingPairs.map((pair) => (
+            {pairs.map((pair) => (
               <CommandItem
-                key={pair.value}
-                value={pair.value}
+                key={pair.symbol}
+                value={pair.symbol}
                 onSelect={(currentValue) => {
                   onValueChange(currentValue);
                   setOpen(false);
-                }}>
-                <Check className={cn("mr-2 h-4 w-4", value === pair.value ? "opacity-100" : "opacity-0")} />
+                }}
+                className="cursor-pointer">
+                <Check className={cn("mr-2 h-4 w-4", value === pair.symbol ? "opacity-100" : "opacity-0")} />
                 <div className="flex justify-between w-full">
-                  <span>{pair.label}</span>
-                  <span className="text-muted-foreground">{pair.price}</span>
+                  <span className="font-medium text-slate-900 dark:text-white">{pair.displayName}</span>
+                  <span className="text-sm text-slate-500 dark:text-slate-400">{pair.base}</span>
                 </div>
               </CommandItem>
             ))}

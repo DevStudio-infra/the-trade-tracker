@@ -46,7 +46,7 @@ export function NotificationsList({ notifications }: NotificationsListProps) {
           )}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-80 bg-background border-border dark:bg-slate-950" align="end">
+      <DropdownMenuContent className="w-80 bg-white border-border dark:bg-slate-950" align="end">
         <DropdownMenuLabel className="flex items-center justify-between bg-background dark:bg-slate-950">
           <span>Notifications</span>
           {unreadCount > 0 && (

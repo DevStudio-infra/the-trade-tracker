@@ -21,10 +21,10 @@ export function OrderForm({ pair }: OrderFormProps) {
   return (
     <div className="space-y-6">
       <div className="flex flex-col space-y-1.5">
-        <h2 className="text-lg font-semibold">Place Order</h2>
-        <div className="text-sm text-muted-foreground">
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Place Order</h2>
+        <div className="text-sm text-slate-500 dark:text-slate-400">
           <span>Current Price: </span>
-          <span className="font-medium">1.0842</span>
+          <span className="font-medium text-slate-900 dark:text-white">1.0842</span>
         </div>
       </div>
 
@@ -36,10 +36,16 @@ export function OrderForm({ pair }: OrderFormProps) {
       </Tabs>
 
       <div className="grid grid-cols-2 gap-2">
-        <Button variant={side === "buy" ? "default" : "outline"} onClick={() => setSide("buy")} className="w-full font-semibold">
+        <Button
+          variant={side === "buy" ? "default" : "outline"}
+          onClick={() => setSide("buy")}
+          className={`w-full font-semibold ${side === "buy" ? "bg-blue-500 hover:bg-blue-600 text-white" : "border-slate-200 dark:border-slate-800"}`}>
           Buy
         </Button>
-        <Button variant={side === "sell" ? "destructive" : "outline"} onClick={() => setSide("sell")} className="w-full font-semibold">
+        <Button
+          variant={side === "sell" ? "destructive" : "outline"}
+          onClick={() => setSide("sell")}
+          className={`w-full font-semibold ${side === "sell" ? "bg-red-500 hover:bg-red-600 text-white" : "border-slate-200 dark:border-slate-800"}`}>
           Sell
         </Button>
       </div>
@@ -47,33 +53,51 @@ export function OrderForm({ pair }: OrderFormProps) {
       <div className="space-y-4">
         {orderType === "limit" && (
           <div className="space-y-2">
-            <Label>Limit Price</Label>
-            <Input type="number" placeholder="Enter limit price" value={limitPrice} onChange={(e) => setLimitPrice(e.target.value)} className="font-mono" />
+            <Label className="text-slate-900 dark:text-white">Limit Price</Label>
+            <Input
+              type="number"
+              placeholder="Enter limit price"
+              value={limitPrice}
+              onChange={(e) => setLimitPrice(e.target.value)}
+              className="font-mono border-slate-200 dark:border-slate-800"
+            />
           </div>
         )}
 
         <div className="space-y-2">
-          <Label>Amount</Label>
-          <Input type="number" placeholder="Enter amount" value={amount} onChange={(e) => setAmount(e.target.value)} className="font-mono" />
+          <Label className="text-slate-900 dark:text-white">Amount</Label>
+          <Input type="number" placeholder="Enter amount" value={amount} onChange={(e) => setAmount(e.target.value)} className="font-mono border-slate-200 dark:border-slate-800" />
         </div>
 
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
-            <Label>Stop Loss</Label>
-            <Input type="number" placeholder="Optional" value={stopLoss} onChange={(e) => setStopLoss(e.target.value)} className="font-mono" />
+            <Label className="text-slate-900 dark:text-white">Stop Loss</Label>
+            <Input
+              type="number"
+              placeholder="Optional"
+              value={stopLoss}
+              onChange={(e) => setStopLoss(e.target.value)}
+              className="font-mono border-slate-200 dark:border-slate-800"
+            />
           </div>
           <div className="space-y-2">
-            <Label>Take Profit</Label>
-            <Input type="number" placeholder="Optional" value={takeProfit} onChange={(e) => setTakeProfit(e.target.value)} className="font-mono" />
+            <Label className="text-slate-900 dark:text-white">Take Profit</Label>
+            <Input
+              type="number"
+              placeholder="Optional"
+              value={takeProfit}
+              onChange={(e) => setTakeProfit(e.target.value)}
+              className="font-mono border-slate-200 dark:border-slate-800"
+            />
           </div>
         </div>
 
         <div className="pt-4 space-y-3">
-          <Button className="w-full font-semibold" size="lg">
+          <Button className={`w-full font-semibold ${side === "buy" ? "bg-blue-500 hover:bg-blue-600" : "bg-red-500 hover:bg-red-600"} text-white`} size="lg">
             {side === "buy" ? "Buy" : "Sell"} {pair}
           </Button>
-          <div className="text-sm text-center text-muted-foreground">
-            Available Balance: <span className="font-mono">$25,000.00</span>
+          <div className="text-sm text-center text-slate-500 dark:text-slate-400">
+            Available Balance: <span className="font-mono text-slate-900 dark:text-white">$25,000.00</span>
           </div>
         </div>
       </div>

@@ -4,9 +4,9 @@ import { FloatingDock, navigationItems } from "@/components/ui/floating-dock";
 
 export default function ProtectedLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-background">
-      {/* Subtle blue gradient background */}
-      <div className="fixed inset-0 dark:bg-gradient-to-br dark:from-[#050E1A] dark:via-black dark:to-black light:bg-gradient-to-br light:from-slate-100 light:to-white pointer-events-none" />
+    <div className="min-h-screen bg-white dark:bg-slate-900">
+      {/* Subtle gradient background */}
+      <div className="fixed inset-0 bg-gradient-to-br from-blue-500/5 via-transparent to-transparent dark:from-blue-950/20 dark:via-slate-900 dark:to-slate-900 pointer-events-none" />
 
       {/* Main content */}
       <div className="relative">

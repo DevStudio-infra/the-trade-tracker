@@ -1,90 +1,47 @@
 "use client";
 
-import { createChart, ColorType, UTCTimestamp } from "lightweight-charts";
-import { useEffect, useRef } from "react";
-import { mockChartData } from "@/lib/mock-data";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { useState } from "react";
+
+const timeframes = ["1m", "5m", "15m", "1h", "4h", "1d", "1w"];
 
 interface TradingChartProps {
   pair: string;
 }
 
 export function TradingChart({ pair }: TradingChartProps) {
-  const chartContainerRef = useRef<HTMLDivElement>(null);
-  const chart = useRef<ReturnType<typeof createChart> | null>(null);
-
-  useEffect(() => {
-    if (!chartContainerRef.current) return;
-
-    chart.current = createChart(chartContainerRef.current, {
-      layout: {
-        background: { type: ColorType.Solid, color: "transparent" },
-        textColor: "rgba(255, 255, 255, 0.9)",
-      },
-      grid: {
-        vertLines: { color: "rgba(255, 255, 255, 0.1)" },
-        horzLines: { color: "rgba(255, 255, 255, 0.1)" },
-      },
-      rightPriceScale: {
-        borderColor: "rgba(255, 255, 255, 0.2)",
-      },
-      timeScale: {
-        borderColor: "rgba(255, 255, 255, 0.2)",
-        timeVisible: true,
-        secondsVisible: false,
-      },
-      crosshair: {
-        mode: 1,
-        vertLine: {
-          width: 1,
-          color: "rgba(255, 255, 255, 0.4)",
-          style: 3,
-        },
-        horzLine: {
-          width: 1,
-          color: "rgba(255, 255, 255, 0.4)",
-          style: 3,
-        },
-      },
-      handleScroll: {
-        vertTouchDrag: false,
-      },
-      width: chartContainerRef.current.clientWidth,
-      height: chartContainerRef.current.clientHeight,
-    });
-
-    // Create candlestick series
-    const candlestickSeries = chart.current.addCandlestickSeries();
-    candlestickSeries.setData(
-      mockChartData.candles.map((candle) => ({
-        ...candle,
-        time: candle.time as UTCTimestamp,
-      }))
-    );
-
-    const handleResize = () => {
-      if (chartContainerRef.current && chart.current) {
-        chart.current.applyOptions({
-          width: chartContainerRef.current.clientWidth,
-          height: chartContainerRef.current.clientHeight,
-        });
-      }
-    };
-
-    window.addEventListener("resize", handleResize);
-    handleResize();
-
-    return () => {
-      window.removeEventListener("resize", handleResize);
-      if (chart.current) {
-        chart.current.remove();
-      }
-    };
-  }, []);
+  const [selectedTimeframe, setSelectedTimeframe] = useState("1h");
 
   return (
-    <div className="w-full h-[60vh] min-h-[400px] relative">
-      <div ref={chartContainerRef} className="w-full h-full" />
-      <div className="absolute top-4 left-4 text-lg font-semibold bg-background/50 backdrop-blur-sm px-3 py-1 rounded-lg">{pair}</div>
+    <div className="p-4 space-y-4">
+      <div className="flex justify-between items-center">
+        <div className="space-y-1">
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Chart</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400">{pair}</p>
+        </div>
+        <div className="flex gap-2">
+          {timeframes.map((timeframe) => (
+            <Button
+              key={timeframe}
+              variant="ghost"
+              size="sm"
+              className={cn(
+                "font-medium",
+                selectedTimeframe === timeframe
+                  ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30"
+                  : "text-slate-900 dark:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
+              )}
+              onClick={() => setSelectedTimeframe(timeframe)}>
+              {timeframe}
+            </Button>
+          ))}
+        </div>
+      </div>
+      <div className="aspect-[16/9] w-full bg-slate-100 dark:bg-slate-800 rounded-lg flex items-center justify-center">
+        <div className="text-slate-500 dark:text-slate-400">Chart placeholder</div>
+      </div>
     </div>
   );
 }

@@ -1,12 +1,12 @@
 "use client";
 
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { ShoppingCart } from "lucide-react";
 import { useState } from "react";
-import { CreditCard } from "lucide-react";
 import type { UserSubscriptionPlan } from "@/types";
 import { creditConfig } from "@/config/credits";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Slider } from "@/components/ui/slider";
 import { useToast } from "@/components/ui/use-toast";
 import { useMutation } from "@tanstack/react-query";
 import { useCreditBalance } from "@/hooks/queries/use-credit-balance";
@@ -17,31 +17,37 @@ interface CreditPurchaseProps {
 }
 
 export function CreditPurchase({ userId, subscriptionPlan }: CreditPurchaseProps) {
-  const [amount, setAmount] = useState<number>(creditConfig.minPurchaseAmount);
+  const [creditAmount, setCreditAmount] = useState("100");
+  const [isPending, setIsPending] = useState(false);
   const { toast } = useToast();
   const { refetch } = useCreditBalance();
 
   // Calculate credits based on amount and subscription status
   const pricePerCredit = subscriptionPlan.isPaid ? creditConfig.rates.pro : creditConfig.rates.free;
-  const creditUnits = Math.floor(amount / pricePerCredit);
+  const totalPrice = Number(creditAmount) * pricePerCredit;
 
-  const { mutate: purchaseCredits, isPending } = useMutation({
+  const { mutate: purchaseCredits } = useMutation({
     mutationFn: async () => {
-      const response = await fetch(`/api/v1/credits/purchase`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userId,
-          creditUnits,
-          amount,
-        }),
-      });
+      setIsPending(true);
+      try {
+        const response = await fetch(`/api/v1/credits/purchase`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userId,
+            creditUnits: Number(creditAmount),
+            amount: totalPrice,
+          }),
+        });
 
-      if (!response.ok) {
-        throw new Error("Failed to purchase credits");
+        if (!response.ok) {
+          throw new Error("Failed to purchase credits");
+        }
+
+        return response.json();
+      } finally {
+        setIsPending(false);
       }
-
-      return response.json();
     },
     onSuccess: (data) => {
       // Redirect to Stripe checkout
@@ -60,62 +66,63 @@ export function CreditPurchase({ userId, subscriptionPlan }: CreditPurchaseProps
   });
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium">Purchase Credits</CardTitle>
-        <CreditCard className="h-4 w-4 text-muted-foreground" />
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="space-y-2">
-          <div className="flex justify-between text-sm">
-            <span>Amount to Pay</span>
-            <span className="font-mono font-medium">{amount.toFixed(2)}€</span>
+    <Card className="backdrop-blur-sm bg-white/40 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800">
+      <div className="p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Purchase Credits</h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Buy additional AI credits</p>
           </div>
-          <Slider
-            value={[amount]}
-            onValueChange={([value]) => setAmount(value)}
-            min={creditConfig.minPurchaseAmount}
-            max={creditConfig.maxPurchaseAmount}
-            step={1}
-            className="[&_[role=slider]]:h-4 [&_[role=slider]]:w-4"
-          />
-          <div className="flex justify-between text-sm text-muted-foreground">
-            <span>Credits to Receive</span>
-            <span className="font-mono">{creditUnits} credits</span>
+          <div className="p-2.5 bg-blue-500/10 dark:bg-blue-400/10 rounded-lg">
+            <ShoppingCart className="w-6 h-6 text-blue-500 dark:text-blue-400" />
           </div>
         </div>
 
-        <div className="space-y-2 rounded-md bg-muted p-2">
-          <div className="flex justify-between text-sm">
-            <span>Plan Type</span>
-            <span>{subscriptionPlan.isPaid ? "Pro Rate" : "Standard Rate"}</span>
+        <div className="space-y-4">
+          <div>
+            <label className="text-sm font-medium text-slate-900 dark:text-white mb-1.5 block">Amount of Credits</label>
+            <Input
+              type="number"
+              min="10"
+              step="10"
+              value={creditAmount}
+              onChange={(e) => setCreditAmount(e.target.value)}
+              className="bg-transparent border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white placeholder:text-slate-500 dark:placeholder:text-slate-400"
+            />
           </div>
-          <div className="flex justify-between text-sm text-muted-foreground">
-            <span>Price per Credit</span>
-            <span className="font-mono">{pricePerCredit.toFixed(3)}€</span>
-          </div>
-          {subscriptionPlan.isPaid && (
-            <div className="flex justify-between text-sm text-muted-foreground">
-              <span>Pro Discount Applied</span>
-              <span>✓</span>
-            </div>
-          )}
-        </div>
 
-        <Button className="w-full" onClick={() => purchaseCredits()} disabled={isPending}>
-          {isPending && (
-            <svg className="mr-2 h-4 w-4 animate-spin" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-              />
-            </svg>
-          )}
-          Pay {amount.toFixed(2)}€ for {creditUnits} Credits
-        </Button>
-      </CardContent>
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-slate-500 dark:text-slate-400">Price per credit:</span>
+            <span className="font-medium text-slate-900 dark:text-white">€{pricePerCredit.toFixed(2)}</span>
+          </div>
+
+          <div className="flex items-center justify-between font-medium">
+            <span className="text-slate-900 dark:text-white">Total Price:</span>
+            <span className="text-lg text-blue-500 dark:text-blue-400">€{totalPrice.toFixed(2)}</span>
+          </div>
+
+          <Button
+            className="w-full bg-blue-500 hover:bg-blue-600 text-white dark:bg-blue-600 dark:hover:bg-blue-700"
+            disabled={!userId || Number(creditAmount) < 10 || isPending}
+            onClick={() => purchaseCredits()}>
+            {isPending ? (
+              <>
+                <svg className="mr-2 h-4 w-4 animate-spin" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  />
+                </svg>
+                Processing...
+              </>
+            ) : (
+              "Purchase Credits"
+            )}
+          </Button>
+        </div>
+      </div>
     </Card>
   );
 }

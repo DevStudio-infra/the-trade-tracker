@@ -18,6 +18,11 @@ export function PerformanceMetrics() {
       tooltip: {
         mode: "index" as const,
         intersect: false,
+        backgroundColor: "rgb(255, 255, 255)",
+        titleColor: "rgb(15, 23, 42)",
+        bodyColor: "rgb(15, 23, 42)",
+        borderColor: "rgb(226, 232, 240)",
+        borderWidth: 1,
       },
     },
     scales: {
@@ -25,11 +30,17 @@ export function PerformanceMetrics() {
         grid: {
           display: false,
         },
+        ticks: {
+          color: "rgb(100, 116, 139)",
+        },
       },
       y: {
         beginAtZero: true,
         grid: {
-          color: "rgba(0, 0, 0, 0.1)",
+          color: "rgba(226, 232, 240, 0.1)",
+        },
+        ticks: {
+          color: "rgb(100, 116, 139)",
         },
       },
     },
@@ -41,8 +52,8 @@ export function PerformanceMetrics() {
       {
         label: "Equity Curve",
         data: mockPerformanceData.chart_data.equity_curve,
-        borderColor: "#22c55e",
-        backgroundColor: "rgba(34, 197, 94, 0.1)",
+        borderColor: "rgb(59, 130, 246)",
+        backgroundColor: "rgba(59, 130, 246, 0.1)",
         fill: true,
         tension: 0.4,
       },
@@ -50,30 +61,30 @@ export function PerformanceMetrics() {
   };
 
   return (
-    <Card>
+    <Card className="backdrop-blur-sm bg-white/40 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800">
       <CardHeader>
-        <CardTitle>Performance Metrics</CardTitle>
+        <CardTitle className="text-slate-900 dark:text-white">Performance Metrics</CardTitle>
       </CardHeader>
       <CardContent>
         <div className="grid gap-6 md:grid-cols-4">
           <div>
-            <p className="text-sm text-muted-foreground">Total Trades</p>
-            <p className="text-2xl font-bold">{formatNumber(mockPerformanceData.total_trades)}</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Total Trades</p>
+            <p className="text-2xl font-bold text-slate-900 dark:text-white">{formatNumber(mockPerformanceData.total_trades)}</p>
           </div>
           <div>
-            <p className="text-sm text-muted-foreground">Win Rate</p>
-            <p className="text-2xl font-bold">{mockPerformanceData.win_rate}%</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Win Rate</p>
+            <p className="text-2xl font-bold text-slate-900 dark:text-white">{mockPerformanceData.win_rate}%</p>
           </div>
           <div>
-            <p className="text-sm text-muted-foreground">Profit/Loss</p>
-            <p className={`text-2xl font-bold ${mockPerformanceData.profit_loss >= 0 ? "text-green-500" : "text-red-500"}`}>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Profit/Loss</p>
+            <p className={`text-2xl font-bold ${mockPerformanceData.profit_loss >= 0 ? "text-blue-500 dark:text-blue-400" : "text-red-500 dark:text-red-400"}`}>
               {mockPerformanceData.profit_loss >= 0 ? "+" : ""}
               {mockPerformanceData.profit_loss_percentage}%
             </p>
           </div>
           <div>
-            <p className="text-sm text-muted-foreground">Risk/Reward</p>
-            <p className="text-2xl font-bold">{mockPerformanceData.average_risk_reward.toFixed(2)}</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Risk/Reward</p>
+            <p className="text-2xl font-bold text-slate-900 dark:text-white">{mockPerformanceData.average_risk_reward.toFixed(2)}</p>
           </div>
         </div>
 
@@ -83,16 +94,16 @@ export function PerformanceMetrics() {
 
         <div className="grid gap-4 md:grid-cols-3 mt-6">
           <div>
-            <p className="text-sm text-muted-foreground">Largest Win</p>
-            <p className="text-lg font-medium text-green-500">+${formatNumber(mockPerformanceData.largest_win)}</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Largest Win</p>
+            <p className="text-lg font-medium text-blue-500 dark:text-blue-400">+${formatNumber(mockPerformanceData.largest_win)}</p>
           </div>
           <div>
-            <p className="text-sm text-muted-foreground">Largest Loss</p>
-            <p className="text-lg font-medium text-red-500">${formatNumber(mockPerformanceData.largest_loss)}</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Largest Loss</p>
+            <p className="text-lg font-medium text-red-500 dark:text-red-400">${formatNumber(mockPerformanceData.largest_loss)}</p>
           </div>
           <div>
-            <p className="text-sm text-muted-foreground">Sharpe Ratio</p>
-            <p className="text-lg font-medium">{mockPerformanceData.sharpe_ratio.toFixed(2)}</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Sharpe Ratio</p>
+            <p className="text-lg font-medium text-slate-900 dark:text-white">{mockPerformanceData.sharpe_ratio.toFixed(2)}</p>
           </div>
         </div>
       </CardContent>

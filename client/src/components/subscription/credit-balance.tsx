@@ -1,91 +1,52 @@
 "use client";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { CircularProgressbar, buildStyles } from "react-circular-progressbar";
-import "react-circular-progressbar/dist/styles.css";
-import { useQuery } from "@tanstack/react-query";
-
-interface CreditBalance {
-  credits: number;
-  subscription_plan: "free" | "pro";
-  next_renewal: string;
-}
-
-async function fetchCreditBalance(): Promise<CreditBalance> {
-  // TODO: Replace with actual API call
-  return {
-    credits: 42,
-    subscription_plan: "free",
-    next_renewal: "2024-04-15",
-  };
-}
+import { Card } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+import { Zap } from "lucide-react";
 
 export function CreditBalance() {
-  const { data, isLoading } = useQuery({
-    queryKey: ["credits", "balance"],
-    queryFn: fetchCreditBalance,
-  });
-
-  const maxCredits = data?.subscription_plan === "pro" ? 100 : 6;
-  const percentage = data ? (data.credits / maxCredits) * 100 : 0;
-  const isLowCredits = data?.credits && data.credits < maxCredits * 0.2;
-
-  if (isLoading) {
-    return (
-      <Card className="animate-pulse">
-        <CardHeader>
-          <CardTitle>AI Credits</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center space-x-6">
-            <div className="w-24 h-24 rounded-full bg-muted" />
-            <div className="flex-1 space-y-4">
-              <div className="h-4 bg-muted rounded w-3/4" />
-              <div className="h-4 bg-muted rounded w-1/2" />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
+  // Mock data - replace with real data from your backend
+  const credits = {
+    available: 42,
+    total: 100,
+    used: 58,
+    percentUsed: 58,
+  };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>AI Credits Balance</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="flex items-center space-x-6">
-          <div className="w-24 h-24">
-            <CircularProgressbar
-              value={percentage}
-              text={`${data?.credits}`}
-              styles={buildStyles({
-                textSize: "24px",
-                pathColor: isLowCredits ? "#ef4444" : "#22c55e",
-                textColor: "var(--foreground)",
-                trailColor: "var(--muted)",
-              })}
-            />
+    <Card className="backdrop-blur-sm bg-white/40 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800">
+      <div className="p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-white">AI Credits Balance</h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Monthly credits reset in 12 days</p>
           </div>
-          <div className="flex-1 space-y-4">
-            <div>
-              <p className="text-sm text-muted-foreground">Available Credits</p>
-              <p className="text-lg font-medium">
-                {data?.credits} / {maxCredits}
-              </p>
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Next Renewal</p>
-              <p className="text-sm">{data?.next_renewal ? new Date(data.next_renewal).toLocaleDateString() : "-"}</p>
-            </div>
-            <Button className="w-full" variant={isLowCredits ? "destructive" : "outline"}>
-              {isLowCredits ? "Buy Credits" : "Manage Credits"}
-            </Button>
+          <div className="p-2.5 bg-blue-500/10 dark:bg-blue-400/10 rounded-lg">
+            <Zap className="w-6 h-6 text-blue-500 dark:text-blue-400" />
           </div>
         </div>
-      </CardContent>
+
+        <div className="grid gap-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <div className="text-sm font-medium text-slate-500 dark:text-slate-400">Available Credits</div>
+              <div className="text-2xl font-bold text-slate-900 dark:text-white">{credits.available}</div>
+            </div>
+            <div>
+              <div className="text-sm font-medium text-slate-500 dark:text-slate-400">Used Credits</div>
+              <div className="text-2xl font-bold text-blue-500 dark:text-blue-400">{credits.used}</div>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex justify-between text-sm text-slate-500 dark:text-slate-400">
+              <span>Usage</span>
+              <span>{credits.percentUsed}%</span>
+            </div>
+            <Progress value={credits.percentUsed} className="bg-slate-100 dark:bg-slate-800" indicatorClassName="bg-blue-500 dark:bg-blue-400" />
+          </div>
+        </div>
+      </div>
     </Card>
   );
 }

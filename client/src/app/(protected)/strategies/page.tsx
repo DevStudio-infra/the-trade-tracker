@@ -16,7 +16,7 @@ const strategies = [
     signals: 245,
     winRate: "68%",
     icon: TrendingUp,
-    gradient: "from-blue-500/5 to-blue-600/10",
+    gradient: "from-blue-500/5 to-blue-500/10",
   },
   {
     id: "mean-reversion",
@@ -26,7 +26,7 @@ const strategies = [
     signals: 186,
     winRate: "64%",
     icon: ArrowRightLeft,
-    gradient: "from-blue-400/5 to-blue-500/10",
+    gradient: "from-blue-600/5 to-blue-600/10",
   },
   {
     id: "breakout",
@@ -36,24 +36,24 @@ const strategies = [
     signals: 156,
     winRate: "72%",
     icon: Zap,
-    gradient: "from-blue-500/5 to-blue-400/10",
+    gradient: "from-blue-700/5 to-blue-700/10",
   },
 ];
 
 export default function StrategiesPage() {
   return (
-    <div className="min-h-screen bg-background">
-      {/* Subtle blue gradient background */}
-      <div className="fixed inset-0 dark:bg-gradient-to-br dark:from-[#050E1A] dark:via-black dark:to-black light:bg-gradient-to-br light:from-slate-100 light:to-white pointer-events-none" />
+    <div className="min-h-screen bg-white dark:bg-slate-950">
+      {/* Subtle gradient background */}
+      <div className="fixed inset-0 bg-gradient-to-br from-blue-500/5 via-transparent to-transparent dark:from-blue-950/50 dark:via-slate-950 dark:to-slate-950 pointer-events-none" />
 
       {/* Main content */}
       <div className="relative p-6 space-y-6 max-w-[1600px] mx-auto">
         <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Trading Strategies</h1>
-            <p className="text-muted-foreground mt-1">Create and manage your automated trading strategies</p>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">Trading Strategies</h1>
+            <p className="text-slate-500 dark:text-slate-400 mt-1">Create and manage your automated trading strategies</p>
           </div>
-          <Button size="lg" className="shrink-0">
+          <Button size="lg" className="bg-blue-500 hover:bg-blue-600 text-white dark:bg-blue-600 dark:hover:bg-blue-700">
             <Lightbulb className="w-4 h-4 mr-2" />
             Create Strategy
           </Button>
@@ -62,8 +62,11 @@ export default function StrategiesPage() {
         {/* Search and filters */}
         <div className="flex items-center space-x-4">
           <div className="relative flex-1 max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input className="pl-9" placeholder="Search strategies..." />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500 dark:text-slate-400" />
+            <Input
+              className="pl-9 bg-white/40 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white placeholder:text-slate-500 dark:placeholder:text-slate-400"
+              placeholder="Search strategies..."
+            />
           </div>
         </div>
 
@@ -72,38 +75,38 @@ export default function StrategiesPage() {
           {strategies.map((strategy) => {
             const Icon = strategy.icon;
             return (
-              <Card key={strategy.id} className="relative overflow-hidden backdrop-blur-sm">
+              <Card key={strategy.id} className="relative overflow-hidden backdrop-blur-sm bg-white/40 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800">
                 {/* Gradient background */}
-                <div className={cn("absolute inset-0 bg-gradient-to-br opacity-80", strategy.gradient, "dark:opacity-40")} />
+                <div className={cn("absolute inset-0 bg-gradient-to-br opacity-80 dark:opacity-40", strategy.gradient)} />
 
                 {/* Content */}
                 <div className="relative p-6">
                   <div className="flex items-start justify-between mb-4">
-                    <div className="p-2.5 bg-primary/10 rounded-lg">
-                      <Icon className="w-6 h-6 text-primary" />
+                    <div className="p-2.5 bg-blue-500/10 dark:bg-blue-400/10 rounded-lg">
+                      <Icon className="w-6 h-6 text-blue-500 dark:text-blue-400" />
                     </div>
-                    <Badge variant="outline" className="font-medium text-sm">
+                    <Badge variant="outline" className="font-medium text-sm border-slate-200 dark:border-slate-800 text-blue-500 dark:text-blue-400">
                       {strategy.performance}
                     </Badge>
                   </div>
 
-                  <h3 className="text-xl font-semibold mb-2">{strategy.name}</h3>
-                  <p className="text-muted-foreground text-sm mb-6">{strategy.description}</p>
+                  <h3 className="text-xl font-semibold mb-2 text-slate-900 dark:text-white">{strategy.name}</h3>
+                  <p className="text-slate-500 dark:text-slate-400 text-sm mb-6">{strategy.description}</p>
 
                   <div className="grid grid-cols-2 gap-4 mb-6">
                     <div className="space-y-1">
-                      <div className="text-sm text-muted-foreground">Signals Generated</div>
-                      <div className="text-2xl font-semibold">{strategy.signals}</div>
+                      <div className="text-sm text-slate-500 dark:text-slate-400">Signals Generated</div>
+                      <div className="text-2xl font-semibold text-slate-900 dark:text-white">{strategy.signals}</div>
                     </div>
                     <div className="space-y-1">
-                      <div className="text-sm text-muted-foreground">Win Rate</div>
-                      <div className="text-2xl font-semibold">{strategy.winRate}</div>
+                      <div className="text-sm text-slate-500 dark:text-slate-400">Win Rate</div>
+                      <div className="text-2xl font-semibold text-blue-500 dark:text-blue-400">{strategy.winRate}</div>
                     </div>
                   </div>
 
                   <div className="flex gap-3">
-                    <Button className="flex-1">View Details</Button>
-                    <Button variant="outline" className="flex-1">
+                    <Button className="flex-1 bg-blue-500 hover:bg-blue-600 text-white dark:bg-blue-600 dark:hover:bg-blue-700">View Details</Button>
+                    <Button variant="outline" className="flex-1 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white hover:bg-slate-100 dark:hover:bg-slate-800">
                       Backtest
                     </Button>
                   </div>
