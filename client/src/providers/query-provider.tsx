@@ -2,6 +2,8 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
+import { AxiosError } from "axios";
+import React from "react";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -12,12 +14,12 @@ const queryClient = new QueryClient({
       refetchOnWindowFocus: true,
       refetchOnReconnect: true,
       refetchOnMount: true,
-      retry: (failureCount, error: any) => {
-        // Don't retry on 404s or authentication errors
-        if (error?.response?.status === 404 || error?.response?.status === 401) {
-          return false;
+      retry: (failureCount, error) => {
+        if (error instanceof AxiosError) {
+          if (error.response?.status === 404 || error.response?.status === 401) {
+            return false;
+          }
         }
-        // Retry 3 times for other errors
         return failureCount < 3;
       },
       // Trading specific defaults
@@ -46,7 +48,7 @@ const queryClient = new QueryClient({
     mutations: {
       // Global mutation defaults
       retry: 2,
-      onError: (error: any) => {
+      onError: (error) => {
         console.error("Mutation error:", error);
         // You can add global error handling here
       },
@@ -70,11 +72,27 @@ queryClient.setMutationDefaults(["credits"], {
   },
 });
 
-export function QueryProvider({ children }: { children: React.ReactNode }) {
+type QueryProviderProps = {
+  children: React.ReactNode;
+};
+
+export function QueryProvider({ children }: QueryProviderProps) {
+  const [queryClient] = React.useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            staleTime: 60 * 1000,
+            retry: false,
+          },
+        },
+      })
+  );
+
   return (
     <QueryClientProvider client={queryClient}>
       {children}
-      <ReactQueryDevtools initialIsOpen={false} position="bottom-right" />
+      <ReactQueryDevtools initialIsOpen={false} />
     </QueryClientProvider>
   );
 }

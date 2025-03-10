@@ -6,25 +6,13 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ArrowLeft, ArrowRight } from "lucide-react";
+import { OnboardingData } from "@/services/onboarding";
 
 interface OnboardingBrokerProps {
-  data: {
-    experience: string;
-    tradingStyle: string;
-    riskTolerance: string;
-    preferredMarkets: string[];
-    broker: BrokerConnection | null;
-  };
-  onChange: (data: Partial<OnboardingBrokerProps["data"]>) => void;
+  data: OnboardingData;
+  onChange: (data: Partial<OnboardingData>) => void;
   onNext: () => void;
   onBack: () => void;
-}
-
-interface BrokerConnection {
-  name: string;
-  apiKey: string;
-  apiSecret: string;
-  isDemo: boolean;
 }
 
 const brokers = [

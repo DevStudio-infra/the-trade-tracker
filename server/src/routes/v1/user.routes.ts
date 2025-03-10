@@ -242,4 +242,75 @@ router.post("/onboarding/:step", validateAuth, userRateLimit, async (req, res) =
   }
 });
 
+// Get user onboarding status
+router.get("/onboarding-status", validateAuth, async (req, res) => {
+  try {
+    const { userId } = (req as AuthenticatedRequest).auth;
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        onboarding_completed: true,
+        onboarding_step: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    res.json({
+      onboarding_completed: user.onboarding_completed,
+      current_step: user.onboarding_step,
+    });
+  } catch (error) {
+    logger.error({
+      message: "Error fetching onboarding status",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Update user onboarding status
+router.post("/onboarding", validateAuth, async (req, res) => {
+  try {
+    const { userId } = (req as AuthenticatedRequest).auth;
+    const { step, completed, data } = req.body;
+
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        onboarding_step: step,
+        onboarding_completed: completed,
+        onboarding: {
+          upsert: {
+            create: {
+              step,
+              status: completed ? "Completed" : "In_Progress",
+              data,
+            },
+            update: {
+              step,
+              status: completed ? "Completed" : "In_Progress",
+              data,
+            },
+          },
+        },
+      },
+    });
+
+    res.json({
+      onboarding_completed: user.onboarding_completed,
+      current_step: user.onboarding_step,
+    });
+  } catch (error) {
+    logger.error({
+      message: "Error updating onboarding status",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 export default router;

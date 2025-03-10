@@ -3,16 +3,11 @@
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ArrowLeft, ArrowRight } from "lucide-react";
+import { OnboardingData } from "@/services/onboarding";
 
 interface OnboardingExperienceProps {
-  data: {
-    experience: string;
-    tradingStyle: string;
-    riskTolerance: string;
-    preferredMarkets: string[];
-    broker: any;
-  };
-  onChange: (data: Partial<OnboardingExperienceProps["data"]>) => void;
+  data: OnboardingData;
+  onChange: (data: Partial<OnboardingData>) => void;
   onNext: () => void;
   onBack: () => void;
 }

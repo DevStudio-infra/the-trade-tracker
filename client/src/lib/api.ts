@@ -19,6 +19,23 @@ export interface UserProfile {
   };
 }
 
+export interface BrokerConnection {
+  id: string;
+  broker_name: string;
+  is_active: boolean;
+  is_demo: boolean;
+  last_used: Date | null;
+  metadata: Record<string, unknown>;
+  user_id: string;
+  credentials: {
+    apiKey: string;
+    apiSecret: string;
+    isDemo?: boolean;
+  };
+  created_at: Date;
+  updated_at: Date;
+}
+
 // Create authenticated API client
 export function useApi() {
   const { getToken } = useAuth();
@@ -67,7 +84,7 @@ export function useApi() {
         demo?: boolean;
       }
     ) => {
-      const { data } = await api.post("/v1/broker/connect", {
+      const { data } = await api.post<BrokerConnection>("/v1/broker/connect", {
         brokerName,
         credentials,
       });
@@ -75,7 +92,7 @@ export function useApi() {
     },
 
     getBrokerConnections: async () => {
-      const { data } = await api.get("/v1/broker/connections");
+      const { data } = await api.get<BrokerConnection[]>("/v1/broker/connections");
       return data;
     },
 

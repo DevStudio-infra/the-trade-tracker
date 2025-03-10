@@ -4,14 +4,13 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Check } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { OnboardingWelcome } from "./steps/welcome";
 import { OnboardingExperience } from "./steps/experience";
 import { OnboardingPreferences } from "./steps/preferences";
 import { OnboardingBroker } from "./steps/broker";
-import { onboardingService } from "@/services/onboarding";
+import { onboardingService, OnboardingData } from "@/services/onboarding";
 import { useToast } from "@/components/ui/use-toast";
 
 const steps = [
@@ -25,7 +24,7 @@ export function OnboardingSteps() {
   const router = useRouter();
   const { toast } = useToast();
   const [currentStep, setCurrentStep] = React.useState(1);
-  const [formData, setFormData] = React.useState({
+  const [formData, setFormData] = React.useState<OnboardingData>({
     experience: "",
     tradingStyle: "",
     riskTolerance: "",
@@ -49,7 +48,7 @@ export function OnboardingSteps() {
         });
         router.push("/dashboard");
       }
-    } catch (error) {
+    } catch {
       toast({
         title: "Error",
         description: "Failed to save your preferences. Please try again.",
@@ -65,7 +64,7 @@ export function OnboardingSteps() {
     }
   };
 
-  const updateFormData = (data: Partial<typeof formData>) => {
+  const updateFormData = (data: Partial<OnboardingData>) => {
     setFormData((prev) => ({ ...prev, ...data }));
   };
 
@@ -77,7 +76,7 @@ export function OnboardingSteps() {
         if (status.current_step > 1) {
           setCurrentStep(status.current_step);
         }
-      } catch (error) {
+      } catch {
         toast({
           title: "Error",
           description: "Failed to load your progress",
