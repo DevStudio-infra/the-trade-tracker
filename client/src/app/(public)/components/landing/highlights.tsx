@@ -1,3 +1,5 @@
+"use client";
+
 import { Brain, LineChart, Shield, Zap } from "lucide-react";
 
 const highlights = [
