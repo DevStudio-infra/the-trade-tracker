@@ -6,13 +6,17 @@ import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
 import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/components/ui/button";
 
-const AlertDialog = AlertDialogPrimitive.Root;
+interface AlertDialogProps extends React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Root> {
+  /** The content to display inside the alert dialog */
+  children: React.ReactNode;
+}
+
+const AlertDialog = ({ children, ...props }: AlertDialogProps) => <AlertDialogPrimitive.Root {...props}>{children}</AlertDialogPrimitive.Root>;
+AlertDialog.displayName = "AlertDialog";
 
 const AlertDialogTrigger = AlertDialogPrimitive.Trigger;
 
 const AlertDialogPortal = AlertDialogPrimitive.Portal;
-
-AlertDialogPortal.displayName = "AlertDialogPortal";
 
 const AlertDialogOverlay = React.forwardRef<React.ElementRef<typeof AlertDialogPrimitive.Overlay>, React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Overlay>>(
   ({ className, ...props }, ref) => (
@@ -38,6 +42,8 @@ const AlertDialogContent = React.forwardRef<React.ElementRef<typeof AlertDialogP
           "fixed left-1/2 top-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg md:w-full",
           className
         )}
+        role="alertdialog"
+        aria-modal="true"
         {...props}
       />
     </AlertDialogPortal>

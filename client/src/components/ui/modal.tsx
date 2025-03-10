@@ -1,7 +1,6 @@
 "use client";
 
 import { Dispatch, SetStateAction } from "react";
-// import { useRouter } from "next/router";
 import { Drawer } from "vaul";
 
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -18,10 +17,12 @@ interface ModalProps {
   preventDefaultClose?: boolean;
 }
 
-export function Modal({ children, className, showModal, setShowModal, onClose, desktopOnly, preventDefaultClose }: ModalProps) {
-  // const router = useRouter();
+interface CloseModalOptions {
+  dragged?: boolean;
+}
 
-  const closeModal = ({ dragged }: { dragged?: boolean } = {}) => {
+export function Modal({ children, className, showModal, setShowModal, onClose, desktopOnly, preventDefaultClose }: ModalProps) {
+  const closeModal = ({ dragged }: CloseModalOptions = {}) => {
     if (preventDefaultClose && !dragged) {
       return;
     }
@@ -31,12 +32,14 @@ export function Modal({ children, className, showModal, setShowModal, onClose, d
     if (setShowModal) {
       setShowModal(false);
     }
-    // else, this is intercepting route @modal
-    // else {
-    // router.back();
-    // }
   };
+
   const { isMobile } = useMediaQuery();
+
+  // If isMobile is undefined (during SSR), default to desktop view
+  if (typeof isMobile === "undefined") {
+    return null;
+  }
 
   if (isMobile && !desktopOnly) {
     return (
@@ -60,6 +63,7 @@ export function Modal({ children, className, showModal, setShowModal, onClose, d
       </Drawer.Root>
     );
   }
+
   return (
     <Dialog
       open={setShowModal ? showModal : true}
