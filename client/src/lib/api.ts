@@ -53,7 +53,7 @@ export function useApi() {
     },
 
     // Onboarding
-    submitOnboardingStep: async (step: number, data: any) => {
+    submitOnboardingStep: async (step: number, data: unknown) => {
       const response = await api.post(`/v1/user/onboarding/${step}`, data);
       return response.data;
     },
@@ -94,3 +94,10 @@ export function useApi() {
     },
   };
 }
+
+export const api = axios.create({
+  baseURL: BASE_URL,
+  headers: {
+    "Content-Type": "application/json",
+  },
+});

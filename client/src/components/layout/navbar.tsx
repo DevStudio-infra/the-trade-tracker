@@ -52,7 +52,7 @@ export function Navbar() {
             </SignedIn>
             <SignedOut>
               <SignInDialog>
-                <Button size="sm" variant="outline" className="rounded-full px-6">
+                <Button size="sm" className="bg-gradient-to-r from-[hsl(var(--gradient-1))] to-[hsl(var(--gradient-2))] hover:opacity-90 text-white border-0 rounded-full px-6">
                   Sign In
                 </Button>
               </SignInDialog>
@@ -88,7 +88,9 @@ export function Navbar() {
                   </SignedIn>
                   <SignedOut>
                     <SignInDialog>
-                      <Button variant="outline">Sign In</Button>
+                      <Button className="bg-gradient-to-r from-[hsl(var(--gradient-1))] to-[hsl(var(--gradient-2))] hover:opacity-90 text-white border-0 rounded-full px-6">
+                        Sign In
+                      </Button>
                     </SignInDialog>
                   </SignedOut>
                   <NotificationsList notifications={[]} />

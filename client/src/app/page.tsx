@@ -70,16 +70,16 @@ export default function HomePage() {
     <div className="relative min-h-screen overflow-hidden bg-dot-pattern">
       {/* Background gradients */}
       <div className="absolute inset-0 bg-gradient-to-b from-background/80 via-background to-background/80 backdrop-blur-[2px]" />
-      <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 via-sky-500/10 to-cyan-500/10" />
+      <div className="absolute inset-0 bg-gradient-to-r from-blue-600/10 via-sky-500/10 to-blue-700/10" />
 
       <div className="relative">
         {/* Hero Section */}
-        <section className="container flex flex-col items-center text-center gap-8 pt-24 md:pt-32 pb-20">
-          <div className="relative animate-in slide-in-from-bottom duration-1000 space-y-6 max-w-4xl mx-auto">
+        <section className="container flex flex-col items-center justify-center text-center gap-8 pt-24 md:pt-32 pb-20 px-4 sm:px-6 lg:px-8  mx-auto">
+          <div className="relative animate-in slide-in-from-bottom duration-1000 space-y-6 max-w-4xl mx-auto w-full">
             {/* Glow effect */}
             <div className="absolute inset-0 -z-10 bg-gradient-to-b from-blue-500/20 via-sky-500/20 to-transparent rounded-[40px] blur-3xl animate-pulse" />
 
-            <div className="space-y-6">
+            <div className="space-y-6 w-full">
               <h1 className="text-4xl font-bold tracking-tight sm:text-5xl lg:text-7xl">
                 Elevate Your Trading with
                 <span className="block mt-2 text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500">AI-Driven Precision</span>
@@ -133,7 +133,7 @@ export default function HomePage() {
         </section>
 
         {/* Benefits Section */}
-        <section className="container py-20">
+        <section className="container py-20 mx-auto">
           <div className="max-w-7xl mx-auto">
             <div className="text-center mb-16">
               <h2 className="text-3xl font-bold mb-4">Key Benefits</h2>
@@ -163,14 +163,14 @@ export default function HomePage() {
                     className={cn(
                       "mb-6 w-14 h-14 rounded-2xl flex items-center justify-center",
                       "transform transition-transform duration-500 group-hover:scale-110",
-                      "bg-gradient-to-br",
+                      "bg-gradient-to-br ",
                       benefit.iconGradient
                     )}>
                     <benefit.icon className="w-7 h-7 text-white" />
                   </div>
 
                   {/* Content */}
-                  <div className="text-2xl font-bold mb-2 text-transparent bg-clip-text bg-gradient-to-r from-blue-500 to-cyan-500">{benefit.stat}</div>
+                  <div className=" text-2xl font-bold mb-2 text-transparent bg-clip-text bg-gradient-to-r from-blue-500 to-cyan-500  ">{benefit.stat}</div>
                   <div className="text-sm text-muted-foreground mb-4">{benefit.statLabel}</div>
                   <h3 className="text-xl font-semibold mb-3 group-hover:text-white transition-colors">{benefit.title}</h3>
                   <p className="text-muted-foreground group-hover:text-white/80 transition-colors leading-relaxed">{benefit.description}</p>
@@ -181,7 +181,7 @@ export default function HomePage() {
         </section>
 
         {/* CTA Section */}
-        <section className="container pb-32">
+        <section className="container pb-32 mx-auto">
           <div className="max-w-5xl mx-auto">
             <div className="relative rounded-[32px] overflow-hidden transform transition-transform duration-500 hover:scale-[1.02]">
               {/* Background with blur */}
