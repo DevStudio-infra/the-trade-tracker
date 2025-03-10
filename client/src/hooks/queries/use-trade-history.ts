@@ -7,8 +7,13 @@ interface TradeHistoryResponse {
   hasMore: boolean;
 }
 
+interface TransformedTradeHistory {
+  trades: Position[];
+  hasNextPage: boolean;
+}
+
 export function useTradeHistory(pageSize: number = 20) {
-  return useInfiniteQuery<TradeHistoryResponse>({
+  return useInfiniteQuery<TradeHistoryResponse, Error, TransformedTradeHistory>({
     queryKey: ["trades", "history"],
     queryFn: async ({ pageParam = "" }) => {
       const response = await fetch(`/api/v1/trades/history?cursor=${pageParam}&limit=${pageSize}`);
