@@ -8,6 +8,12 @@ export class ClerkWebhookService {
   async handleWebhook(evt: WebhookEvent) {
     const eventType = evt.type;
 
+    logger.info({
+      message: "Received webhook event",
+      eventType,
+      data: evt.data,
+    });
+
     try {
       switch (eventType) {
         case "user.created":
@@ -30,6 +36,7 @@ export class ClerkWebhookService {
         message: "Error handling webhook event",
         error: error instanceof Error ? error.message : "Unknown error",
         eventType,
+        data: evt.data,
       });
       throw error;
     }
@@ -37,12 +44,38 @@ export class ClerkWebhookService {
 
   private async handleUserCreated(data: any) {
     const { id, email_addresses, created_at } = data;
+
+    logger.info({
+      message: "Processing user creation",
+      userId: id,
+      emailAddresses: email_addresses,
+      primaryEmailId: data.primary_email_address_id,
+    });
+
     const primaryEmail = email_addresses.find((email: any) => email.id === data.primary_email_address_id);
 
+    if (!primaryEmail?.email_address) {
+      logger.error({
+        message: "No primary email found",
+        userId: id,
+        emailAddresses: email_addresses,
+        primaryEmailId: data.primary_email_address_id,
+      });
+      throw new Error("No primary email address found");
+    }
+
     try {
-      await prisma.user.create({
+      logger.info({
+        message: "Attempting to create user in database",
+        userId: id,
+        email: primaryEmail.email_address,
+        created_at: created_at,
+      });
+
+      const user = await prisma.user.create({
         data: {
           id,
+          email: primaryEmail.email_address,
           subscription_plan: "Free",
           credits: 10, // Starting credits for new users
           onboarding_step: 1,
@@ -56,13 +89,16 @@ export class ClerkWebhookService {
       logger.info({
         message: "User created in database",
         userId: id,
-        email: primaryEmail?.email_address,
+        email: primaryEmail.email_address,
+        dbUser: user,
       });
     } catch (error) {
       logger.error({
         message: "Error creating user in database",
         error: error instanceof Error ? error.message : "Unknown error",
+        errorStack: error instanceof Error ? error.stack : undefined,
         userId: id,
+        email: primaryEmail.email_address,
       });
       throw error;
     }

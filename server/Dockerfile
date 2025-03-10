@@ -9,6 +9,7 @@ RUN apt-get update -y && apt-get install -y openssl
 
 # Copy package files
 COPY package*.json ./
+COPY tsconfig.json ./
 COPY prisma ./prisma/
 
 # Install dependencies
@@ -23,8 +24,11 @@ RUN npm run build
 # Generate Prisma Client
 RUN npx prisma generate
 
+# Set environment variables
+ENV PORT=8080
+
 # Expose the port your app runs on
-EXPOSE 3001
+EXPOSE 8080
 
 # Start the application
 CMD ["npm", "start"]
