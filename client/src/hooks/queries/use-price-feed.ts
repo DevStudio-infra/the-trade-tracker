@@ -1,8 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { useWebSocketStore } from "@/stores/websocket-store";
+import { useEffect } from "react";
 
 export function usePriceFeed(pair: string) {
   const { subscribe, unsubscribe, prices } = useWebSocketStore();
+
+  useEffect(() => {
+    subscribe(pair);
+    return () => unsubscribe(pair);
+  }, [pair, subscribe, unsubscribe]);
 
   return useQuery({
     queryKey: ["price", pair],
@@ -16,14 +22,6 @@ export function usePriceFeed(pair: string) {
     },
     staleTime: 1000,
     refetchInterval: 1000,
-    onSuccess: () => {
-      // Subscribe to WebSocket updates
-      subscribe(pair);
-    },
-    select: () => prices[pair], // Use WebSocket data from store
-    onError: (error) => {
-      console.error("Price feed error:", error);
-      unsubscribe(pair);
-    },
+    select: () => prices[pair],
   });
 }

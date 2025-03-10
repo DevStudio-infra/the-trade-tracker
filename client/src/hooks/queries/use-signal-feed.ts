@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { type Signal } from "@/stores/signals-store";
 import { useWebSocketStore } from "@/stores/websocket-store";
+import { useEffect } from "react";
 
 interface SignalFeedResponse {
   signals: Signal[];
@@ -9,6 +10,13 @@ interface SignalFeedResponse {
 
 export function useSignalFeed(pair?: string) {
   const { subscribe, unsubscribe } = useWebSocketStore();
+
+  useEffect(() => {
+    if (pair) {
+      subscribe(pair);
+      return () => unsubscribe(pair);
+    }
+  }, [pair, subscribe, unsubscribe]);
 
   return useQuery<SignalFeedResponse>({
     queryKey: ["signals", "feed", pair],
@@ -24,16 +32,5 @@ export function useSignalFeed(pair?: string) {
     staleTime: 15 * 1000, // 15 seconds
     refetchInterval: 15 * 1000,
     retry: 3,
-    onSettled: () => {
-      if (pair) {
-        // Subscribe to pair-specific signal updates
-        subscribe(pair);
-      }
-    },
-    onError: () => {
-      if (pair) {
-        unsubscribe(pair);
-      }
-    },
   });
 }

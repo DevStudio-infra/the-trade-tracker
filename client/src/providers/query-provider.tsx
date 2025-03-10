@@ -9,8 +9,6 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       // Global defaults
-      staleTime: 30 * 1000, // Data becomes stale after 30 seconds
-      gcTime: 5 * 60 * 1000, // Keep unused data in cache for 5 minutes
       refetchOnWindowFocus: true,
       refetchOnReconnect: true,
       refetchOnMount: true,
@@ -22,28 +20,11 @@ const queryClient = new QueryClient({
         }
         return failureCount < 3;
       },
-      // Trading specific defaults
-      queries: {
-        price: {
-          // Price data updates frequently
-          staleTime: 1000, // 1 second
-          refetchInterval: 1000, // Poll every second as WebSocket backup
-        },
-        trades: {
-          // Trade history doesn't need frequent updates
-          staleTime: 60 * 1000, // 1 minute
-          gcTime: 30 * 60 * 1000, // Keep in cache for 30 minutes
-        },
-        signals: {
-          // Signal data is moderately dynamic
-          staleTime: 15 * 1000, // 15 seconds
-          refetchInterval: 15 * 1000,
-        },
-        credits: {
-          // Credit balance needs moderate freshness
-          staleTime: 30 * 1000, // 30 seconds
-        },
-      },
+      // Default staleTime for most queries
+      staleTime: 30 * 1000,
+      // Price specific settings will be set in the useQuery hook
+      // Signal specific settings will be set in the useQuery hook
+      // Trade specific settings will be set in the useQuery hook
     },
     mutations: {
       // Global mutation defaults
