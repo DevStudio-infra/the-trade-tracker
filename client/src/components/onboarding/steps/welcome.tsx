@@ -12,13 +12,13 @@ export function OnboardingWelcome({ onNext }: OnboardingWelcomeProps) {
     <div className="space-y-6">
       <div className="space-y-2 text-center">
         <h2 className="text-3xl font-bold">Welcome to The Trade Tracker</h2>
-        <p className="text-muted-foreground">Let's set up your account to get the most out of your trading experience.</p>
+        <p className="text-muted-foreground">Let&apos;s set up your account to get the most out of your trading experience.</p>
       </div>
 
       <div className="space-y-4">
         <div className="grid gap-4">
           <div className="p-4 rounded-lg bg-primary/5 border border-primary/10">
-            <h3 className="font-semibold mb-2">What you'll get:</h3>
+            <h3 className="font-semibold mb-2">What you&apos;ll get:</h3>
             <ul className="space-y-2 text-sm">
               <li className="flex items-start">
                 <span className="mr-2">•</span>
