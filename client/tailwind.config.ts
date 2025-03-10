@@ -1,4 +1,3 @@
-import type { Config } from "tailwindcss";
 import animate from "tailwindcss-animate";
 
 const config = {
@@ -13,6 +12,9 @@ const config = {
       },
     },
     extend: {
+      fontFamily: {
+        sans: ["var(--font-sans)"],
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -70,6 +72,6 @@ const config = {
     },
   },
   plugins: [animate],
-} satisfies Config;
+};
 
 export default config;
