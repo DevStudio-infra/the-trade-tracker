@@ -1,3 +1,5 @@
+"use client";
+
 import { HeroSection, HighlightsSection, BenefitsSection, CTASection } from "./components/landing";
 
 export default function HomePage() {
