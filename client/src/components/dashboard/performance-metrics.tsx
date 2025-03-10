@@ -11,6 +11,7 @@ ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, T
 export function PerformanceMetrics() {
   const chartOptions = {
     responsive: true,
+    maintainAspectRatio: false,
     plugins: {
       legend: {
         display: false,
@@ -88,7 +89,7 @@ export function PerformanceMetrics() {
           </div>
         </div>
 
-        <div className="h-[300px] mt-6">
+        <div className="h-[300px] w-full mt-6">
           <Line options={chartOptions} data={chartData} />
         </div>
 
