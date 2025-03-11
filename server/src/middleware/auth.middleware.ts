@@ -10,8 +10,38 @@ export interface AuthenticatedRequest extends Request {
   };
 }
 
-// Export Clerk's requireAuth middleware
-export const validateAuth = clerkRequireAuth();
+// Enhanced authentication middleware with logging
+export const validateAuth = (req: Request, res: Response, next: NextFunction) => {
+  logger.info({
+    message: "Authentication attempt",
+    path: req.path,
+    headers: {
+      authorization: req.headers.authorization ? "Present" : "Missing",
+      "clerk-client-token": req.headers["x-clerk-client-token"] ? "Present" : "Missing",
+    },
+  });
+
+  const authMiddleware = clerkRequireAuth();
+
+  authMiddleware(req, res, (err) => {
+    if (err) {
+      logger.error({
+        message: "Authentication failed",
+        path: req.path,
+        error: err instanceof Error ? err.message : "Unknown error",
+      });
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    logger.info({
+      message: "Authentication successful",
+      path: req.path,
+      userId: (req as AuthenticatedRequest).auth?.userId,
+    });
+
+    next();
+  });
+};
 
 // Rate limiting middleware based on user ID
 export function rateLimit(maxRequests: number, windowMs: number) {

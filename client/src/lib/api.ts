@@ -1,7 +1,7 @@
 import axios from "axios";
 import { useAuth } from "@clerk/nextjs";
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8081/v1";
 
 // API response types
 export interface UserProfile {
@@ -60,18 +60,29 @@ export function useApi() {
   return {
     // User profile
     getUserProfile: async () => {
-      const { data } = await api.get<UserProfile>("/v1/user/profile");
+      const { data } = await api.get<UserProfile>("/user/profile");
       return data;
     },
 
     updateUserProfile: async (updates: { onboardingStep?: number; onboardingCompleted?: boolean }) => {
-      const { data } = await api.patch<UserProfile>("/v1/user/profile", updates);
+      const { data } = await api.patch<UserProfile>("/user/profile", updates);
+      return data;
+    },
+
+    // Settings
+    getUserSettings: async () => {
+      const { data } = await api.get("/user/settings");
+      return data;
+    },
+
+    updateUserSettings: async (updates: { subscription_plan?: string; is_active?: boolean }) => {
+      const { data } = await api.patch("/user/settings", updates);
       return data;
     },
 
     // Onboarding
     submitOnboardingStep: async (step: number, data: unknown) => {
-      const response = await api.post(`/v1/user/onboarding/${step}`, data);
+      const response = await api.post(`/user/onboarding/${step}`, data);
       return response.data;
     },
 

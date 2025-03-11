@@ -247,6 +247,13 @@ router.get("/onboarding-status", validateAuth, async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).auth;
 
+    logger.info({
+      message: "Getting onboarding status - START",
+      userId,
+      headers: req.headers,
+      auth: (req as AuthenticatedRequest).auth,
+    });
+
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -256,8 +263,26 @@ router.get("/onboarding-status", validateAuth, async (req, res) => {
     });
 
     if (!user) {
+      logger.warn({
+        message: "User not found when fetching onboarding status",
+        userId,
+        query: "findUnique user",
+        prismaSelect: {
+          onboarding_completed: true,
+          onboarding_step: true,
+        },
+      });
       return res.status(404).json({ error: "User not found" });
     }
+
+    logger.info({
+      message: "Onboarding status retrieved successfully",
+      userId,
+      onboardingData: {
+        onboarding_completed: user.onboarding_completed,
+        current_step: user.onboarding_step,
+      },
+    });
 
     res.json({
       onboarding_completed: user.onboarding_completed,
@@ -267,6 +292,8 @@ router.get("/onboarding-status", validateAuth, async (req, res) => {
     logger.error({
       message: "Error fetching onboarding status",
       error: error instanceof Error ? error.message : "Unknown error",
+      stack: error instanceof Error ? error.stack : undefined,
+      userId: (req as AuthenticatedRequest).auth?.userId,
     });
     res.status(500).json({ error: "Internal server error" });
   }
@@ -308,6 +335,123 @@ router.post("/onboarding", validateAuth, async (req, res) => {
     logger.error({
       message: "Error updating onboarding status",
       error: error instanceof Error ? error.message : "Unknown error",
+    });
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Get user settings
+router.get("/settings", validateAuth, userRateLimit, async (req, res) => {
+  try {
+    const { userId } = (req as AuthenticatedRequest).auth;
+    logger.info({
+      message: "Getting user settings - START",
+      userId,
+      headers: req.headers,
+      auth: (req as AuthenticatedRequest).auth,
+    });
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        subscription_plan: true,
+        credits: true,
+        is_active: true,
+        broker_credentials: {
+          select: {
+            id: true,
+            broker_name: true,
+            is_demo: true,
+            credentials: true,
+            metadata: true,
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      logger.warn({
+        message: "User not found when fetching settings",
+        userId,
+        query: "findUnique user",
+        prismaSelect: {
+          id: true,
+          email: true,
+          subscription_plan: true,
+          credits: true,
+          is_active: true,
+          broker_credentials: true,
+        },
+      });
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    logger.info({
+      message: "User settings retrieved successfully",
+      userId,
+      userData: {
+        id: user.id,
+        email: user.email,
+        subscription_plan: user.subscription_plan,
+        credits: user.credits,
+        is_active: user.is_active,
+        broker_credentials_count: user.broker_credentials.length,
+      },
+    });
+
+    res.json(user);
+  } catch (error) {
+    logger.error({
+      message: "Error retrieving user settings",
+      error: error instanceof Error ? error.message : "Unknown error",
+      stack: error instanceof Error ? error.stack : undefined,
+      userId: (req as AuthenticatedRequest).auth?.userId,
+    });
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Update user settings
+router.patch("/settings", validateAuth, userRateLimit, async (req, res) => {
+  try {
+    const { userId } = (req as AuthenticatedRequest).auth;
+    const { subscription_plan, is_active } = req.body;
+
+    logger.info({
+      message: "Updating user settings",
+      userId,
+      updates: { subscription_plan, is_active },
+      headers: req.headers,
+    });
+
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        subscription_plan: subscription_plan !== undefined ? subscription_plan : undefined,
+        is_active: is_active !== undefined ? is_active : undefined,
+      },
+      select: {
+        id: true,
+        subscription_plan: true,
+        is_active: true,
+      },
+    });
+
+    logger.info({
+      message: "User settings updated",
+      userId,
+      updates: { subscription_plan, is_active },
+      result: user,
+    });
+
+    res.json(user);
+  } catch (error) {
+    logger.error({
+      message: "Error updating user settings",
+      error: error instanceof Error ? error.message : "Unknown error",
+      stack: error instanceof Error ? error.stack : undefined,
     });
     res.status(500).json({ error: "Internal server error" });
   }

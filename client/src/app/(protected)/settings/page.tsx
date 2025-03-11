@@ -1,15 +1,62 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { mockUserProfile } from "@/lib/mock-data";
 import { Copy, Key, Bell, Palette, User } from "lucide-react";
+import { useApi } from "@/lib/api";
+import { UserSettings } from "@/lib/api/settings";
+import { toast } from "sonner";
 
 export default function SettingsPage() {
+  const [settings, setSettings] = useState<UserSettings | null>(null);
+  const [loading, setLoading] = useState(true);
+  const api = useApi();
+
+  useEffect(() => {
+    console.log("Settings page mounted, loading settings...");
+    loadSettings();
+  }, []);
+
+  const loadSettings = async () => {
+    try {
+      console.log("Fetching user settings...");
+      const data = await api.getUserSettings();
+      console.log("Settings loaded successfully:", data);
+      setSettings(data);
+    } catch (error) {
+      console.error("Error loading settings:", error);
+      toast.error("Failed to load settings");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdateSettings = async (updates: { subscription_plan?: string; is_active?: boolean }) => {
+    try {
+      console.log("Updating settings with:", updates);
+      const updatedSettings = await api.updateUserSettings(updates);
+      console.log("Settings updated successfully:", updatedSettings);
+      setSettings(updatedSettings);
+      toast.success("Settings updated successfully");
+    } catch (error) {
+      console.error("Error updating settings:", error);
+      toast.error("Failed to update settings");
+    }
+  };
+
+  if (loading) {
+    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+  }
+
+  if (!settings) {
+    return <div className="min-h-screen flex items-center justify-center">Error loading settings</div>;
+  }
+
   return (
     <div className="min-h-screen bg-white dark:bg-slate-950">
       {/* Subtle gradient background */}
@@ -59,55 +106,51 @@ export default function SettingsPage() {
                 <div className="space-y-4 max-w-lg">
                   <div className="space-y-2">
                     <Label className="text-sm text-slate-600 dark:text-slate-400">Email</Label>
-                    <Input value={mockUserProfile.email} readOnly className="bg-transparent border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white" />
+                    <Input value={settings.email} readOnly className="bg-transparent border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white" />
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-sm text-slate-600 dark:text-slate-400">Username</Label>
-                    <Input value={mockUserProfile.username} className="bg-transparent border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white" />
+                    <Label className="text-sm text-slate-600 dark:text-slate-400">Subscription Plan</Label>
+                    <Input value={settings.subscription_plan} readOnly className="bg-transparent border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white" />
                   </div>
-                  <Button className="bg-blue-500 hover:bg-blue-600 text-white dark:bg-blue-600 dark:hover:bg-blue-700">Update Profile</Button>
+                  <div className="space-y-2">
+                    <Label className="text-sm text-slate-600 dark:text-slate-400">Credits</Label>
+                    <Input value={settings.credits.toString()} readOnly className="bg-transparent border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white" />
+                  </div>
                 </div>
               </div>
             </Card>
 
-            <Card className="backdrop-blur-sm bg-white/40 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800">
-              <div className="p-6">
-                <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">Broker Connection</h3>
-                <div className="space-y-4 max-w-lg">
-                  <div className="space-y-2">
-                    <Label className="text-sm text-slate-600 dark:text-slate-400">API Key</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        type="password"
-                        value="••••••••••••••••"
-                        readOnly
-                        className="font-mono bg-transparent border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
-                      />
-                      <Button variant="outline" size="icon" className="shrink-0 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400">
-                        <Copy className="h-4 w-4" />
-                      </Button>
-                    </div>
+            {settings.broker_credentials.length > 0 && (
+              <Card className="backdrop-blur-sm bg-white/40 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800">
+                <div className="p-6">
+                  <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">Broker Connection</h3>
+                  <div className="space-y-4 max-w-lg">
+                    {settings.broker_credentials.map((cred) => (
+                      <div key={cred.id} className="space-y-4">
+                        <div className="space-y-2">
+                          <Label className="text-sm text-slate-600 dark:text-slate-400">Broker Name</Label>
+                          <Input value={cred.broker_name} readOnly className="bg-transparent border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white" />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm text-slate-600 dark:text-slate-400">API Key</Label>
+                          <div className="flex gap-2">
+                            <Input
+                              type="password"
+                              value={cred.credentials.apiKey || "••••••••••••••••"}
+                              readOnly
+                              className="font-mono bg-transparent border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
+                            />
+                            <Button variant="outline" size="icon" className="shrink-0 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400">
+                              <Copy className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                  <div className="space-y-2">
-                    <Label className="text-sm text-slate-600 dark:text-slate-400">Secret Key</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        type="password"
-                        value="••••••••••••••••"
-                        readOnly
-                        className="font-mono bg-transparent border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
-                      />
-                      <Button variant="outline" size="icon" className="shrink-0 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400">
-                        <Copy className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                  <Button variant="outline" className="w-full border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white hover:bg-slate-100 dark:hover:bg-slate-800">
-                    Update API Keys
-                  </Button>
                 </div>
-              </div>
-            </Card>
+              </Card>
+            )}
           </TabsContent>
 
           <TabsContent value="preferences" className="mt-0">
@@ -117,24 +160,10 @@ export default function SettingsPage() {
                 <div className="space-y-4">
                   <div className="flex items-center justify-between py-2">
                     <div>
-                      <Label className="text-base font-medium text-slate-900 dark:text-white">Dark Mode</Label>
-                      <p className="text-sm text-slate-500 dark:text-slate-400">Enable dark mode for the application</p>
+                      <Label className="text-base font-medium text-slate-900 dark:text-white">Account Active</Label>
+                      <p className="text-sm text-slate-500 dark:text-slate-400">Enable or disable your trading account</p>
                     </div>
-                    <Switch />
-                  </div>
-                  <div className="flex items-center justify-between py-2">
-                    <div>
-                      <Label className="text-base font-medium text-slate-900 dark:text-white">Trade Confirmations</Label>
-                      <p className="text-sm text-slate-500 dark:text-slate-400">Show confirmation dialog before placing trades</p>
-                    </div>
-                    <Switch />
-                  </div>
-                  <div className="flex items-center justify-between py-2">
-                    <div>
-                      <Label className="text-base font-medium text-slate-900 dark:text-white">Auto-close Trades</Label>
-                      <p className="text-sm text-slate-500 dark:text-slate-400">Automatically close trades when take profit or stop loss is hit</p>
-                    </div>
-                    <Switch />
+                    <Switch checked={settings.is_active} onCheckedChange={(checked) => handleUpdateSettings({ is_active: checked })} />
                   </div>
                 </div>
               </div>
