@@ -356,8 +356,7 @@ router.get("/settings", validateAuth, userRateLimit, async (req, res) => {
       select: {
         id: true,
         email: true,
-        subscription_plan: true,
-        credits: true,
+        name: true,
         is_active: true,
         broker_credentials: {
           select: {
@@ -379,8 +378,7 @@ router.get("/settings", validateAuth, userRateLimit, async (req, res) => {
         prismaSelect: {
           id: true,
           email: true,
-          subscription_plan: true,
-          credits: true,
+          name: true,
           is_active: true,
           broker_credentials: true,
         },
@@ -394,8 +392,7 @@ router.get("/settings", validateAuth, userRateLimit, async (req, res) => {
       userData: {
         id: user.id,
         email: user.email,
-        subscription_plan: user.subscription_plan,
-        credits: user.credits,
+        name: user.name,
         is_active: user.is_active,
         broker_credentials_count: user.broker_credentials.length,
       },
@@ -417,24 +414,25 @@ router.get("/settings", validateAuth, userRateLimit, async (req, res) => {
 router.patch("/settings", validateAuth, userRateLimit, async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).auth;
-    const { subscription_plan, is_active } = req.body;
+    const { name, is_active } = req.body;
 
     logger.info({
       message: "Updating user settings",
       userId,
-      updates: { subscription_plan, is_active },
+      updates: { name, is_active },
       headers: req.headers,
     });
 
     const user = await prisma.user.update({
       where: { id: userId },
       data: {
-        subscription_plan: subscription_plan !== undefined ? subscription_plan : undefined,
+        name: name !== undefined ? name : undefined,
         is_active: is_active !== undefined ? is_active : undefined,
       },
       select: {
         id: true,
-        subscription_plan: true,
+        email: true,
+        name: true,
         is_active: true,
       },
     });
@@ -442,7 +440,7 @@ router.patch("/settings", validateAuth, userRateLimit, async (req, res) => {
     logger.info({
       message: "User settings updated",
       userId,
-      updates: { subscription_plan, is_active },
+      updates: { name, is_active },
       result: user,
     });
 

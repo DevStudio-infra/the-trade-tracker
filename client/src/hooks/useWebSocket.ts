@@ -28,7 +28,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       const clientToken = await getToken({ template: "client_token" });
       if (!token || !clientToken) return;
 
-      const wsUrl = `${process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:3001"}/ws?token=${token}&clientToken=${clientToken}`;
+      const wsUrl = `${process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8081"}/ws?token=${token}&clientToken=${clientToken}`;
       const ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {

@@ -118,9 +118,10 @@ model AIEvaluation {
 }
 
 model User {
-    id                   String              @id
+    id                   String              @id @default(cuid())
     email                String              @unique
-    subscription_plan    String              @default("Free")
+    name                 String?
+    subscription_plan    String              @default("free")
     credits              Int                 @default(0)
     onboarding_step      Int                 @default(1)
     onboarding_completed Boolean             @default(false)

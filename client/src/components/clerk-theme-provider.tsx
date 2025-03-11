@@ -17,7 +17,7 @@ export function ClerkThemeProvider({ children }: { children: React.ReactNode }) 
         },
         elements: {
           card: "shadow-none p-6",
-          rootBox: "flex items-center justify-center min-h-screen",
+          rootBox: "flex items-center justify-center ",
           modalContent: "p-6",
         },
       }}>

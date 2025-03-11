@@ -4,7 +4,7 @@
 
 ```
 Production: https://api.tradetracker.com/v1
-Development: http://localhost:3001/v1
+Development: http://localhost:8081/v1
 ```
 
 ## Authentication

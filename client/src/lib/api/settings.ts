@@ -12,19 +12,19 @@ export interface BrokerCredentials {
       default_lot_size: string;
     };
   };
+  last_used?: string | null;
 }
 
 export interface UserSettings {
   id: string;
   email: string;
-  subscription_plan: string;
-  credits: number;
+  name: string;
   is_active: boolean;
   broker_credentials: BrokerCredentials[];
 }
 
 export interface UpdateUserSettingsData {
-  subscription_plan?: string;
+  name?: string;
   is_active?: boolean;
 }
 

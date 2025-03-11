@@ -36,6 +36,30 @@ export interface BrokerConnection {
   updated_at: Date;
 }
 
+export interface CapitalComCredentials {
+  apiKey: string;
+  identifier: string;
+  password: string;
+}
+
+export interface BinanceCredentials {
+  apiKey: string;
+  secretKey: string;
+}
+
+export interface MetaTraderCredentials {
+  login: string;
+  password: string;
+  server: string;
+}
+
+export type BrokerCredentialsWithType =
+  | ({ type: "capital_com" } & CapitalComCredentials)
+  | ({ type: "binance" } & BinanceCredentials)
+  | ({ type: "mt4" | "mt5" } & MetaTraderCredentials);
+
+export type BrokerCredentials = Omit<BrokerCredentialsWithType, "type">;
+
 // Create authenticated API client
 export function useApi() {
   const { getToken } = useAuth();
@@ -87,16 +111,9 @@ export function useApi() {
     },
 
     // Broker connections
-    connectBroker: async (
-      brokerName: string,
-      credentials: {
-        apiKey: string;
-        apiSecret: string;
-        demo?: boolean;
-      }
-    ) => {
+    connectBroker: async (broker: string, credentials: BrokerCredentials) => {
       const { data } = await api.post<BrokerConnection>("/v1/broker/connect", {
-        brokerName,
+        brokerName: broker,
         credentials,
       });
       return data;
