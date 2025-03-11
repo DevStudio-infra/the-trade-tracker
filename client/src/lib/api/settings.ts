@@ -4,6 +4,7 @@ export interface BrokerCredentials {
   id: string;
   broker_name: string;
   is_demo: boolean;
+  is_active: boolean;
   credentials: Record<string, string>;
   metadata: {
     created_at: string;

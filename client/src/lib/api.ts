@@ -58,7 +58,19 @@ export type BrokerCredentialsWithType =
   | ({ type: "binance" } & BinanceCredentials)
   | ({ type: "mt4" | "mt5" } & MetaTraderCredentials);
 
-export type BrokerCredentials = Omit<BrokerCredentialsWithType, "type">;
+export interface BrokerCredentials {
+  id?: string;
+  broker_name: string;
+  is_demo: boolean;
+  is_active?: boolean;
+  credentials: {
+    apiKey: string;
+    identifier: string;
+    password: string;
+    [key: string]: string;
+  };
+  last_used?: string | null;
+}
 
 // Create authenticated API client
 export function useApi() {
@@ -112,7 +124,7 @@ export function useApi() {
 
     // Broker connections
     connectBroker: async (broker: string, credentials: BrokerCredentials) => {
-      const { data } = await api.post<BrokerConnection>("/v1/broker/connect", {
+      const { data } = await api.post<BrokerConnection>("/broker/connect", {
         brokerName: broker,
         credentials,
       });
@@ -120,8 +132,22 @@ export function useApi() {
     },
 
     getBrokerConnections: async () => {
-      const { data } = await api.get<BrokerConnection[]>("/v1/broker/connections");
+      const { data } = await api.get<BrokerConnection[]>("/broker/connections");
       return data;
+    },
+
+    updateBrokerConnection: async (connectionId: string, updates: { is_active?: boolean; is_demo?: boolean }) => {
+      const { data } = await api.patch<BrokerConnection>(`/broker/connections/${connectionId}`, updates);
+      return data;
+    },
+
+    deleteBrokerConnection: async (connectionId: string) => {
+      await api.delete(`/broker/connections/${connectionId}`);
+    },
+
+    validateBrokerConnection: async (connectionId: string) => {
+      const { data } = await api.post<{ isValid: boolean }>(`/broker/connections/${connectionId}/validate`);
+      return data.isValid;
     },
 
     // Error handler

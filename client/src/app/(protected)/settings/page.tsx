@@ -10,10 +10,19 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Key, Palette, User, Eye, EyeOff } from "lucide-react";
 import { useApi } from "@/lib/api";
 import { UserSettings } from "@/lib/api/settings";
-import { BrokerCredentials, CapitalComCredentials } from "@/lib/api";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+interface BrokerForm {
+  broker_name: string;
+  credentials: {
+    apiKey: string;
+    identifier: string;
+    password: string;
+    is_demo: boolean;
+  };
+}
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<UserSettings | null>(null);
@@ -21,12 +30,15 @@ export default function SettingsPage() {
   const [showAddBroker, setShowAddBroker] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [newBroker, setNewBroker] = useState<{
-    broker_name: string;
-    credentials: Partial<BrokerCredentials>;
-  }>({
+  const [editingBroker, setEditingBroker] = useState<UserSettings["broker_credentials"][0] | null>(null);
+  const [newBroker, setNewBroker] = useState<BrokerForm>({
     broker_name: "",
-    credentials: {},
+    credentials: {
+      apiKey: "",
+      identifier: "",
+      password: "",
+      is_demo: false,
+    },
   });
   const api = useApi();
 
@@ -70,19 +82,21 @@ export default function SettingsPage() {
       }
 
       // Validate required fields based on broker type
-      switch (newBroker.broker_name) {
-        case "capital_com":
-          const capitalCreds = newBroker.credentials as CapitalComCredentials;
-          if (!capitalCreds.apiKey || !capitalCreds.identifier || !capitalCreds.password) {
-            toast.error("Please fill in all required fields");
-            return;
-          }
-          break;
-        // Add validation for other brokers when they become available
+      if (!newBroker.credentials.apiKey || !newBroker.credentials.identifier || !newBroker.credentials.password) {
+        toast.error("Please fill in all required fields");
+        return;
       }
 
       // Call your API to add the broker
-      await api.connectBroker(newBroker.broker_name, newBroker.credentials as BrokerCredentials);
+      await api.connectBroker(newBroker.broker_name, {
+        broker_name: newBroker.broker_name,
+        is_demo: newBroker.credentials.is_demo || false,
+        credentials: {
+          apiKey: newBroker.credentials.apiKey,
+          identifier: newBroker.credentials.identifier,
+          password: newBroker.credentials.password,
+        },
+      });
 
       // Refresh settings to get updated broker list
       await loadSettings();
@@ -90,13 +104,47 @@ export default function SettingsPage() {
       // Reset form and close modal
       setNewBroker({
         broker_name: "",
-        credentials: {},
+        credentials: {
+          apiKey: "",
+          identifier: "",
+          password: "",
+          is_demo: false,
+        },
       });
       setShowAddBroker(false);
       toast.success("Broker connection added successfully");
     } catch (error) {
       console.error("Error adding broker:", error);
       toast.error("Failed to add broker connection");
+    }
+  };
+
+  const handleEditBroker = async (broker: UserSettings["broker_credentials"][0]) => {
+    try {
+      await api.updateBrokerConnection(broker.id, {
+        is_demo: broker.is_demo,
+        is_active: true,
+      });
+      await loadSettings();
+      toast.success("Broker connection updated successfully");
+    } catch (error) {
+      console.error("Error updating broker:", error);
+      toast.error("Failed to update broker connection");
+    }
+  };
+
+  const handleDeleteBroker = async (brokerId: string) => {
+    if (!confirm("Are you sure you want to remove this broker connection?")) {
+      return;
+    }
+
+    try {
+      await api.deleteBrokerConnection(brokerId);
+      await loadSettings();
+      toast.success("Broker connection removed successfully");
+    } catch (error) {
+      console.error("Error deleting broker:", error);
+      toast.error("Failed to remove broker connection");
     }
   };
 
@@ -301,10 +349,16 @@ export default function SettingsPage() {
                             <p className="text-sm text-slate-500 dark:text-slate-400">{cred.is_demo ? "Demo Account" : "Live Account"}</p>
                           </div>
                           <div className="flex items-center gap-2">
-                            <Button variant="outline" size="sm">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setEditingBroker(cred as UserSettings["broker_credentials"][0]);
+                                setShowAddBroker(true);
+                              }}>
                               Edit
                             </Button>
-                            <Button variant="outline" size="sm" className="text-red-500 hover:text-red-600">
+                            <Button variant="outline" size="sm" className="text-red-500 hover:text-red-600" onClick={() => handleDeleteBroker(cred.id)}>
                               Remove
                             </Button>
                           </div>
@@ -313,20 +367,22 @@ export default function SettingsPage() {
                           <div className="space-y-2">
                             <Label className="text-sm text-slate-600 dark:text-slate-400">API Key</Label>
                             <div className="flex gap-2">
-                              <Input
-                                type={showApiKey ? "text" : "password"}
-                                value={cred.credentials.apiKey || "••••••••••••••••"}
-                                readOnly
-                                className="font-mono bg-transparent border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
-                              />
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                                onClick={() => setShowApiKey(!showApiKey)}>
-                                {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                              </Button>
+                              <div className="relative flex-1">
+                                <Input
+                                  type={showApiKey ? "text" : "password"}
+                                  value={cred.credentials.apiKey || "••••••••••••••••"}
+                                  readOnly
+                                  className="font-mono bg-transparent border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
+                                />
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                                  onClick={() => setShowApiKey(!showApiKey)}>
+                                  {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                </Button>
+                              </div>
                             </div>
                           </div>
                           {cred.metadata?.settings && (
@@ -354,108 +410,165 @@ export default function SettingsPage() {
             <Dialog open={showAddBroker} onOpenChange={setShowAddBroker}>
               <DialogContent className="sm:max-w-[425px]">
                 <DialogHeader>
-                  <DialogTitle>Add New Broker Connection</DialogTitle>
-                  <DialogDescription>Enter your broker API credentials to establish a new connection.</DialogDescription>
+                  <DialogTitle>{editingBroker ? "Edit Broker Connection" : "Add New Broker"}</DialogTitle>
+                  <DialogDescription>{editingBroker ? "Update your broker connection settings." : "Connect a new broker to start trading."}</DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
-                  <div className="space-y-2">
+                  <div className="grid gap-2">
                     <Label htmlFor="broker">Broker</Label>
-                    <Select value={newBroker.broker_name} onValueChange={(value) => setNewBroker({ ...newBroker, broker_name: value })}>
+                    <Select
+                      disabled={!!editingBroker}
+                      value={editingBroker ? editingBroker.broker_name : newBroker.broker_name}
+                      onValueChange={(value) =>
+                        setNewBroker({ ...newBroker, broker_name: value, credentials: { ...newBroker.credentials, apiKey: "", identifier: "", password: "", is_demo: false } })
+                      }>
                       <SelectTrigger>
                         <SelectValue placeholder="Select a broker" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="capital_com">Capital.com</SelectItem>
-                        <SelectItem value="binance" disabled>
-                          Binance (Coming Soon)
-                        </SelectItem>
-                        <SelectItem value="mt4" disabled>
-                          MetaTrader 4 (Coming Soon)
-                        </SelectItem>
-                        <SelectItem value="mt5" disabled>
-                          MetaTrader 5 (Coming Soon)
+                        <SelectItem value="other" disabled>
+                          More brokers coming soon
                         </SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
-                  {newBroker.broker_name === "capital_com" && (
+
+                  {(editingBroker?.broker_name === "capital_com" || newBroker.broker_name === "capital_com") && (
                     <>
-                      <div className="space-y-2">
+                      <div className="grid gap-2">
                         <Label htmlFor="apiKey">API Key</Label>
-                        <div className="flex gap-2">
-                          <div className="relative flex-1">
-                            <Input
-                              id="apiKey"
-                              type={showApiKey ? "text" : "password"}
-                              value={(newBroker.credentials as CapitalComCredentials)?.apiKey || ""}
-                              onChange={(e) =>
+                        <div className="relative">
+                          <Input
+                            id="apiKey"
+                            type={showApiKey ? "text" : "password"}
+                            value={editingBroker ? editingBroker.credentials.apiKey : newBroker.credentials.apiKey || ""}
+                            onChange={(e) => {
+                              if (editingBroker) {
+                                setEditingBroker({
+                                  ...editingBroker,
+                                  credentials: { ...editingBroker.credentials, apiKey: e.target.value },
+                                });
+                              } else {
                                 setNewBroker({
                                   ...newBroker,
                                   credentials: { ...newBroker.credentials, apiKey: e.target.value },
-                                })
+                                });
                               }
-                              placeholder="Enter your API key"
-                            />
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                              onClick={() => setShowApiKey(!showApiKey)}>
-                              {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                            </Button>
-                          </div>
+                            }}
+                            className="pr-10"
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                            onClick={() => setShowApiKey(!showApiKey)}>
+                            {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </Button>
                         </div>
                       </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="identifier">API Identifier</Label>
+
+                      <div className="grid gap-2">
+                        <Label htmlFor="identifier">Identifier</Label>
                         <Input
                           id="identifier"
-                          value={(newBroker.credentials as CapitalComCredentials)?.identifier || ""}
-                          onChange={(e) =>
-                            setNewBroker({
-                              ...newBroker,
-                              credentials: { ...newBroker.credentials, identifier: e.target.value },
-                            })
-                          }
-                          placeholder="Enter your API identifier"
+                          value={editingBroker ? editingBroker.credentials.identifier : newBroker.credentials.identifier || ""}
+                          onChange={(e) => {
+                            if (editingBroker) {
+                              setEditingBroker({
+                                ...editingBroker,
+                                credentials: { ...editingBroker.credentials, identifier: e.target.value },
+                              });
+                            } else {
+                              setNewBroker({
+                                ...newBroker,
+                                credentials: { ...newBroker.credentials, identifier: e.target.value },
+                              });
+                            }
+                          }}
                         />
                       </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="password">API Password</Label>
-                        <div className="flex gap-2">
-                          <div className="relative flex-1">
-                            <Input
-                              id="password"
-                              type={showPassword ? "text" : "password"}
-                              value={(newBroker.credentials as CapitalComCredentials)?.password || ""}
-                              onChange={(e) =>
+
+                      <div className="grid gap-2">
+                        <Label htmlFor="password">Password</Label>
+                        <div className="relative">
+                          <Input
+                            id="password"
+                            type={showPassword ? "text" : "password"}
+                            value={editingBroker ? editingBroker.credentials.password : newBroker.credentials.password || ""}
+                            onChange={(e) => {
+                              if (editingBroker) {
+                                setEditingBroker({
+                                  ...editingBroker,
+                                  credentials: { ...editingBroker.credentials, password: e.target.value },
+                                });
+                              } else {
                                 setNewBroker({
                                   ...newBroker,
                                   credentials: { ...newBroker.credentials, password: e.target.value },
-                                })
+                                });
                               }
-                              placeholder="Enter your API password"
-                            />
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                              onClick={() => setShowPassword(!showPassword)}>
-                              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                            </Button>
-                          </div>
+                            }}
+                            className="pr-10"
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                            onClick={() => setShowPassword(!showPassword)}>
+                            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </Button>
                         </div>
+                      </div>
+
+                      <div className="flex items-center space-x-2">
+                        <Switch
+                          id="demo"
+                          checked={editingBroker ? editingBroker.is_demo : newBroker.credentials.is_demo || false}
+                          onCheckedChange={(checked) => {
+                            if (editingBroker) {
+                              setEditingBroker({
+                                ...editingBroker,
+                                is_demo: checked,
+                              });
+                            } else {
+                              setNewBroker({
+                                ...newBroker,
+                                credentials: { ...newBroker.credentials, is_demo: checked },
+                              });
+                            }
+                          }}
+                        />
+                        <Label htmlFor="demo">Demo Account</Label>
                       </div>
                     </>
                   )}
                 </div>
                 <DialogFooter>
-                  <Button variant="outline" onClick={() => setShowAddBroker(false)}>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setShowAddBroker(false);
+                      setEditingBroker(null);
+                      setNewBroker({ broker_name: "", credentials: { apiKey: "", identifier: "", password: "", is_demo: false } });
+                    }}>
                     Cancel
                   </Button>
-                  <Button onClick={handleAddBroker}>Add Broker</Button>
+                  <Button
+                    onClick={async () => {
+                      if (editingBroker) {
+                        await handleEditBroker(editingBroker);
+                      } else {
+                        await handleAddBroker();
+                      }
+                      setShowAddBroker(false);
+                      setEditingBroker(null);
+                      setNewBroker({ broker_name: "", credentials: { apiKey: "", identifier: "", password: "", is_demo: false } });
+                    }}>
+                    {editingBroker ? "Save Changes" : "Add Broker"}
+                  </Button>
                 </DialogFooter>
               </DialogContent>
             </Dialog>
