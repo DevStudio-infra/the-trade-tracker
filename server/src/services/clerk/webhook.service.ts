@@ -1,8 +1,10 @@
 import { prisma } from "../../lib/prisma";
 import { createLogger } from "../../utils/logger";
 import { WebhookEvent } from "@clerk/backend";
+import { createClerkClient } from "@clerk/backend";
 
 const logger = createLogger("clerk-webhook-service");
+const clerk = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY });
 
 export class ClerkWebhookService {
   async handleWebhook(evt: WebhookEvent) {
@@ -173,22 +175,59 @@ export class ClerkWebhookService {
     const { user_id } = data;
 
     try {
-      // Update the user's last login time
-      await prisma.user.update({
+      // First check if user exists
+      const existingUser = await prisma.user.findUnique({
         where: { id: user_id },
-        data: {
-          last_login: new Date(),
-          updated_at: new Date(),
-        },
       });
 
-      logger.info({
-        message: "User last login updated",
-        userId: user_id,
-      });
+      if (!existingUser) {
+        // User doesn't exist, fetch user data from Clerk and create them
+        const clerkUser = await clerk.users.getUser(user_id);
+        const primaryEmail = clerkUser.emailAddresses.find((email: { id: string }) => email.id === clerkUser.primaryEmailAddressId);
+
+        if (!primaryEmail?.emailAddress) {
+          throw new Error("No primary email found for user");
+        }
+
+        // Create the user
+        await prisma.user.create({
+          data: {
+            id: user_id,
+            email: primaryEmail.emailAddress,
+            subscription_plan: "Free",
+            credits: 10, // Starting credits for new users
+            onboarding_step: 1,
+            onboarding_completed: false,
+            is_active: true,
+            created_at: new Date(clerkUser.createdAt),
+            updated_at: new Date(),
+            last_login: new Date(),
+          },
+        });
+
+        logger.info({
+          message: "Created new user on session creation",
+          userId: user_id,
+          email: primaryEmail.emailAddress,
+        });
+      } else {
+        // User exists, just update last_login
+        await prisma.user.update({
+          where: { id: user_id },
+          data: {
+            last_login: new Date(),
+            updated_at: new Date(),
+          },
+        });
+
+        logger.info({
+          message: "User last login updated",
+          userId: user_id,
+        });
+      }
     } catch (error) {
       logger.error({
-        message: "Error updating user last login",
+        message: "Error handling session creation",
         error: error instanceof Error ? error.message : "Unknown error",
         userId: user_id,
       });
