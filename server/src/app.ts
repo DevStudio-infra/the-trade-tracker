@@ -61,6 +61,22 @@ app.use(cors(corsOptions));
 app.use(express.json());
 app.use(limiter);
 
+// Middleware to log the full request URL
+app.use((req, res, next) => {
+  logger.info(`Incoming request: ${req.method} ${req.protocol}://${req.get("host")}${req.originalUrl}`);
+  next();
+});
+
+// Test endpoint
+app.get("/v1/test", (_req, res) => {
+  logger.info("Test endpoint called");
+  res.json({
+    message: "API is working correctly!",
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || "development",
+  });
+});
+
 // Health check endpoint
 app.get("/v1/health", (_req, res) => {
   res.json({ status: "ok" });
