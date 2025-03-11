@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, ArrowUpRight, Bot, Shield, LineChart, Zap, Wallet, ChartBar, Sparkles } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Bot, Shield, LineChart, Zap, Wallet, BarChart, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -51,7 +51,7 @@ const highlights = [
   {
     title: "Proven Performance",
     description: "Data-driven strategies with live tracking",
-    icon: ChartBar,
+    icon: BarChart,
   },
   {
     title: "Smart Protection",
