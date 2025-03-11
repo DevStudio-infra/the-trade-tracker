@@ -25,6 +25,15 @@ export class ClerkWebhookService {
         case "user.deleted":
           await this.handleUserDeleted(evt.data);
           break;
+        case "session.created":
+          await this.handleSessionCreated(evt.data);
+          break;
+        case "session.ended":
+          await this.handleSessionEnded(evt.data);
+          break;
+        case "email.created":
+          await this.handleEmailCreated(evt.data);
+          break;
         default:
           logger.info({
             message: "Unhandled webhook event",
@@ -105,12 +114,16 @@ export class ClerkWebhookService {
   }
 
   private async handleUserUpdated(data: any) {
-    const { id, updated_at } = data;
+    const { id, email_addresses, updated_at } = data;
 
     try {
+      // Get the primary email if it exists
+      const primaryEmail = email_addresses?.find((email: any) => email.id === data.primary_email_address_id);
+
       await prisma.user.update({
         where: { id },
         data: {
+          ...(primaryEmail?.email_address && { email: primaryEmail.email_address }),
           updated_at: new Date(updated_at),
         },
       });
@@ -151,6 +164,77 @@ export class ClerkWebhookService {
         message: "Error marking user as inactive in database",
         error: error instanceof Error ? error.message : "Unknown error",
         userId: id,
+      });
+      throw error;
+    }
+  }
+
+  private async handleSessionCreated(data: any) {
+    const { user_id } = data;
+
+    try {
+      // Update the user's last login time
+      await prisma.user.update({
+        where: { id: user_id },
+        data: {
+          last_login: new Date(),
+          updated_at: new Date(),
+        },
+      });
+
+      logger.info({
+        message: "User last login updated",
+        userId: user_id,
+      });
+    } catch (error) {
+      logger.error({
+        message: "Error updating user last login",
+        error: error instanceof Error ? error.message : "Unknown error",
+        userId: user_id,
+      });
+      throw error;
+    }
+  }
+
+  private async handleSessionEnded(data: any) {
+    // We don't need to do anything when a session ends
+    logger.info({
+      message: "Session ended - no action needed",
+      sessionId: data.id,
+      userId: data.user_id,
+    });
+  }
+
+  private async handleEmailCreated(data: any) {
+    const { user_id, email_address } = data;
+
+    try {
+      // Only update the user's email if they don't have one yet
+      const user = await prisma.user.findUnique({
+        where: { id: user_id },
+        select: { email: true },
+      });
+
+      if (!user?.email) {
+        await prisma.user.update({
+          where: { id: user_id },
+          data: {
+            email: email_address,
+            updated_at: new Date(),
+          },
+        });
+
+        logger.info({
+          message: "User email updated",
+          userId: user_id,
+          email: email_address,
+        });
+      }
+    } catch (error) {
+      logger.error({
+        message: "Error updating user email",
+        error: error instanceof Error ? error.message : "Unknown error",
+        userId: user_id,
       });
       throw error;
     }
