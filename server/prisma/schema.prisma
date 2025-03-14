@@ -157,10 +157,8 @@ model BrokerCredential {
     user_id     String
     broker_name String
     credentials Json
-    is_demo     Boolean   @default(false)
     is_active   Boolean   @default(true)
     last_used   DateTime?
-    metadata    Json
     created_at  DateTime  @default(now())
     updated_at  DateTime  @updatedAt
     user        User      @relation(fields: [user_id], references: [id])

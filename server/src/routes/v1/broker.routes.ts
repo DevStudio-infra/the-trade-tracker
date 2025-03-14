@@ -26,12 +26,12 @@ router.get("/connections", validateAuth, async (req, res) => {
 router.post("/connect", validateAuth, async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).auth;
-    const { brokerName, apiKey, apiSecret, isDemo } = req.body;
+    const { broker_name, credentials } = req.body;
 
-    const connection = await brokerService.addConnection(userId, brokerName, {
-      apiKey,
-      apiSecret,
-      isDemo,
+    const connection = await brokerService.addConnection(userId, broker_name, {
+      apiKey: credentials.apiKey,
+      identifier: credentials.identifier,
+      password: credentials.password,
     });
 
     res.json(connection);
@@ -49,11 +49,11 @@ router.patch("/connections/:connectionId", validateAuth, async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).auth;
     const { connectionId } = req.params;
-    const { isActive, isDemo } = req.body;
+    const { is_active, credentials } = req.body;
 
     const connection = await brokerService.updateConnection(userId, connectionId, {
-      is_active: isActive,
-      is_demo: isDemo,
+      is_active,
+      credentials,
     });
 
     res.json(connection);

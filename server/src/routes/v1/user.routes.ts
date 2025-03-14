@@ -57,6 +57,66 @@ router.get("/profile", validateAuth, userRateLimit, async (req, res) => {
   }
 });
 
+// Create user profile (fallback for webhook failures)
+router.post("/profile", validateAuth, userRateLimit, async (req, res) => {
+  try {
+    const { userId } = (req as AuthenticatedRequest).auth;
+
+    // Check if user already exists
+    const existingUser = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (existingUser) {
+      return res.status(409).json({ error: "User already exists" });
+    }
+
+    // Create user with basic info
+    const user = await prisma.user.create({
+      data: {
+        id: userId,
+        email: "pending@email.com", // This will be updated by the webhook in production
+        subscription_plan: "Free",
+        credits: 10,
+        onboarding_step: 1,
+        onboarding_completed: false,
+        is_active: true,
+        created_at: new Date(),
+        updated_at: new Date(),
+      },
+      select: {
+        id: true,
+        subscription_plan: true,
+        credits: true,
+        onboarding_completed: true,
+        onboarding_step: true,
+        is_active: true,
+        created_at: true,
+        _count: {
+          select: {
+            trades: true,
+            signals: true,
+            broker_credentials: true,
+          },
+        },
+      },
+    });
+
+    logger.info({
+      message: "User created through fallback endpoint",
+      userId,
+    });
+
+    res.json(user);
+  } catch (error) {
+    logger.error({
+      message: "Error creating user through fallback endpoint",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // Update user profile
 router.patch("/profile", validateAuth, userRateLimit, async (req, res) => {
   try {
@@ -193,14 +253,7 @@ router.post("/onboarding/:step", validateAuth, userRateLimit, async (req, res) =
               user_id: userId,
               broker_name: data.broker_name,
               credentials: data.credentials,
-              is_demo: data.is_demo || false,
-              metadata: {
-                created_at: new Date(),
-                settings: {
-                  leverage: "1:30",
-                  default_lot_size: "0.01",
-                },
-              },
+              is_active: true,
             },
           });
           await prisma.user.update({
@@ -362,9 +415,11 @@ router.get("/settings", validateAuth, userRateLimit, async (req, res) => {
           select: {
             id: true,
             broker_name: true,
-            is_demo: true,
             credentials: true,
-            metadata: true,
+            is_active: true,
+            last_used: true,
+            created_at: true,
+            updated_at: true,
           },
         },
       },

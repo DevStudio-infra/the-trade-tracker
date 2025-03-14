@@ -23,17 +23,24 @@ export interface BrokerConnection {
   id: string;
   broker_name: string;
   is_active: boolean;
-  is_demo: boolean;
   last_used: Date | null;
-  metadata: Record<string, unknown>;
   user_id: string;
   credentials: {
     apiKey: string;
-    apiSecret: string;
-    isDemo?: boolean;
+    identifier: string;
+    password: string;
   };
   created_at: Date;
   updated_at: Date;
+}
+
+export interface BrokerConnectionUpdate {
+  is_active?: boolean;
+  credentials?: {
+    apiKey: string;
+    identifier: string;
+    password: string;
+  };
 }
 
 export interface CapitalComCredentials {
@@ -59,15 +66,12 @@ export type BrokerCredentialsWithType =
   | ({ type: "mt4" | "mt5" } & MetaTraderCredentials);
 
 export interface BrokerCredentials {
-  id?: string;
   broker_name: string;
-  is_demo: boolean;
   is_active?: boolean;
   credentials: {
     apiKey: string;
     identifier: string;
     password: string;
-    [key: string]: string;
   };
   last_used?: string | null;
 }
@@ -100,6 +104,11 @@ export function useApi() {
       return data;
     },
 
+    createUser: async () => {
+      const { data } = await api.post<UserProfile>("/user/profile");
+      return data;
+    },
+
     updateUserProfile: async (updates: { onboardingStep?: number; onboardingCompleted?: boolean }) => {
       const { data } = await api.patch<UserProfile>("/user/profile", updates);
       return data;
@@ -125,7 +134,7 @@ export function useApi() {
     // Broker connections
     connectBroker: async (broker: string, credentials: BrokerCredentials) => {
       const { data } = await api.post<BrokerConnection>("/broker/connect", {
-        brokerName: broker,
+        broker_name: broker,
         credentials,
       });
       return data;
@@ -136,7 +145,7 @@ export function useApi() {
       return data;
     },
 
-    updateBrokerConnection: async (connectionId: string, updates: { is_active?: boolean; is_demo?: boolean }) => {
+    updateBrokerConnection: async (connectionId: string, updates: BrokerConnectionUpdate) => {
       const { data } = await api.patch<BrokerConnection>(`/broker/connections/${connectionId}`, updates);
       return data;
     },

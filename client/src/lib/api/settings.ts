@@ -3,17 +3,15 @@ import { api } from "./api";
 export interface BrokerCredentials {
   id: string;
   broker_name: string;
-  is_demo: boolean;
   is_active: boolean;
-  credentials: Record<string, string>;
-  metadata: {
-    created_at: string;
-    settings: {
-      leverage: string;
-      default_lot_size: string;
-    };
+  credentials: {
+    apiKey: string;
+    identifier: string;
+    password: string;
   };
   last_used?: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface UserSettings {

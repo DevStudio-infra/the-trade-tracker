@@ -53,13 +53,11 @@ export default function SettingsPage() {
       apiKey: string;
       identifier: string;
       password: string;
-      is_demo: boolean;
     };
   }) => {
     try {
       await api.connectBroker(data.broker_name, {
         broker_name: data.broker_name,
-        is_demo: data.credentials.is_demo,
         credentials: {
           apiKey: data.credentials.apiKey,
           identifier: data.credentials.identifier,
@@ -76,9 +74,25 @@ export default function SettingsPage() {
 
   const handleEditBroker = async (broker: UserSettings["broker_credentials"][0]) => {
     try {
+      console.log("Editing broker:", {
+        id: broker.id,
+        broker_name: broker.broker_name,
+        hasCredentials: broker.credentials
+          ? {
+              hasApiKey: !!broker.credentials.apiKey,
+              hasIdentifier: !!broker.credentials.identifier,
+              hasPassword: !!broker.credentials.password,
+            }
+          : null,
+      });
+
       await api.updateBrokerConnection(broker.id, {
-        is_demo: broker.is_demo,
         is_active: true,
+        credentials: {
+          apiKey: broker.credentials.apiKey || "",
+          identifier: broker.credentials.identifier || "",
+          password: broker.credentials.password || "",
+        },
       });
       await loadSettings();
       toast.success("Broker connection updated successfully");

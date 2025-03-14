@@ -39,6 +39,12 @@ export interface WatchlistItem {
 }
 
 interface TradingStore {
+  // Broker State
+  selectedBroker: string;
+  selectedBrokerCredential: string | null;
+  setSelectedBroker: (broker: string) => void;
+  setSelectedBrokerCredential: (credentialId: string | null) => void;
+
   // Positions
   positions: Position[];
   addPosition: (position: Position) => void;
@@ -66,6 +72,12 @@ export const useTradingStore = create<TradingStore>()(
   devtools(
     persist(
       (set) => ({
+        // Broker State
+        selectedBroker: "binance",
+        selectedBrokerCredential: null,
+        setSelectedBroker: (broker) => set({ selectedBroker: broker }),
+        setSelectedBrokerCredential: (credentialId) => set({ selectedBrokerCredential: credentialId }),
+
         // Positions
         positions: [],
         addPosition: (position) =>

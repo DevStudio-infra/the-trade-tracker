@@ -1,90 +1,73 @@
 import { prisma } from "../../lib/prisma";
 import { createLogger } from "../../utils/logger";
-import { BrokerCredential } from "@prisma/client";
+import { BrokerCredential, Prisma } from "@prisma/client";
 import { CapitalComAPI } from "./capital-com/api";
-import { encryptCredentials, decryptCredentials } from "../../utils/encryption.utils";
+import { encrypt, decrypt, encryptCredentials, decryptCredentials } from "../../utils/encryption.utils";
+import { BrokerConnection, BrokerCredentials } from "../../types/broker";
 
 const logger = createLogger("broker-service");
 
-interface BrokerConnection {
-  id: string;
-  broker_name: string;
-  is_active: boolean;
-  is_demo: boolean;
-  last_used: Date | null;
-  metadata: any;
-  user_id: string;
-  credentials: any;
-  created_at: Date;
-  updated_at: Date;
-}
-
-interface BrokerCredentials {
-  apiKey: string;
-  apiSecret: string;
-  isDemo?: boolean;
-}
-
 export class BrokerService {
-  private readonly brokerAPIs: Map<string, any> = new Map([["capital", CapitalComAPI]]);
+  private readonly brokerAPIs: Map<string, any> = new Map([["capital.com", CapitalComAPI]]);
+
+  private mapToBrokerConnection(connection: BrokerCredential): BrokerConnection {
+    logger.info({
+      message: "Mapping broker connection to response",
+      connectionId: connection.id,
+      broker_name: connection.broker_name,
+      has_credentials: !!connection.credentials,
+    });
+
+    const decryptedCredentials = decryptCredentials<BrokerCredentials>(connection.credentials as Record<string, string>);
+
+    logger.info({
+      message: "Decrypted credentials",
+      connectionId: connection.id,
+      has_decrypted: {
+        apiKey: !!decryptedCredentials.apiKey,
+        identifier: !!decryptedCredentials.identifier,
+        password: !!decryptedCredentials.password,
+      },
+    });
+
+    return {
+      id: connection.id,
+      user_id: connection.user_id,
+      broker_name: connection.broker_name,
+      credentials: decryptedCredentials,
+      is_active: connection.is_active,
+      last_used: connection.last_used,
+      created_at: connection.created_at,
+      updated_at: connection.updated_at,
+    };
+  }
 
   async addConnection(userId: string, brokerName: string, credentials: BrokerCredentials): Promise<BrokerConnection> {
-    try {
-      // Validate broker exists
-      if (!this.brokerAPIs.has(brokerName)) {
-        throw new Error("Unsupported broker");
-      }
+    const normalizedBrokerName = brokerName.toLowerCase().replace(/_/g, ".");
+    const BrokerAPI = this.brokerAPIs.get(normalizedBrokerName);
 
-      // Validate API credentials
-      const BrokerAPI = this.brokerAPIs.get(brokerName);
-      const api = new BrokerAPI(credentials.apiKey, credentials.apiSecret);
+    if (!BrokerAPI) {
+      throw new Error("Unsupported broker");
+    }
+
+    try {
+      const api = new BrokerAPI(credentials.apiKey, credentials.identifier, credentials.password);
       await api.validateCredentials();
 
-      // Store encrypted credentials
       const encryptedCredentials = encryptCredentials(credentials);
+
       const connection = await prisma.brokerCredential.create({
         data: {
           user_id: userId,
-          broker_name: brokerName,
-          credentials: encryptedCredentials,
-          is_demo: credentials.isDemo || false,
-          metadata: {
-            createdAt: new Date(),
-            settings: {
-              leverage: "1:30",
-              defaultLotSize: "0.01",
-            },
-          },
-        },
-        select: {
-          id: true,
-          broker_name: true,
+          broker_name: normalizedBrokerName,
+          credentials: encryptedCredentials as Prisma.InputJsonValue,
           is_active: true,
-          is_demo: true,
-          last_used: true,
-          metadata: true,
-          user_id: true,
-          credentials: true,
-          created_at: true,
-          updated_at: true,
         },
       });
 
-      logger.info({
-        message: "Broker connection added",
-        userId,
-        brokerName,
-        connectionId: connection.id,
-      });
-
-      return connection;
+      return this.mapToBrokerConnection(connection);
     } catch (error) {
-      logger.error({
-        message: "Error adding broker connection",
-        error: error instanceof Error ? error.message : "Unknown error",
-        userId,
-        brokerName,
-      });
+      logger.error("Error adding broker connection:", error);
       throw error;
     }
   }
@@ -93,21 +76,9 @@ export class BrokerService {
     try {
       const connections = await prisma.brokerCredential.findMany({
         where: { user_id: userId },
-        select: {
-          id: true,
-          broker_name: true,
-          is_active: true,
-          is_demo: true,
-          last_used: true,
-          metadata: true,
-          user_id: true,
-          credentials: true,
-          created_at: true,
-          updated_at: true,
-        },
       });
 
-      return connections;
+      return connections.map((connection) => this.mapToBrokerConnection(connection));
     } catch (error) {
       logger.error({
         message: "Error fetching broker connections",
@@ -118,36 +89,26 @@ export class BrokerService {
     }
   }
 
-  async updateConnection(userId: string, connectionId: string, updates: Partial<{ is_active: boolean; is_demo: boolean }>): Promise<BrokerConnection> {
+  async updateConnection(userId: string, connectionId: string, updates: { is_active?: boolean; credentials?: BrokerCredentials }): Promise<BrokerConnection> {
     try {
+      const updateData: Prisma.BrokerCredentialUpdateInput = {
+        is_active: updates.is_active,
+      };
+
+      if (updates.credentials) {
+        const encryptedCredentials = encryptCredentials(updates.credentials);
+        updateData.credentials = encryptedCredentials as Prisma.InputJsonValue;
+      }
+
       const connection = await prisma.brokerCredential.update({
         where: {
           id: connectionId,
-          user_id: userId, // Ensure the connection belongs to the user
+          user_id: userId,
         },
-        data: updates,
-        select: {
-          id: true,
-          broker_name: true,
-          is_active: true,
-          is_demo: true,
-          last_used: true,
-          metadata: true,
-          user_id: true,
-          credentials: true,
-          created_at: true,
-          updated_at: true,
-        },
+        data: updateData,
       });
 
-      logger.info({
-        message: "Broker connection updated",
-        userId,
-        connectionId,
-        updates,
-      });
-
-      return connection;
+      return this.mapToBrokerConnection(connection);
     } catch (error) {
       logger.error({
         message: "Error updating broker connection",
@@ -199,8 +160,8 @@ export class BrokerService {
         throw new Error("Unsupported broker");
       }
 
-      const credentials = decryptCredentials<BrokerCredentials>(connection.credentials as string);
-      const api = new BrokerAPI(credentials.apiKey, credentials.apiSecret);
+      const credentials = decryptCredentials<BrokerCredentials>(connection.credentials as Record<string, string>);
+      const api = new BrokerAPI(credentials.apiKey, credentials.identifier, credentials.password);
       await api.validateCredentials();
 
       // Update last used timestamp

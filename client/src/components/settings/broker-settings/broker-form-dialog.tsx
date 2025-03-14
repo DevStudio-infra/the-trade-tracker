@@ -5,7 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { UserSettings } from "@/lib/api/settings";
 import { Eye, EyeOff } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface BrokerFormData {
   broker_name: string;
@@ -13,7 +13,6 @@ interface BrokerFormData {
     apiKey: string;
     identifier: string;
     password: string;
-    is_demo: boolean;
   };
 }
 
@@ -25,29 +24,104 @@ interface BrokerFormDialogProps {
 }
 
 export function BrokerFormDialog({ open, onOpenChange, editingBroker, onSubmit }: BrokerFormDialogProps) {
-  const [showApiKey, setShowApiKey] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [formData, setFormData] = useState<BrokerFormData>({
-    broker_name: editingBroker?.broker_name || "",
-    credentials: {
-      apiKey: editingBroker?.credentials.apiKey || "",
-      identifier: editingBroker?.credentials.identifier || "",
-      password: editingBroker?.credentials.password || "",
-      is_demo: editingBroker?.is_demo || false,
-    },
+  console.log("BrokerFormDialog rendered with editingBroker:", {
+    id: editingBroker?.id,
+    broker_name: editingBroker?.broker_name,
+    credentials: editingBroker?.credentials
+      ? {
+          hasApiKey: !!editingBroker.credentials.apiKey,
+          hasIdentifier: !!editingBroker.credentials.identifier,
+          hasPassword: !!editingBroker.credentials.password,
+        }
+      : null,
   });
 
-  const handleClose = () => {
-    onOpenChange(false);
-    setFormData({
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [formData, setFormData] = useState<BrokerFormData>(() => {
+    console.log("Initializing form data state");
+    return {
       broker_name: "",
       credentials: {
         apiKey: "",
         identifier: "",
         password: "",
-        is_demo: false,
+      },
+    };
+  });
+
+  // Update form data when editingBroker changes
+  useEffect(() => {
+    console.log("useEffect triggered with editingBroker:", {
+      isEditing: !!editingBroker,
+      broker_name: editingBroker?.broker_name,
+      credentials: editingBroker?.credentials
+        ? {
+            raw: editingBroker.credentials,
+            apiKey: editingBroker.credentials.apiKey,
+            identifier: editingBroker.credentials.identifier,
+            password: editingBroker.credentials.password,
+          }
+        : null,
+    });
+
+    if (editingBroker) {
+      console.log("Setting form data with credentials:", editingBroker.credentials);
+      setFormData({
+        broker_name: editingBroker.broker_name,
+        credentials: {
+          apiKey: editingBroker.credentials?.apiKey || "",
+          identifier: editingBroker.credentials?.identifier || "",
+          password: editingBroker.credentials?.password || "",
+        },
+      });
+    } else {
+      setFormData({
+        broker_name: "",
+        credentials: {
+          apiKey: "",
+          identifier: "",
+          password: "",
+        },
+      });
+    }
+  }, [editingBroker]);
+
+  const handleClose = () => {
+    console.log("Handling dialog close");
+    onOpenChange(false);
+    setShowApiKey(false);
+    setShowPassword(false);
+    if (!editingBroker) {
+      console.log("Resetting form data on close");
+      setFormData({
+        broker_name: "",
+        credentials: {
+          apiKey: "",
+          identifier: "",
+          password: "",
+        },
+      });
+    }
+  };
+
+  const handleSubmit = async () => {
+    console.log("Submitting form with data:", {
+      broker_name: formData.broker_name,
+      hasCredentials: {
+        apiKey: !!formData.credentials.apiKey,
+        identifier: !!formData.credentials.identifier,
+        password: !!formData.credentials.password,
       },
     });
+
+    try {
+      await onSubmit(formData);
+      console.log("Form submitted successfully");
+      handleClose();
+    } catch (error) {
+      console.error("Error submitting broker form:", error);
+    }
   };
 
   return (
@@ -63,7 +137,8 @@ export function BrokerFormDialog({ open, onOpenChange, editingBroker, onSubmit }
             <Select
               disabled={!!editingBroker}
               value={formData.broker_name}
-              onValueChange={(value) =>
+              onValueChange={(value) => {
+                console.log("Broker selection changed to:", value);
                 setFormData({
                   ...formData,
                   broker_name: value,
@@ -71,15 +146,14 @@ export function BrokerFormDialog({ open, onOpenChange, editingBroker, onSubmit }
                     apiKey: "",
                     identifier: "",
                     password: "",
-                    is_demo: false,
                   },
-                })
-              }>
+                });
+              }}>
               <SelectTrigger>
                 <SelectValue placeholder="Select a broker" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="capital_com">Capital.com</SelectItem>
+                <SelectItem value="capital.com">Capital.com</SelectItem>
                 <SelectItem value="other" disabled>
                   More brokers coming soon
                 </SelectItem>
@@ -87,7 +161,7 @@ export function BrokerFormDialog({ open, onOpenChange, editingBroker, onSubmit }
             </Select>
           </div>
 
-          {(editingBroker?.broker_name === "capital_com" || formData.broker_name === "capital_com") && (
+          {(editingBroker?.broker_name === "capital.com" || formData.broker_name === "capital.com") && (
             <>
               <div className="grid gap-2">
                 <Label htmlFor="apiKey">API Key</Label>
@@ -96,12 +170,13 @@ export function BrokerFormDialog({ open, onOpenChange, editingBroker, onSubmit }
                     id="apiKey"
                     type={showApiKey ? "text" : "password"}
                     value={formData.credentials.apiKey}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      console.log("API Key changed");
                       setFormData({
                         ...formData,
                         credentials: { ...formData.credentials, apiKey: e.target.value },
-                      })
-                    }
+                      });
+                    }}
                     className="pr-10"
                   />
                   <Button
@@ -120,12 +195,13 @@ export function BrokerFormDialog({ open, onOpenChange, editingBroker, onSubmit }
                 <Input
                   id="identifier"
                   value={formData.credentials.identifier}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    console.log("Identifier changed");
                     setFormData({
                       ...formData,
                       credentials: { ...formData.credentials, identifier: e.target.value },
-                    })
-                  }
+                    });
+                  }}
                 />
               </div>
 
@@ -136,12 +212,13 @@ export function BrokerFormDialog({ open, onOpenChange, editingBroker, onSubmit }
                     id="password"
                     type={showPassword ? "text" : "password"}
                     value={formData.credentials.password}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      console.log("Password changed");
                       setFormData({
                         ...formData,
                         credentials: { ...formData.credentials, password: e.target.value },
-                      })
-                    }
+                      });
+                    }}
                     className="pr-10"
                   />
                   <Button
@@ -161,7 +238,7 @@ export function BrokerFormDialog({ open, onOpenChange, editingBroker, onSubmit }
           <Button variant="outline" onClick={handleClose}>
             Cancel
           </Button>
-          <Button onClick={() => onSubmit(formData)}>{editingBroker ? "Save Changes" : "Add Broker"}</Button>
+          <Button onClick={handleSubmit}>{editingBroker ? "Save Changes" : "Add Broker"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
