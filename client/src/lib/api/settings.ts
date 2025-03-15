@@ -17,9 +17,22 @@ export interface BrokerCredentials {
 export interface UserSettings {
   id: string;
   email: string;
-  name: string;
+  name: string | null;
   is_active: boolean;
-  broker_credentials: BrokerCredentials[];
+  broker_credentials: {
+    id: string;
+    broker_name: string;
+    description: string;
+    credentials: {
+      apiKey: string;
+      identifier: string;
+      password: string;
+    };
+    is_active: boolean;
+    last_used: string | null;
+    created_at: string;
+    updated_at: string;
+  }[];
 }
 
 export interface UpdateUserSettingsData {
@@ -34,6 +47,7 @@ export const settingsApi = {
       const fullUrl = api.defaults.baseURL + "/user/settings";
       console.log("Requesting user settings from:", fullUrl);
       const response = await api.get("/user/settings");
+      console.log("User settings response:", response.data);
       return response.data;
     } catch (error) {
       console.error("Error fetching user settings:", error);

@@ -9,6 +9,7 @@ import { useState, useEffect } from "react";
 
 interface BrokerFormData {
   broker_name: string;
+  description: string;
   credentials: {
     apiKey: string;
     identifier: string;
@@ -27,6 +28,7 @@ export function BrokerFormDialog({ open, onOpenChange, editingBroker, onSubmit }
   console.log("BrokerFormDialog rendered with editingBroker:", {
     id: editingBroker?.id,
     broker_name: editingBroker?.broker_name,
+    description: editingBroker?.description,
     credentials: editingBroker?.credentials
       ? {
           hasApiKey: !!editingBroker.credentials.apiKey,
@@ -42,6 +44,7 @@ export function BrokerFormDialog({ open, onOpenChange, editingBroker, onSubmit }
     console.log("Initializing form data state");
     return {
       broker_name: "",
+      description: "",
       credentials: {
         apiKey: "",
         identifier: "",
@@ -55,6 +58,7 @@ export function BrokerFormDialog({ open, onOpenChange, editingBroker, onSubmit }
     console.log("useEffect triggered with editingBroker:", {
       isEditing: !!editingBroker,
       broker_name: editingBroker?.broker_name,
+      description: editingBroker?.description,
       credentials: editingBroker?.credentials
         ? {
             raw: editingBroker.credentials,
@@ -69,6 +73,7 @@ export function BrokerFormDialog({ open, onOpenChange, editingBroker, onSubmit }
       console.log("Setting form data with credentials:", editingBroker.credentials);
       setFormData({
         broker_name: editingBroker.broker_name,
+        description: editingBroker.description || "",
         credentials: {
           apiKey: editingBroker.credentials?.apiKey || "",
           identifier: editingBroker.credentials?.identifier || "",
@@ -78,6 +83,7 @@ export function BrokerFormDialog({ open, onOpenChange, editingBroker, onSubmit }
     } else {
       setFormData({
         broker_name: "",
+        description: "",
         credentials: {
           apiKey: "",
           identifier: "",
@@ -96,6 +102,7 @@ export function BrokerFormDialog({ open, onOpenChange, editingBroker, onSubmit }
       console.log("Resetting form data on close");
       setFormData({
         broker_name: "",
+        description: "",
         credentials: {
           apiKey: "",
           identifier: "",
@@ -108,6 +115,7 @@ export function BrokerFormDialog({ open, onOpenChange, editingBroker, onSubmit }
   const handleSubmit = async () => {
     console.log("Submitting form with data:", {
       broker_name: formData.broker_name,
+      description: formData.description,
       hasCredentials: {
         apiKey: !!formData.credentials.apiKey,
         identifier: !!formData.credentials.identifier,
@@ -159,6 +167,22 @@ export function BrokerFormDialog({ open, onOpenChange, editingBroker, onSubmit }
                 </SelectItem>
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor="description">Description</Label>
+            <Input
+              id="description"
+              placeholder="e.g. Main Trading Account"
+              value={formData.description}
+              onChange={(e) => {
+                console.log("Description changed");
+                setFormData({
+                  ...formData,
+                  description: e.target.value,
+                });
+              }}
+            />
           </div>
 
           {(editingBroker?.broker_name === "capital.com" || formData.broker_name === "capital.com") && (

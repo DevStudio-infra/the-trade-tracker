@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { AccountSettings } from "@/components/settings/account-settings";
 import { PreferencesSettings } from "@/components/settings/preferences-settings";
 import { BrokerSettings } from "@/components/settings/broker-settings/broker-settings";
+import { AxiosError } from "axios";
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<UserSettings | null>(null);
@@ -49,6 +50,7 @@ export default function SettingsPage() {
 
   const handleAddBroker = async (data: {
     broker_name: string;
+    description: string;
     credentials: {
       apiKey: string;
       identifier: string;
@@ -56,19 +58,27 @@ export default function SettingsPage() {
     };
   }) => {
     try {
+      console.log("Adding broker with data:", {
+        broker_name: data.broker_name,
+        description: data.description,
+        hasCredentials: {
+          apiKey: !!data.credentials.apiKey,
+          identifier: !!data.credentials.identifier,
+          password: !!data.credentials.password,
+        },
+      });
+
       await api.connectBroker(data.broker_name, {
         broker_name: data.broker_name,
-        credentials: {
-          apiKey: data.credentials.apiKey,
-          identifier: data.credentials.identifier,
-          password: data.credentials.password,
-        },
+        description: data.description,
+        is_active: true,
+        credentials: data.credentials,
       });
       await loadSettings();
       toast.success("Broker connection added successfully");
-    } catch (error) {
-      console.error("Error adding broker:", error);
-      toast.error("Failed to add broker connection");
+    } catch (error: unknown) {
+      const axiosError = error as AxiosError<{ error: string }>;
+      toast.error(axiosError.response?.data?.error || "Failed to add broker connection");
     }
   };
 
@@ -77,6 +87,7 @@ export default function SettingsPage() {
       console.log("Editing broker:", {
         id: broker.id,
         broker_name: broker.broker_name,
+        description: broker.description,
         hasCredentials: broker.credentials
           ? {
               hasApiKey: !!broker.credentials.apiKey,
@@ -88,6 +99,7 @@ export default function SettingsPage() {
 
       await api.updateBrokerConnection(broker.id, {
         is_active: true,
+        description: broker.description,
         credentials: {
           apiKey: broker.credentials.apiKey || "",
           identifier: broker.credentials.identifier || "",

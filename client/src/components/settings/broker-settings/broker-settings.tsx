@@ -7,6 +7,7 @@ import { BrokerFormDialog } from "./broker-form-dialog";
 
 interface BrokerFormData {
   broker_name: string;
+  description: string;
   credentials: {
     apiKey: string;
     identifier: string;
@@ -27,6 +28,7 @@ export function BrokerSettings({ settings, onAddBroker, onEditBroker, onDeleteBr
     brokerCredentials: settings.broker_credentials.map((cred) => ({
       id: cred.id,
       broker_name: cred.broker_name,
+      description: cred.description,
       hasCredentials: cred.credentials
         ? {
             hasApiKey: !!cred.credentials.apiKey,
@@ -45,6 +47,7 @@ export function BrokerSettings({ settings, onAddBroker, onEditBroker, onDeleteBr
       isEditing: !!editingBroker,
       formData: {
         broker_name: data.broker_name,
+        description: data.description,
         hasCredentials: {
           apiKey: !!data.credentials.apiKey,
           identifier: !!data.credentials.identifier,
@@ -57,6 +60,7 @@ export function BrokerSettings({ settings, onAddBroker, onEditBroker, onDeleteBr
       await onEditBroker({
         ...editingBroker,
         broker_name: data.broker_name,
+        description: data.description,
         credentials: {
           apiKey: data.credentials.apiKey || editingBroker.credentials.apiKey,
           identifier: data.credentials.identifier || editingBroker.credentials.identifier,
@@ -74,6 +78,7 @@ export function BrokerSettings({ settings, onAddBroker, onEditBroker, onDeleteBr
     console.log("Setting editing broker:", {
       id: broker.id,
       broker_name: broker.broker_name,
+      description: broker.description,
       credentials: {
         raw: broker.credentials,
         apiKey: broker.credentials?.apiKey,

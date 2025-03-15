@@ -10,8 +10,20 @@ interface BrokerSelectProps {
 export function BrokerSelect({ value, onValueChange }: BrokerSelectProps) {
   const { brokerConnections, isLoadingBrokers } = useSettings();
 
+  const handleChange = (selectedId: string) => {
+    const selectedBroker = brokerConnections?.find((conn) => conn.id === selectedId);
+    console.log("Selected Broker Details:", {
+      id: selectedBroker?.id,
+      broker_name: selectedBroker?.broker_name,
+      description: selectedBroker?.description,
+      is_active: selectedBroker?.is_active,
+      last_used: selectedBroker?.last_used,
+    });
+    onValueChange(selectedId);
+  };
+
   return (
-    <Select value={value || ""} onValueChange={onValueChange}>
+    <Select value={value || ""} onValueChange={handleChange}>
       <SelectTrigger>
         <SelectValue placeholder="Select broker credentials" />
       </SelectTrigger>
@@ -27,7 +39,7 @@ export function BrokerSelect({ value, onValueChange }: BrokerSelectProps) {
         ) : (
           brokerConnections.map((connection: BrokerConnection) => (
             <SelectItem key={connection.id} value={connection.id}>
-              {connection.broker_name} - {connection.credentials.identifier}
+              {connection.description || `${connection.broker_name} Connection`}
             </SelectItem>
           ))
         )}

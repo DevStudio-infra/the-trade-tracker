@@ -22,6 +22,7 @@ export interface UserProfile {
 export interface BrokerConnection {
   id: string;
   broker_name: string;
+  description: string;
   is_active: boolean;
   last_used: Date | null;
   user_id: string;
@@ -36,6 +37,7 @@ export interface BrokerConnection {
 
 export interface BrokerConnectionUpdate {
   is_active?: boolean;
+  description?: string;
   credentials?: {
     apiKey: string;
     identifier: string;
@@ -67,6 +69,7 @@ export type BrokerCredentialsWithType =
 
 export interface BrokerCredentials {
   broker_name: string;
+  description: string;
   is_active?: boolean;
   credentials: {
     apiKey: string;
@@ -134,8 +137,10 @@ export function useApi() {
     // Broker connections
     connectBroker: async (broker: string, credentials: BrokerCredentials) => {
       const { data } = await api.post<BrokerConnection>("/broker/connect", {
-        broker_name: broker,
-        credentials,
+        broker_name: credentials.broker_name,
+        description: credentials.description,
+        is_active: credentials.is_active ?? true,
+        credentials: credentials.credentials,
       });
       return data;
     },
