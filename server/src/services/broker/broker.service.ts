@@ -12,28 +12,80 @@ export class BrokerService {
 
   private mapToBrokerConnection(connection: BrokerCredential): BrokerConnection {
     logger.info({
-      message: "Mapping broker connection to response",
+      message: "Mapping broker connection - Start",
       connectionId: connection.id,
       broker_name: connection.broker_name,
-      has_credentials: !!connection.credentials,
-    });
-
-    const decryptedCredentials = decryptCredentials<BrokerCredentials>(connection.credentials as Record<string, string>);
-
-    logger.info({
-      message: "Decrypted credentials",
-      connectionId: connection.id,
-      has_decrypted: {
-        apiKey: !!decryptedCredentials.apiKey,
-        identifier: !!decryptedCredentials.identifier,
-        password: !!decryptedCredentials.password,
+      credentials_check: {
+        exists: !!connection.credentials,
+        type: typeof connection.credentials,
+        isObject: typeof connection.credentials === "object",
+        hasApiKey: !!(connection.credentials as any)?.apiKey,
+        hasIdentifier: !!(connection.credentials as any)?.identifier,
+        hasPassword: !!(connection.credentials as any)?.password,
+        apiKeyLength: (connection.credentials as any)?.apiKey?.length,
+        identifierLength: (connection.credentials as any)?.identifier?.length,
+        passwordLength: (connection.credentials as any)?.password?.length,
       },
     });
+
+    // Handle credentials decryption
+    let decryptedCredentials: BrokerCredentials;
+
+    try {
+      const credentials = connection.credentials as Record<string, string>;
+      logger.info({
+        message: "Attempting to decrypt credentials",
+        fields_to_decrypt: {
+          apiKey: {
+            exists: !!credentials.apiKey,
+            length: credentials.apiKey?.length,
+          },
+          identifier: {
+            exists: !!credentials.identifier,
+            length: credentials.identifier?.length,
+          },
+          password: {
+            exists: !!credentials.password,
+            length: credentials.password?.length,
+          },
+        },
+      });
+
+      decryptedCredentials = {
+        apiKey: credentials.apiKey ? decrypt(credentials.apiKey) : "",
+        identifier: credentials.identifier ? decrypt(credentials.identifier) : "",
+        password: credentials.password ? decrypt(credentials.password) : "",
+      };
+
+      logger.info({
+        message: "Credentials decrypted successfully",
+        decrypted_lengths: {
+          apiKey: decryptedCredentials.apiKey.length,
+          identifier: decryptedCredentials.identifier.length,
+          password: decryptedCredentials.password.length,
+        },
+      });
+    } catch (error) {
+      logger.error({
+        message: "Error decrypting credentials",
+        error: error instanceof Error ? error.message : "Unknown error",
+        stack: error instanceof Error ? error.stack : undefined,
+        connectionId: connection.id,
+        credentials_type: typeof connection.credentials,
+      });
+      // Fallback to empty credentials if decryption fails
+      decryptedCredentials = {
+        apiKey: "",
+        identifier: "",
+        password: "",
+      };
+    }
 
     return {
       id: connection.id,
       user_id: connection.user_id,
       broker_name: connection.broker_name,
+      description: connection.description,
       credentials: decryptedCredentials,
       is_active: connection.is_active,
       last_used: connection.last_used,
@@ -42,7 +94,7 @@ export class BrokerService {
     };
   }
 
-  async addConnection(userId: string, brokerName: string, credentials: BrokerCredentials): Promise<BrokerConnection> {
+  async addConnection(userId: string, brokerName: string, credentials: BrokerCredentials, description: string): Promise<BrokerConnection> {
     const normalizedBrokerName = brokerName.toLowerCase().replace(/_/g, ".");
     const BrokerAPI = this.brokerAPIs.get(normalizedBrokerName);
 
@@ -51,23 +103,100 @@ export class BrokerService {
     }
 
     try {
+      // Validate credentials
+      if (!credentials.apiKey || !credentials.identifier || !credentials.password) {
+        throw new Error("Missing required credentials");
+      }
+
       const api = new BrokerAPI(credentials.apiKey, credentials.identifier, credentials.password);
       await api.validateCredentials();
 
-      const encryptedCredentials = encryptCredentials(credentials);
+      logger.info({
+        message: "Adding broker connection - Initial credentials",
+        userId,
+        brokerName: normalizedBrokerName,
+        credentials_check: {
+          apiKey: {
+            exists: !!credentials.apiKey,
+            length: credentials.apiKey?.length,
+          },
+          identifier: {
+            exists: !!credentials.identifier,
+            length: credentials.identifier?.length,
+          },
+          password: {
+            exists: !!credentials.password,
+            length: credentials.password?.length,
+          },
+        },
+      });
+
+      // Create a clean credentials object with only the required fields
+      const cleanCredentials = {
+        apiKey: credentials.apiKey,
+        identifier: credentials.identifier,
+        password: credentials.password,
+      };
+
+      logger.info({
+        message: "Clean credentials prepared",
+        has_fields: {
+          apiKey: !!cleanCredentials.apiKey,
+          identifier: !!cleanCredentials.identifier,
+          password: !!cleanCredentials.password,
+        },
+      });
+
+      // Encrypt each field individually
+      const encryptedCredentials = {
+        apiKey: encrypt(cleanCredentials.apiKey),
+        identifier: encrypt(cleanCredentials.identifier),
+        password: encrypt(cleanCredentials.password),
+      };
+
+      logger.info({
+        message: "Credentials encrypted",
+        encrypted_lengths: {
+          apiKey: encryptedCredentials.apiKey?.length,
+          identifier: encryptedCredentials.identifier?.length,
+          password: encryptedCredentials.password?.length,
+        },
+      });
 
       const connection = await prisma.brokerCredential.create({
         data: {
           user_id: userId,
           broker_name: normalizedBrokerName,
-          credentials: encryptedCredentials as Prisma.InputJsonValue,
+          description: description || `${normalizedBrokerName} Connection`,
+          credentials: encryptedCredentials,
           is_active: true,
+        },
+      });
+
+      logger.info({
+        message: "Created broker connection",
+        connectionId: connection.id,
+        credentials_type: typeof connection.credentials,
+        credentials_check: {
+          isObject: typeof connection.credentials === "object",
+          hasApiKey: !!(connection.credentials as any)?.apiKey,
+          hasIdentifier: !!(connection.credentials as any)?.identifier,
+          hasPassword: !!(connection.credentials as any)?.password,
+          apiKeyLength: (connection.credentials as any)?.apiKey?.length,
+          identifierLength: (connection.credentials as any)?.identifier?.length,
+          passwordLength: (connection.credentials as any)?.password?.length,
         },
       });
 
       return this.mapToBrokerConnection(connection);
     } catch (error) {
-      logger.error("Error adding broker connection:", error);
+      logger.error({
+        message: "Error adding broker connection",
+        error: error instanceof Error ? error.message : "Unknown error",
+        stack: error instanceof Error ? error.stack : undefined,
+        userId,
+        brokerName: normalizedBrokerName,
+      });
       throw error;
     }
   }

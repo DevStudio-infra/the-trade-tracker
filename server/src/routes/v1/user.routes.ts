@@ -2,9 +2,11 @@ import { Router } from "express";
 import { validateAuth, rateLimit, AuthenticatedRequest } from "../../middleware/auth.middleware";
 import { prisma } from "../../lib/prisma";
 import { createLogger } from "../../utils/logger";
+import { BrokerService } from "../../services/broker/broker.service";
 
 const router = Router();
 const logger = createLogger("user-routes");
+const brokerService = new BrokerService();
 
 // Apply rate limiting to all user routes
 const userRateLimit = rateLimit(100, 60 * 1000); // 100 requests per minute
@@ -411,17 +413,7 @@ router.get("/settings", validateAuth, userRateLimit, async (req, res) => {
         email: true,
         name: true,
         is_active: true,
-        broker_credentials: {
-          select: {
-            id: true,
-            broker_name: true,
-            credentials: true,
-            is_active: true,
-            last_used: true,
-            created_at: true,
-            updated_at: true,
-          },
-        },
+        broker_credentials: true,
       },
     });
 
@@ -430,16 +422,17 @@ router.get("/settings", validateAuth, userRateLimit, async (req, res) => {
         message: "User not found when fetching settings",
         userId,
         query: "findUnique user",
-        prismaSelect: {
-          id: true,
-          email: true,
-          name: true,
-          is_active: true,
-          broker_credentials: true,
-        },
       });
       return res.status(404).json({ error: "User not found" });
     }
+
+    // Map broker credentials through the broker service to decrypt them
+    const mappedBrokerCredentials = user.broker_credentials.map((cred) => brokerService["mapToBrokerConnection"](cred));
+
+    const responseData = {
+      ...user,
+      broker_credentials: mappedBrokerCredentials,
+    };
 
     logger.info({
       message: "User settings retrieved successfully",
@@ -453,7 +446,7 @@ router.get("/settings", validateAuth, userRateLimit, async (req, res) => {
       },
     });
 
-    res.json(user);
+    res.json(responseData);
   } catch (error) {
     logger.error({
       message: "Error retrieving user settings",

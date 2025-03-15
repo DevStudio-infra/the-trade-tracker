@@ -11,6 +11,7 @@ export interface BrokerConnection {
   id: string;
   user_id: string;
   broker_name: string;
+  description: string;
   credentials: BrokerCredentials;
   is_active: boolean;
   last_used: Date | null;
@@ -20,5 +21,6 @@ export interface BrokerConnection {
 
 export interface BrokerConnectionRequest {
   broker_name: string;
+  description: string;
   credentials: BrokerCredentials;
 }

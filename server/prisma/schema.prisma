@@ -156,6 +156,7 @@ model BrokerCredential {
     id          String    @id @default(uuid())
     user_id     String
     broker_name String
+    description String    @default("")
     credentials Json
     is_active   Boolean   @default(true)
     last_used   DateTime?
