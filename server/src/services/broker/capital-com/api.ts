@@ -33,6 +33,7 @@ export class CapitalComAPI {
 
   async authenticate(): Promise<void> {
     try {
+      console.log("Authenticating with Capital.com API...");
       const response = await axios.post(
         `${this.baseUrl}/session`,
         {
@@ -50,13 +51,16 @@ export class CapitalComAPI {
       if (response.headers["cst"] && response.headers["x-security-token"]) {
         this.cst = response.headers["cst"];
         this.securityToken = response.headers["x-security-token"];
+        console.log("Authentication successful");
       } else {
         throw new Error("Authentication failed: Missing security tokens");
       }
     } catch (error) {
+      console.error("Authentication failed:", error instanceof Error ? error.message : "Unknown error");
       logger.error({
         message: "Authentication failed",
         error: error instanceof Error ? error.message : "Unknown error",
+        stack: error instanceof Error ? error.stack : undefined,
       });
       throw error;
     }
@@ -154,6 +158,68 @@ export class CapitalComAPI {
         dealId,
       });
       throw error;
+    }
+  }
+
+  async getInstruments() {
+    try {
+      console.log("Getting instruments from Capital.com API...");
+      // Always authenticate for getInstruments, as tokens might be expired
+      await this.authenticate();
+
+      console.log("Making API call to fetch markets...");
+      const response = await axios.get(`${this.baseUrl}/markets`, {
+        headers: this.getHeaders(),
+      });
+
+      console.log(`Received ${response.data.markets?.length || 0} markets from Capital.com`);
+
+      // Handle empty response
+      if (!response.data.markets || !Array.isArray(response.data.markets)) {
+        console.warn("No markets data found in API response");
+        return [];
+      }
+
+      // Log the first few markets for debugging
+      if (response.data.markets.length > 0) {
+        console.log("Sample market data:", {
+          first: response.data.markets[0],
+          instrumentTypes: new Set(response.data.markets.slice(0, 100).map((m: any) => m.instrumentType)),
+        });
+      }
+
+      const instruments = response.data.markets.map((market: any) => ({
+        symbol: market.epic,
+        name: market.instrumentName,
+        displayName: `${market.instrumentName} (${market.epic})`,
+        type: market.instrumentType || "", // Explicitly handle undefined
+        minQuantity: market.minDealSize || 0.1,
+        maxQuantity: market.maxDealSize || 100,
+        precision: market.decimalPlaces || 2,
+      }));
+
+      // Count instruments by type
+      const typeCount: Record<string, number> = {};
+      instruments.forEach((instrument: any) => {
+        const type = instrument.type || "UNKNOWN";
+        typeCount[type] = (typeCount[type] || 0) + 1;
+      });
+      console.log("Instruments by type:", typeCount);
+
+      return instruments;
+    } catch (error: unknown) {
+      console.error("Error fetching instruments:", error instanceof Error ? error.message : "Unknown error");
+      // Prevent circular JSON structure in logging
+      logger.error({
+        message: "Error fetching instruments",
+        error: error instanceof Error ? error.message : "Unknown error",
+        status: error instanceof Error && "response" in error ? (error as any).response?.status : undefined,
+        statusText: error instanceof Error && "response" in error ? (error as any).response?.statusText : undefined,
+        data: error instanceof Error && "response" in error ? JSON.stringify((error as any).response?.data) : undefined,
+      });
+
+      // Return empty array instead of throwing
+      return [];
     }
   }
 }

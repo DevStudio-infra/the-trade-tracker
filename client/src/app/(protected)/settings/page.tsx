@@ -99,12 +99,14 @@ export default function SettingsPage() {
 
       await api.updateBrokerConnection(broker.id, {
         is_active: true,
-        description: broker.description,
-        credentials: {
-          apiKey: broker.credentials.apiKey || "",
-          identifier: broker.credentials.identifier || "",
-          password: broker.credentials.password || "",
-        },
+        description: broker.description || "",
+        credentials: broker.credentials
+          ? {
+              apiKey: broker.credentials.apiKey || "",
+              identifier: broker.credentials.identifier || "",
+              password: broker.credentials.password || "",
+            }
+          : undefined,
       });
       await loadSettings();
       toast.success("Broker connection updated successfully");

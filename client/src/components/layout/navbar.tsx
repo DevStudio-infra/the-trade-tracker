@@ -41,7 +41,7 @@ export function Navbar() {
                 {item.name}
               </Link>
             ))}
-            <ThemeToggle />
+            {/**   <ThemeToggle /> */}
             <SignedIn>
               <Button
                 asChild

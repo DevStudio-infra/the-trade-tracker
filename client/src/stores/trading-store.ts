@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { devtools, persist } from "zustand/middleware";
+import { BrokerConnection } from "@/lib/api";
 
 export interface Position {
   id: string;
@@ -40,10 +41,8 @@ export interface WatchlistItem {
 
 interface TradingStore {
   // Broker State
-  selectedBroker: string;
-  selectedBrokerCredential: string | null;
-  setSelectedBroker: (broker: string) => void;
-  setSelectedBrokerCredential: (credentialId: string | null) => void;
+  selectedBroker: BrokerConnection | null;
+  setSelectedBroker: (broker: BrokerConnection | null) => void;
 
   // Positions
   positions: Position[];
@@ -64,8 +63,8 @@ interface TradingStore {
   updateWatchlistItem: (pair: string, updates: Partial<WatchlistItem>) => void;
 
   // Selected Trading Pair
-  selectedPair: string;
-  setSelectedPair: (pair: string) => void;
+  selectedPair: string | null;
+  setSelectedPair: (pair: string | null) => void;
 }
 
 export const useTradingStore = create<TradingStore>()(
@@ -73,10 +72,8 @@ export const useTradingStore = create<TradingStore>()(
     persist(
       (set) => ({
         // Broker State
-        selectedBroker: "binance",
-        selectedBrokerCredential: null,
+        selectedBroker: null,
         setSelectedBroker: (broker) => set({ selectedBroker: broker }),
-        setSelectedBrokerCredential: (credentialId) => set({ selectedBrokerCredential: credentialId }),
 
         // Positions
         positions: [],
@@ -124,7 +121,7 @@ export const useTradingStore = create<TradingStore>()(
           })),
 
         // Selected Trading Pair
-        selectedPair: "EURUSD",
+        selectedPair: null,
         setSelectedPair: (pair) => set({ selectedPair: pair }),
       }),
       {

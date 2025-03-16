@@ -8,11 +8,19 @@ import { useState } from "react";
 const timeframes = ["1m", "5m", "15m", "1h", "4h", "1d", "1w"];
 
 interface TradingChartProps {
-  pair: string;
+  pair: string | null;
 }
 
 export function TradingChart({ pair }: TradingChartProps) {
   const [selectedTimeframe, setSelectedTimeframe] = useState("1h");
+
+  if (!pair) {
+    return (
+      <div className="p-4 flex items-center justify-center h-full">
+        <p className="text-slate-500 dark:text-slate-400">Select a trading pair to view chart</p>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 space-y-4">

@@ -503,4 +503,173 @@ router.patch("/settings", validateAuth, userRateLimit, async (req, res) => {
   }
 });
 
+// Get user watchlist
+router.get("/watchlist", validateAuth, userRateLimit, async (req, res) => {
+  try {
+    const { userId } = (req as AuthenticatedRequest).auth;
+
+    logger.info({
+      message: "Getting user watchlist",
+      userId,
+    });
+
+    const watchlistItems = await prisma.watchlistItem.findMany({
+      where: { user_id: userId },
+      orderBy: { added_at: "desc" },
+    });
+
+    logger.info({
+      message: "User watchlist retrieved successfully",
+      userId,
+      watchlistItemCount: watchlistItems.length,
+    });
+
+    res.json(watchlistItems);
+  } catch (error) {
+    logger.error({
+      message: "Error retrieving user watchlist",
+      error: error instanceof Error ? error.message : "Unknown error",
+      stack: error instanceof Error ? error.stack : undefined,
+      userId: (req as AuthenticatedRequest).auth?.userId,
+    });
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Add item to watchlist
+router.post("/watchlist", validateAuth, userRateLimit, async (req, res) => {
+  try {
+    const { userId } = (req as AuthenticatedRequest).auth;
+    const { symbol, broker_id } = req.body;
+
+    if (!symbol) {
+      return res.status(400).json({ error: "Symbol is required" });
+    }
+
+    // Check subscription limit
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { subscription_plan: true },
+    });
+
+    const watchlistCount = await prisma.watchlistItem.count({
+      where: { user_id: userId },
+    });
+
+    const limit = user?.subscription_plan?.toLowerCase() === "pro" ? 50 : 10;
+
+    if (watchlistCount >= limit) {
+      return res.status(403).json({
+        error: "Watchlist limit reached",
+        limit,
+        current: watchlistCount,
+      });
+    }
+
+    // Try to find existing item first
+    const existingItem = await prisma.watchlistItem.findFirst({
+      where: {
+        user_id: userId,
+        symbol: symbol,
+      },
+    });
+
+    let watchlistItem;
+
+    if (existingItem) {
+      // Update existing item
+      watchlistItem = await prisma.watchlistItem.update({
+        where: {
+          id: existingItem.id,
+        },
+        data: {
+          broker_id,
+          added_at: new Date(), // Update timestamp when re-adding
+        },
+      });
+
+      logger.info({
+        message: "Watchlist item updated",
+        userId,
+        symbol,
+        broker_id,
+        itemId: watchlistItem.id,
+      });
+    } else {
+      // Create new item
+      watchlistItem = await prisma.watchlistItem.create({
+        data: {
+          user_id: userId,
+          symbol,
+          broker_id,
+        },
+      });
+
+      logger.info({
+        message: "New watchlist item created",
+        userId,
+        symbol,
+        broker_id,
+        itemId: watchlistItem.id,
+      });
+    }
+
+    res.json(watchlistItem);
+  } catch (error) {
+    logger.error({
+      message: "Error adding item to watchlist",
+      error: error instanceof Error ? error.message : "Unknown error",
+      stack: error instanceof Error ? error.stack : undefined,
+      userId: (req as AuthenticatedRequest).auth?.userId,
+      requestBody: req.body,
+    });
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Remove item from watchlist
+router.delete("/watchlist/:symbol", validateAuth, userRateLimit, async (req, res) => {
+  try {
+    const { userId } = (req as AuthenticatedRequest).auth;
+    const { symbol } = req.params;
+
+    // Try to find the item first
+    const item = await prisma.watchlistItem.findFirst({
+      where: {
+        user_id: userId,
+        symbol: symbol,
+      },
+    });
+
+    if (!item) {
+      return res.status(404).json({ error: "Item not found in watchlist" });
+    }
+
+    // Then delete it
+    await prisma.watchlistItem.delete({
+      where: {
+        id: item.id,
+      },
+    });
+
+    logger.info({
+      message: "Item removed from watchlist",
+      userId,
+      symbol,
+      itemId: item.id,
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    logger.error({
+      message: "Error removing item from watchlist",
+      error: error instanceof Error ? error.message : "Unknown error",
+      stack: error instanceof Error ? error.stack : undefined,
+      userId: (req as AuthenticatedRequest).auth?.userId,
+      symbol: req.params.symbol,
+    });
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 export default router;

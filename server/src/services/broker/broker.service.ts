@@ -10,6 +10,34 @@ const logger = createLogger("broker-service");
 export class BrokerService {
   private readonly brokerAPIs: Map<string, any> = new Map([["capital.com", CapitalComAPI]]);
 
+  getBrokerAPI(brokerName: string) {
+    const normalizedBrokerName = brokerName.toLowerCase().replace(/_/g, ".");
+    return this.brokerAPIs.get(normalizedBrokerName);
+  }
+
+  getDecryptedCredentials(connection: BrokerCredential) {
+    try {
+      console.log(`Decrypting credentials for connection: ${connection.id}, broker: ${connection.broker_name}`);
+      const credentials = connection.credentials as Record<string, string>;
+
+      if (!credentials || typeof credentials !== "object") {
+        console.error("Invalid credentials format", { credentialsType: typeof credentials });
+        throw new Error("Invalid credentials format");
+      }
+
+      console.log("Credential keys available:", Object.keys(credentials));
+
+      return {
+        apiKey: decrypt(credentials.apiKey || ""),
+        identifier: decrypt(credentials.identifier || ""),
+        password: decrypt(credentials.password || ""),
+      };
+    } catch (error) {
+      console.error("Error decrypting credentials:", error instanceof Error ? error.message : "Unknown error");
+      throw new Error(`Failed to decrypt credentials: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
+  }
+
   private mapToBrokerConnection(connection: BrokerCredential): BrokerConnection {
     logger.info({
       message: "Mapping broker connection - Start",
@@ -218,10 +246,11 @@ export class BrokerService {
     }
   }
 
-  async updateConnection(userId: string, connectionId: string, updates: { is_active?: boolean; credentials?: BrokerCredentials }): Promise<BrokerConnection> {
+  async updateConnection(userId: string, connectionId: string, updates: { is_active?: boolean; credentials?: BrokerCredentials; description?: string }): Promise<BrokerConnection> {
     try {
       const updateData: Prisma.BrokerCredentialUpdateInput = {
         is_active: updates.is_active,
+        description: updates.description,
       };
 
       if (updates.credentials) {

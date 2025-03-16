@@ -3,27 +3,22 @@ import { useSettings } from "@/hooks/useSettings";
 import { BrokerConnection } from "@/lib/api";
 
 interface BrokerSelectProps {
-  value: string;
-  onValueChange: (value: string) => void;
+  value: BrokerConnection | null;
+  onChange: (broker: BrokerConnection | null) => void;
 }
 
-export function BrokerSelect({ value, onValueChange }: BrokerSelectProps) {
+export function BrokerSelect({ value, onChange }: BrokerSelectProps) {
   const { brokerConnections, isLoadingBrokers } = useSettings();
 
   const handleChange = (selectedId: string) => {
     const selectedBroker = brokerConnections?.find((conn) => conn.id === selectedId);
-    console.log("Selected Broker Details:", {
-      id: selectedBroker?.id,
-      broker_name: selectedBroker?.broker_name,
-      description: selectedBroker?.description,
-      is_active: selectedBroker?.is_active,
-      last_used: selectedBroker?.last_used,
-    });
-    onValueChange(selectedId);
+    if (selectedBroker) {
+      onChange(selectedBroker);
+    }
   };
 
   return (
-    <Select value={value || ""} onValueChange={handleChange}>
+    <Select value={value?.id || ""} onValueChange={handleChange}>
       <SelectTrigger>
         <SelectValue placeholder="Select broker credentials" />
       </SelectTrigger>

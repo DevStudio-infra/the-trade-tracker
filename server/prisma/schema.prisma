@@ -135,6 +135,7 @@ model User {
     broker_credentials   BrokerCredential[]
     credit_transactions  CreditTransaction[]
     credit_purchases     CreditPurchase[]
+    watchlist_items      WatchlistItem[]
 
     @@map("users")
 }
@@ -206,4 +207,18 @@ model ChartImage {
     signal      Signal   @relation(fields: [signalId], references: [id])
 
     @@map("chart_images")
+}
+
+model WatchlistItem {
+    id           String   @id @default(uuid())
+    user_id      String
+    symbol       String
+    broker_id    String?
+    added_at     DateTime @default(now())
+    notes        String?
+    price_alerts Json?
+    user         User     @relation(fields: [user_id], references: [id])
+
+    @@unique([user_id, symbol])
+    @@map("watchlist_items")
 }

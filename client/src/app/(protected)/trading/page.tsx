@@ -8,11 +8,30 @@ import { TradingPairSelect } from "@/components/trading/pair-select";
 import { BrokerSelect } from "@/components/trading/broker-select";
 import { useSettings } from "@/hooks/useSettings";
 import { useTradingStore } from "@/stores/trading-store";
-import { useEffect } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
+import { useApi } from "@/lib/api";
+import { BrokerConnection, TradingPair } from "@/lib/api";
+import { toast } from "sonner";
 
 export default function TradingPage() {
   const { brokerConnections, isLoadingBrokers } = useSettings();
-  const { selectedPair, setSelectedPair, selectedBroker, selectedBrokerCredential, setSelectedBroker, setSelectedBrokerCredential } = useTradingStore();
+  const { selectedPair, setSelectedPair, selectedBroker, setSelectedBroker } = useTradingStore();
+  const [tradingPairs, setTradingPairs] = useState<TradingPair[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const api = useApi();
+
+  // Use refs to track state without triggering re-renders
+  const fetchingRef = useRef(false);
+  const previousBrokerIdRef = useRef<string | null>(null);
+  const mountedRef = useRef(true);
+
+  // Set mounted status on component mount/unmount
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   // Debug logs
   useEffect(() => {
@@ -20,26 +39,90 @@ export default function TradingPage() {
       isLoadingBrokers,
       brokerConnections,
       selectedBroker,
-      selectedBrokerCredential,
+      isFetching: fetchingRef.current,
+      previousBrokerId: previousBrokerIdRef.current,
     });
-  }, [isLoadingBrokers, brokerConnections, selectedBroker, selectedBrokerCredential]);
+  }, [isLoadingBrokers, brokerConnections, selectedBroker]);
 
-  // Update selectedBroker when broker credential changes
-  const handleBrokerCredentialChange = (credentialId: string) => {
-    console.log("Handling broker credential change:", {
-      credentialId,
-      availableConnections: brokerConnections,
-    });
-
-    const selectedConnection = brokerConnections?.find((conn) => conn.id === credentialId);
-    console.log("Selected connection:", selectedConnection);
-
-    if (selectedConnection) {
-      console.log("Setting broker:", selectedConnection.broker_name);
-      setSelectedBroker(selectedConnection.broker_name);
+  // Fetch trading pairs when selected broker changes
+  useEffect(() => {
+    // Skip if no broker selected
+    if (!selectedBroker) {
+      setTradingPairs([]);
+      setSelectedPair(null);
+      return;
     }
-    setSelectedBrokerCredential(credentialId);
-  };
+
+    // Skip if we're already fetching or if the broker hasn't changed
+    if (fetchingRef.current || previousBrokerIdRef.current === selectedBroker.id) {
+      return;
+    }
+
+    // Update refs to prevent re-triggering
+    fetchingRef.current = true;
+
+    async function fetchPairs() {
+      const brokerId = selectedBroker?.id;
+      if (!brokerId) return;
+
+      try {
+        console.log(`Fetching initial trading pairs for broker: ${brokerId}`);
+        setIsLoading(true);
+
+        // Start with empty state to ensure a clean display
+        setTradingPairs([]);
+
+        // Fetch a larger initial set for better selection options
+        const pairs = await api.getTradingPairs(brokerId, "", 100);
+
+        // Only update state if component is still mounted
+        if (mountedRef.current) {
+          console.log(`Received ${pairs.length} initial trading pairs`);
+
+          // Verify the pairs have the expected structure
+          if (pairs.length > 0) {
+            console.log("First pair sample:", pairs[0]);
+          }
+
+          setTradingPairs(pairs);
+          setSelectedPair(null);
+          previousBrokerIdRef.current = brokerId;
+        }
+      } catch (error) {
+        console.error("Error fetching trading pairs:", error);
+
+        if (mountedRef.current) {
+          toast.error("Failed to fetch trading pairs");
+        }
+      } finally {
+        if (mountedRef.current) {
+          setIsLoading(false);
+        }
+        fetchingRef.current = false;
+      }
+    }
+
+    fetchPairs();
+
+    // Explicitly list dependencies to prevent unwanted re-renders
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedBroker?.id]);
+
+  const handleBrokerChange = useCallback(
+    (broker: BrokerConnection | null) => {
+      if (broker?.id !== selectedBroker?.id) {
+        setSelectedBroker(broker);
+      }
+    },
+    [selectedBroker, setSelectedBroker]
+  );
+
+  const handlePairChange = useCallback(
+    (pair: string | null) => {
+      setSelectedPair(pair);
+    },
+    [setSelectedPair]
+  );
 
   return (
     <div className="min-h-screen bg-white dark:bg-slate-950">
@@ -52,10 +135,17 @@ export default function TradingPage() {
           <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">Trading</h1>
           <div className="flex items-center gap-4">
             <div className="w-[240px]">
-              <BrokerSelect value={selectedBrokerCredential || ""} onValueChange={handleBrokerCredentialChange} />
+              <BrokerSelect value={selectedBroker} onChange={handleBrokerChange} />
             </div>
             <div className="w-[240px]">
-              <TradingPairSelect value={selectedPair} onValueChange={setSelectedPair} brokerId={selectedBroker} />
+              <TradingPairSelect
+                pairs={tradingPairs}
+                value={selectedPair}
+                onChange={handlePairChange}
+                isLoading={isLoading}
+                disabled={!selectedBroker}
+                connectionId={selectedBroker?.id || null}
+              />
             </div>
           </div>
         </div>

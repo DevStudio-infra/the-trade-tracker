@@ -7,7 +7,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState } from "react";
 
 interface OrderFormProps {
-  pair: string;
+  pair: string | null;
 }
 
 export function OrderForm({ pair }: OrderFormProps) {
@@ -17,6 +17,14 @@ export function OrderForm({ pair }: OrderFormProps) {
   const [limitPrice, setLimitPrice] = useState("");
   const [stopLoss, setStopLoss] = useState("");
   const [takeProfit, setTakeProfit] = useState("");
+
+  if (!pair) {
+    return (
+      <div className="p-4 flex items-center justify-center h-full">
+        <p className="text-slate-500 dark:text-slate-400">Select a trading pair to place orders</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

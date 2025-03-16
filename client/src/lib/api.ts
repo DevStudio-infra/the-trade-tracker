@@ -79,6 +79,33 @@ export interface BrokerCredentials {
   last_used?: string | null;
 }
 
+export interface TradingPair {
+  symbol: string;
+  name: string;
+  displayName: string;
+  type: string;
+  minQuantity: number;
+  maxQuantity: number;
+  precision: number;
+}
+
+export interface WatchlistItem {
+  id: string;
+  user_id: string;
+  symbol: string;
+  broker_id: string | null;
+  added_at: string;
+  notes: string | null;
+  price_alerts:
+    | {
+        price: number;
+        condition: "above" | "below";
+        triggered: boolean;
+        id: string;
+      }[]
+    | null;
+}
+
 // Create authenticated API client
 export function useApi() {
   const { getToken } = useAuth();
@@ -162,6 +189,37 @@ export function useApi() {
     validateBrokerConnection: async (connectionId: string) => {
       const { data } = await api.post<{ isValid: boolean }>(`/broker/connections/${connectionId}/validate`);
       return data.isValid;
+    },
+
+    getTradingPairs: async (connectionId: string, search?: string, limit?: number, category?: string, offset?: number): Promise<TradingPair[]> => {
+      const params = new URLSearchParams();
+      if (search) params.append("search", search);
+      if (limit) params.append("limit", limit.toString());
+      if (category) params.append("category", category);
+      if (offset) params.append("offset", offset.toString());
+
+      const queryString = params.toString() ? `?${params.toString()}` : "";
+      const response = await api.get<TradingPair[]>(`/broker/connections/${connectionId}/pairs${queryString}`);
+      return response.data;
+    },
+
+    // Watchlist methods
+    getWatchlist: async (): Promise<WatchlistItem[]> => {
+      const { data } = await api.get<WatchlistItem[]>("/user/watchlist");
+      return data;
+    },
+
+    addToWatchlist: async (symbol: string, brokerId?: string): Promise<WatchlistItem> => {
+      const { data } = await api.post<WatchlistItem>("/user/watchlist", {
+        symbol,
+        broker_id: brokerId,
+      });
+      return data;
+    },
+
+    removeFromWatchlist: async (symbol: string): Promise<{ success: boolean }> => {
+      const { data } = await api.delete<{ success: boolean }>(`/user/watchlist/${symbol}`);
+      return data;
     },
 
     // Error handler
