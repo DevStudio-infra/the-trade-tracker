@@ -170,6 +170,22 @@ export function useApi() {
       return response.data;
     },
 
+    // Trading pairs direct methods (not requiring broker connection)
+    getPairsCategories: async (): Promise<string[]> => {
+      const { data } = await api.get<{ categories: string[]; count: number }>("/pairs/categories");
+      return data.categories;
+    },
+
+    getPairsByCategory: async (category: string): Promise<TradingPair[]> => {
+      const { data } = await api.get<{ pairs: TradingPair[]; count: number }>(`/pairs/${category}`);
+      return data.pairs;
+    },
+
+    searchPairsDirect: async (query: string): Promise<TradingPair[]> => {
+      const { data } = await api.get<{ pairs: TradingPair[]; count: number }>(`/pairs/search?q=${encodeURIComponent(query)}`);
+      return data.pairs;
+    },
+
     // Broker connections
     connectBroker: async (broker: string, credentials: BrokerCredentials) => {
       const { data } = await api.post<BrokerConnection>("/broker/connect", {

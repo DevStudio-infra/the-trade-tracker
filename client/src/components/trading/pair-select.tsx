@@ -6,15 +6,14 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { TradingPair, MarketNode } from "@/lib/api";
+import { TradingPair } from "@/lib/api";
 import { useApi } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { useSettings } from "@/hooks/useSettings";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AxiosError } from "axios";
-import axios from "axios";
-import { debounce } from "lodash";
+import * as ReactDOM from "react-dom";
 
 interface TradingPairSelectProps {
   value: string | null;
@@ -86,15 +85,6 @@ const INSTRUMENT_TYPE_TO_CATEGORY: Record<string, string> = {
   SILVER: "COMMODITIES",
 };
 
-// Add market navigation node IDs
-const MARKET_CATEGORIES: Record<string, string> = {
-  FOREX: "hierarchy_v1.forex_group",
-  CRYPTOCURRENCIES: "hierarchy_v1.crypto_group",
-  SHARES: "hierarchy_v1.shares_group",
-  INDICES: "hierarchy_v1.indices_group",
-  COMMODITIES: "hierarchy_v1.commodities_group",
-};
-
 // Helper function to map instrument types to categories intelligently
 const getInstrumentCategory = (pair: TradingPair): string | null => {
   if (!pair.type) return null;
@@ -164,18 +154,12 @@ const FAVORITE_LIMITS: Record<string, number> = {
 
 // Constants for pagination
 const BATCH_SIZE = 20;
-const CACHE_DURATION = 1000 * 60 * 5; // 5 minutes
 
 export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoading = false, disabled = false, connectionId }: TradingPairSelectProps) {
-  // Add cache for category data
-  const categoryCache = React.useRef<Record<string, TradingPair[]>>({});
-  const categoryTimestamps = React.useRef<Record<string, number>>({});
-
   const [open, setOpen] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState("");
   const [pairs, setPairs] = React.useState<TradingPair[]>(initialPairs);
-  const [loadedCategories, setLoadedCategories] = React.useState<string[]>(["WATCHLIST"]);
-  const [categoryLoading, setCategoryLoading] = React.useState<Record<string, boolean>>({});
+  const [categoryLoading] = React.useState<Record<string, boolean>>({});
   const [searching, setSearching] = React.useState(false);
   const [selectedCategory, setSelectedCategory] = React.useState("WATCHLIST");
   const [hasMore, setHasMore] = React.useState(true);
@@ -189,26 +173,97 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
   const subscriptionPlan = profile?.subscriptionPlan || "Free";
   const favoriteLimit = FAVORITE_LIMITS[subscriptionPlan] || FAVORITE_LIMITS.Free;
 
-  // Load watchlist from API instead of localStorage
+  // Load watchlist from API using React Query
   const { data: watchlist = [], isLoading: isLoadingWatchlist } = useQuery({
     queryKey: ["watchlist"],
     queryFn: api.getWatchlist,
-    staleTime: 1000 * 60 * 5, // 5 minutes
+    staleTime: 1000 * 60 * 10, // 10 minutes - increased to reduce refreshes
+    // Only refetch when the component is mounted and visible
+    refetchOnMount: true,
+    refetchOnWindowFocus: false, // Disable auto refetching when window gets focus
+  });
+
+  // New: Load all available categories using React Query
+  const { data: availableCategories = [] } = useQuery({
+    queryKey: ["pairs-categories"],
+    queryFn: api.getPairsCategories,
+    staleTime: 1000 * 60 * 60, // 1 hour
+    // Only fetch when the dialog is open
+    enabled: open,
   });
 
   // Extract just the symbols for easier checking
   const favorites = React.useMemo(() => watchlist.map((item) => item.symbol), [watchlist]);
+
+  // Add a specific query for complete watchlist pair data
+  const { data: watchlistPairsData = [], isLoading: isLoadingWatchlistPairs } = useQuery({
+    queryKey: ["watchlist-pairs-data"],
+    queryFn: async () => {
+      if (!favorites.length) return [];
+
+      try {
+        // Use the direct search API with multiple symbols
+        const allPairsData = await Promise.all(
+          favorites.map((symbol) =>
+            api
+              .searchPairsDirect(symbol)
+              .then((results) => results.find((p) => p.symbol === symbol) || null)
+              .catch(() => null)
+          )
+        );
+
+        return allPairsData.filter(Boolean) as TradingPair[];
+      } catch (error) {
+        console.error("Error fetching watchlist pairs data:", error);
+        return [];
+      }
+    },
+    enabled: open && selectedCategory === "WATCHLIST" && favorites.length > 0,
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  });
+
+  // New: Prefetch pairs for the most popular categories
+  React.useEffect(() => {
+    if (open && availableCategories.length > 0) {
+      // Prefetch popular categories
+      ["FOREX", "CRYPTOCURRENCIES", "INDICES", "COMMODITIES"].forEach((category) => {
+        if (availableCategories.includes(category)) {
+          queryClient.prefetchQuery({
+            queryKey: ["pairs-by-category", category],
+            queryFn: () => api.getPairsByCategory(category),
+            staleTime: 1000 * 60 * 15, // 15 minutes
+          });
+        }
+      });
+    }
+  }, [open, availableCategories, queryClient, api]);
+
+  // New: Use React Query for category data - with stable function
+  const getPairsByCategory = React.useCallback(() => (selectedCategory === "WATCHLIST" ? Promise.resolve([]) : api.getPairsByCategory(selectedCategory)), [selectedCategory, api]);
+
+  const {
+    data: categoryPairs = [],
+    isLoading: isCategoryLoading,
+    isFetching: isCategoryFetching,
+  } = useQuery({
+    queryKey: ["pairs-by-category", selectedCategory],
+    queryFn: getPairsByCategory,
+    staleTime: 1000 * 60 * 15, // 15 minutes
+    // Only fetch when the dialog is open and we're not looking at watchlist
+    enabled: open && selectedCategory !== "WATCHLIST",
+  });
 
   // Add to watchlist mutation
   const addToWatchlistMutation = useMutation({
     mutationFn: (symbol: string) => api.addToWatchlist(symbol, connectionId || undefined),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["watchlist"] });
+      queryClient.invalidateQueries({ queryKey: ["watchlist-pairs-data"] });
       toast.success("Added to watchlist");
     },
     onError: (error: AxiosError) => {
       if (error.response?.status === 403) {
-        toast.error(`Watchlist limit reached (${favoriteLimit} items)`);
+        toast.error(`You've reached your limit of ${favoriteLimit} pairs with your ${subscriptionPlan} plan`);
       } else {
         toast.error("Failed to add to watchlist");
       }
@@ -220,6 +275,7 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
     mutationFn: (symbol: string) => api.removeFromWatchlist(symbol),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["watchlist"] });
+      queryClient.invalidateQueries({ queryKey: ["watchlist-pairs-data"] });
       toast.success("Removed from watchlist");
     },
     onError: () => {
@@ -232,24 +288,55 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
     return value ? pairs.find((pair) => pair.symbol === value) : null;
   }, [value, pairs]);
 
-  // Update pairs when initialPairs changes
-  React.useEffect(() => {
-    console.log(`Initial pairs updated: ${initialPairs.length} pairs`);
-    setPairs(initialPairs);
-  }, [initialPairs]);
+  // Function to load more items for the selected category
+  const loadMoreForCategory = React.useCallback(
+    async (category: string) => {
+      if (!connectionId || isFetchingMore || !hasMore || category === "WATCHLIST") {
+        return;
+      }
 
-  // Reset to initial state when dialog closes
-  React.useEffect(() => {
-    if (!open) {
-      console.log("Dialog closing, resetting state");
-      setSearchQuery("");
-      setHasMore(true);
-      setCategoryPage({});
-    }
-  }, [open]);
+      setIsFetchingMore(true);
+
+      try {
+        // Get current page for this category
+        const currentPage = categoryPage[category] || 0;
+        const offset = currentPage * BATCH_SIZE; // Use BATCH_SIZE items per page
+
+        console.log(`Loading more data for category ${category}, offset ${offset}`);
+
+        const results = await api.getTradingPairs(connectionId, "", BATCH_SIZE, category, offset);
+        console.log(`Received ${results.length} additional instruments for category ${category}`);
+
+        // If we get less than BATCH_SIZE results, we've reached the end
+        if (results.length < BATCH_SIZE) {
+          setHasMore(false);
+        }
+
+        // Merge with existing pairs, avoid duplicates
+        setPairs((prev) => {
+          const existingSymbols = new Set(prev.map((p) => p.symbol));
+          const newPairs = results.filter((p) => !existingSymbols.has(p.symbol));
+          return [...prev, ...newPairs];
+        });
+
+        // Update the page number for this category
+        setCategoryPage((prev) => ({
+          ...prev,
+          [category]: currentPage + 1,
+        }));
+      } catch (error) {
+        console.error(`Error loading more items for category ${category}:`, error);
+        toast.error(`Failed to load more ${ASSET_CATEGORIES[category] || category} instruments`);
+        setHasMore(false);
+      } finally {
+        setIsFetchingMore(false);
+      }
+    },
+    [connectionId, isFetchingMore, hasMore, categoryPage, api, setIsFetchingMore, setHasMore, setPairs, setCategoryPage]
+  );
 
   // Group and sort pairs by category
-  const groupAndSortPairs = (pairs: TradingPair[]): Record<string, TradingPair[]> => {
+  const groupAndSortPairs = React.useCallback((pairs: TradingPair[]): Record<string, TradingPair[]> => {
     const grouped: Record<string, TradingPair[]> = {};
 
     // Initialize categories
@@ -292,16 +379,43 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
     });
 
     return grouped;
-  };
+  }, []);
 
   // Get pairs to display
   const displayPairs = React.useMemo(() => {
+    // When searching, just use the search results
     if (searching) {
       return pairs;
     }
+
+    // For watchlist, use the dedicated watchlist pairs data from our query
+    if (selectedCategory === "WATCHLIST") {
+      return watchlistPairsData;
+    }
+
+    // For other categories, use regular pairs with category filtering
     const grouped = groupAndSortPairs(pairs);
     return grouped[selectedCategory] || [];
-  }, [searching, selectedCategory, pairs]);
+  }, [searching, selectedCategory, pairs, watchlistPairsData, groupAndSortPairs]);
+
+  // Update pairs ONLY when category data changes (not for watchlist)
+  React.useEffect(() => {
+    // Skip updates for watchlist - we'll handle that in the displayPairs memo
+    if (selectedCategory !== "WATCHLIST" && categoryPairs.length > 0) {
+      console.log(`Using category data: ${categoryPairs.length} pairs for ${selectedCategory}`);
+      setPairs(categoryPairs);
+    }
+  }, [categoryPairs, selectedCategory]);
+
+  // Reset to initial state when dialog closes
+  React.useEffect(() => {
+    if (!open) {
+      console.log("Dialog closing, resetting state");
+      setSearchQuery("");
+      setHasMore(true);
+      setCategoryPage({});
+    }
+  }, [open]);
 
   // Handle scrolling to load more items
   React.useEffect(() => {
@@ -322,233 +436,54 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
 
     scrollElement.addEventListener("scroll", handleScroll);
     return () => scrollElement.removeEventListener("scroll", handleScroll);
-  }, [scrollContainerRef, selectedCategory, hasMore, isFetchingMore, searching]);
+  }, [isFetchingMore, hasMore, selectedCategory, searching, loadMoreForCategory]);
 
-  // Load category data when a category is selected
-  const loadCategoryData = React.useCallback(
-    async (category: string) => {
-      if (!connectionId || category === "WATCHLIST") {
-        console.log(`Skipping category load - invalid conditions: ${category}`);
-        return;
-      }
-
-      // Check if we have fresh cached data
-      const now = Date.now();
-      const cachedTimestamp = categoryTimestamps.current[category] || 0;
-      if (now - cachedTimestamp < CACHE_DURATION && categoryCache.current[category]) {
-        console.log(`Using cached data for category: ${category}, ${categoryCache.current[category].length} pairs available`);
-        setPairs(categoryCache.current[category]);
-        setLoadedCategories((prev) => (prev.includes(category) ? prev : [...prev, category]));
-        return;
-      }
-
-      console.log(`Loading category data for: ${category}`);
-      setCategoryLoading((prev) => ({ ...prev, [category]: true }));
-      setHasMore(true);
-      setCategoryPage((prev) => ({ ...prev, [category]: 0 }));
-
-      const loadWithRetry = async (retryCount = 0, delay = 2000) => {
-        try {
-          console.log(`Fetching initial data for category: ${category}`);
-
-          let results: TradingPair[] = [];
-          const nodeId = MARKET_CATEGORIES[category];
-
-          if (nodeId) {
-            // Use market navigation API with retries
-            try {
-              console.log(`Using market navigation API for ${category} with node ID: ${nodeId}`);
-              const markets = await api.getMarketNavigation(nodeId, BATCH_SIZE);
-              console.log(`Received market navigation response:`, markets);
-
-              if (markets?.nodes && markets.nodes.length > 0) {
-                console.log(`Found ${markets.nodes.length} markets in navigation`);
-                // Get details for each market in batches to avoid rate limits
-                const epics = markets.nodes.map((node: MarketNode) => node.id);
-                const batchSize = 10; // Process 10 instruments at a time
-
-                for (let i = 0; i < epics.length; i += batchSize) {
-                  const batch = epics.slice(i, i + batchSize).join(",");
-                  if (batch) {
-                    console.log(`Fetching details for batch ${i / batchSize + 1}/${Math.ceil(epics.length / batchSize)}`);
-                    const batchResults = await api.getMarketDetails(batch);
-                    console.log(`Received ${batchResults.length} pairs for current batch`);
-                    results = [...results, ...batchResults];
-                  }
-                  // Add a small delay between batches to avoid rate limits
-                  if (i + batchSize < epics.length) {
-                    await new Promise((resolve) => setTimeout(resolve, 200));
-                  }
-                }
-              } else {
-                console.warn(`No markets found in navigation response for ${category}`);
-              }
-            } catch (navError) {
-              console.warn(`Market navigation failed for ${category}, falling back to direct query:`, navError);
-              // Fall back to direct category query if navigation fails
-              results = await api.getTradingPairs(connectionId, "", BATCH_SIZE, category, 0);
-            }
-          } else {
-            console.log(`No navigation node ID for ${category}, using direct query`);
-            // Direct category query for categories without node IDs
-            results = await api.getTradingPairs(connectionId, "", BATCH_SIZE, category, 0);
-          }
-
-          console.log(`Received ${results.length} total instruments for category ${category}`);
-
-          if (results.length < BATCH_SIZE) {
-            console.log(`No more pages available for category ${category}`);
-            setHasMore(false);
-          }
-
-          // Filter and sort results
-          const filteredResults = results.filter((pair) => {
-            const detectedCategory = getInstrumentCategory(pair);
-            return detectedCategory === category;
-          });
-
-          console.log(`After filtering: ${filteredResults.length} pairs match category ${category}`);
-          if (filteredResults.length === 0) {
-            console.log(
-              "Filtered pairs:",
-              results.map((p) => ({
-                symbol: p.symbol,
-                type: p.type,
-                detectedCategory: getInstrumentCategory(p),
-              }))
-            );
-          }
-
-          // Cache the filtered results
-          categoryCache.current[category] = filteredResults;
-          categoryTimestamps.current[category] = Date.now();
-
-          setPairs(filteredResults);
-          setLoadedCategories((prev) => (prev.includes(category) ? prev : [...prev, category]));
-        } catch (error) {
-          console.error(`Error loading category ${category}:`, error);
-
-          if (axios.isAxiosError(error)) {
-            console.error("API Error details:", {
-              status: error.response?.status,
-              data: error.response?.data,
-              headers: error.response?.headers,
-            });
-          }
-
-          if (axios.isAxiosError(error) && error.response?.status === 429 && retryCount < 3) {
-            console.log(`Rate limit hit, retrying in ${delay}ms (attempt ${retryCount + 1})...`);
-            await new Promise((resolve) => setTimeout(resolve, delay));
-            return loadWithRetry(retryCount + 1, delay * 2); // Exponential backoff
-          }
-
-          toast.error(`Failed to load ${ASSET_CATEGORIES[category] || category} instruments`);
-          setHasMore(false);
-        }
-      };
-
-      try {
-        await loadWithRetry();
-      } finally {
-        setCategoryLoading((prev) => ({ ...prev, [category]: false }));
-      }
-    },
-    [connectionId, api]
-  );
-
-  // Handle category change with debounce and caching
-  const debouncedCategoryChange = React.useCallback(
-    debounce((category: string) => {
-      console.log(`Changing category to: ${category}`);
-      setSelectedCategory(category);
-      setHasMore(true);
-
-      // For watchlist, restore initial pairs
-      if (category === "WATCHLIST") {
-        console.log("Restoring initial pairs for watchlist category");
-        setPairs(initialPairs);
-        return;
-      }
-
-      // Load category data if not in cache or cache is stale
-      const now = Date.now();
-      const cachedTimestamp = categoryTimestamps.current[category] || 0;
-      if (now - cachedTimestamp >= CACHE_DURATION || !categoryCache.current[category]) {
-        loadCategoryData(category);
-      } else {
-        console.log(`Using cached data for category: ${category}`);
-        setPairs(categoryCache.current[category]);
-      }
-    }, 500),
-    [loadCategoryData, initialPairs]
-  );
-
-  // Update search effect with better rate limit handling
+  // Updated search function to use the direct API
   React.useEffect(() => {
-    if (!connectionId || !open) return;
+    if (!open || searchQuery.length < 2) return;
 
-    console.log("Search effect triggered:", {
-      searchQuery,
-      selectedCategory,
-      isLoaded: loadedCategories.includes(selectedCategory),
-      pairs: pairs.length,
-    });
-
-    let searchTimeout: NodeJS.Timeout;
-    let retryCount = 0;
-    const maxRetries = 3;
-    const baseDelay = 2000;
-
-    const performSearch = async () => {
-      if (searchQuery.length >= 2) {
-        setSearching(true);
-        try {
-          console.log(`Searching for trading pairs: "${searchQuery}"`);
-          const results = await api.getTradingPairs(connectionId, searchQuery, BATCH_SIZE);
-          console.log(`Found ${results.length} matching pairs:`, results.map((p) => p.symbol).join(", "));
-          setPairs(results);
-          retryCount = 0; // Reset retry count on success
-        } catch (err) {
-          console.error("Error searching pairs:", err);
-          if (axios.isAxiosError(err) && err.response?.status === 429 && retryCount < maxRetries) {
-            const delay = baseDelay * Math.pow(2, retryCount);
-            console.log(`Rate limit hit, retrying in ${delay}ms...`);
-            retryCount++;
-            searchTimeout = setTimeout(performSearch, delay);
-            return;
-          }
-          toast.error("Too many requests. Please wait a moment before searching again.");
-        } finally {
-          setSearching(false);
-        }
-      } else if (searchQuery.length === 0) {
-        // When clearing search, use cached data if available
-        if (selectedCategory === "WATCHLIST") {
-          setPairs(initialPairs);
-        } else if (categoryCache.current[selectedCategory]) {
-          console.log(`Restoring cached data for ${selectedCategory}`);
-          setPairs(categoryCache.current[selectedCategory]);
-        }
+    console.log("Search effect triggered:", { searchQuery });
+    const searchTimeout: NodeJS.Timeout = setTimeout(async () => {
+      setSearching(true);
+      try {
+        console.log(`Searching for trading pairs: "${searchQuery}"`);
+        // Use the direct search API instead of the broker-specific one
+        const results = await api.searchPairsDirect(searchQuery);
+        console.log(`Found ${results.length} matching pairs:`, results.map((p) => p.symbol).join(", "));
+        setPairs(results);
+      } catch (err) {
+        console.error("Error searching pairs:", err);
+        toast.error("Error searching pairs. Please try again.");
+      } finally {
+        setSearching(false);
       }
-    };
-
-    searchTimeout = setTimeout(performSearch, 500);
+    }, 500);
 
     return () => {
       clearTimeout(searchTimeout);
     };
-  }, [searchQuery, connectionId, initialPairs, open, api, selectedCategory]);
+  }, [searchQuery, open, api]);
 
-  // Handle category change
-  const handleCategoryChange = (category: string) => {
-    if (category === selectedCategory) {
-      console.log("Skipping category change - already selected:", category);
-      return;
-    }
-    console.log("Changing category from", selectedCategory, "to", category);
-    setSearchQuery(""); // Clear search when changing categories
-    debouncedCategoryChange(category);
-  };
+  // Simplified category change function
+  const handleCategoryChange = React.useCallback(
+    (category: string) => {
+      if (category === selectedCategory) return;
+
+      console.log("Changing category from", selectedCategory, "to", category);
+
+      // Batch our state updates to reduce renders
+      ReactDOM.flushSync(() => {
+        setSearchQuery(""); // Clear search when changing categories
+        setSelectedCategory(category);
+
+        // Reset search state when changing categories
+        if (searching) {
+          setSearching(false);
+        }
+      });
+    },
+    [selectedCategory, searching]
+  );
 
   // Toggle favorite status for a pair
   const toggleFavorite = (symbol: string, event: React.MouseEvent) => {
@@ -560,56 +495,15 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
     } else {
       // Add to favorites if under limit
       if (favorites.length >= favoriteLimit) {
-        toast.error(`You can only add ${favoriteLimit} pairs to your watchlist with your ${subscriptionPlan} plan`);
+        toast.error(`You've reached your limit of ${favoriteLimit} pairs with your ${subscriptionPlan} plan.`);
         return;
       }
       addToWatchlistMutation.mutate(symbol);
     }
   };
 
-  // Function to load more items for the selected category
-  const loadMoreForCategory = async (category: string) => {
-    if (!connectionId || isFetchingMore || !hasMore || category === "WATCHLIST") {
-      return;
-    }
-
-    setIsFetchingMore(true);
-
-    try {
-      // Get current page for this category
-      const currentPage = categoryPage[category] || 0;
-      const offset = currentPage * BATCH_SIZE; // Use BATCH_SIZE items per page
-
-      console.log(`Loading more data for category ${category}, offset ${offset}`);
-
-      const results = await api.getTradingPairs(connectionId, "", BATCH_SIZE, category, offset);
-      console.log(`Received ${results.length} additional instruments for category ${category}`);
-
-      // If we get less than BATCH_SIZE results, we've reached the end
-      if (results.length < BATCH_SIZE) {
-        setHasMore(false);
-      }
-
-      // Merge with existing pairs, avoid duplicates
-      setPairs((prev) => {
-        const existingSymbols = new Set(prev.map((p) => p.symbol));
-        const newPairs = results.filter((p) => !existingSymbols.has(p.symbol));
-        return [...prev, ...newPairs];
-      });
-
-      // Update the page number for this category
-      setCategoryPage((prev) => ({
-        ...prev,
-        [category]: currentPage + 1,
-      }));
-    } catch (error) {
-      console.error(`Error loading more items for category ${category}:`, error);
-      toast.error(`Failed to load more ${ASSET_CATEGORIES[category] || category} instruments`);
-      setHasMore(false);
-    } finally {
-      setIsFetchingMore(false);
-    }
-  };
+  // Handle the display of the watchlist in the results area
+  const isCurrentCategoryLoading = ((isLoadingWatchlist || isLoadingWatchlistPairs) && selectedCategory === "WATCHLIST") || (isCategoryLoading && selectedCategory !== "WATCHLIST");
 
   return (
     <>
@@ -688,11 +582,9 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
               ))}
             </div>
 
-            {/* Watchlist limit indicator */}
+            {/* Watchlist usage indicator - only show current usage */}
             {selectedCategory === "WATCHLIST" && (
-              <div className="text-xs text-slate-500 pb-1 px-4 flex justify-between">
-                <span>Free users: 10 pairs</span>
-                <span>Pro users: 50 pairs</span>
+              <div className="text-xs text-slate-500 pb-1 px-4 flex justify-end">
                 <span className="font-medium">
                   {favorites.length}/{favoriteLimit} used
                 </span>
@@ -714,15 +606,12 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
                 <Loader2 className="h-6 w-6 animate-spin mb-2 text-blue-500" />
                 <p className="text-sm text-slate-500">Searching for trading pairs...</p>
               </div>
-            ) : isLoadingWatchlist && selectedCategory === "WATCHLIST" ? (
+            ) : isCurrentCategoryLoading ? (
               <div className="flex flex-col items-center justify-center py-12">
                 <Loader2 className="h-6 w-6 animate-spin mb-2 text-blue-500" />
-                <p className="text-sm text-slate-500">Loading your watchlist...</p>
-              </div>
-            ) : selectedCategory !== "WATCHLIST" && !loadedCategories.includes(selectedCategory) ? (
-              <div className="flex flex-col items-center justify-center py-12">
-                <Loader2 className="h-6 w-6 animate-spin mb-2 text-blue-500" />
-                <p className="text-sm text-slate-500">Loading {ASSET_CATEGORIES[selectedCategory] || "instruments"}...</p>
+                <p className="text-sm text-slate-500">
+                  {selectedCategory === "WATCHLIST" ? "Loading your watchlist items..." : `Loading ${ASSET_CATEGORIES[selectedCategory] || "instruments"}...`}
+                </p>
               </div>
             ) : displayPairs.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -804,6 +693,14 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
 
                 {/* End of list indicator */}
                 {!isFetchingMore && !hasMore && displayPairs.length > 0 && <div className="py-2 px-4 text-xs text-center text-slate-500">No more instruments to load</div>}
+
+                {/* Loading indicator for fetching more or refreshing */}
+                {!searching && !isLoadingWatchlist && !isCategoryLoading && isCategoryFetching && (
+                  <div className="py-2 text-center">
+                    <Loader2 className="h-4 w-4 animate-spin inline mr-2 text-blue-500" />
+                    <span className="text-xs text-slate-500">Updating data...</span>
+                  </div>
+                )}
               </div>
             )}
           </div>

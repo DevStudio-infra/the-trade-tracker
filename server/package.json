@@ -10,7 +10,8 @@
     "test": "jest",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write \"src/**/*.ts\"",
-    "populate-pairs": "ts-node src/scripts/populate-capital-pairs.ts"
+    "populate-pairs": "ts-node src/scripts/populate-capital-pairs.ts",
+    "validate-pairs": "ts-node src/scripts/manual-validation.ts"
   },
   "dependencies": {
     "@clerk/backend": "^1.25.1",

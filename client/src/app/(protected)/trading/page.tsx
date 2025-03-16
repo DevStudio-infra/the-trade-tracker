@@ -10,20 +10,32 @@ import { useSettings } from "@/hooks/useSettings";
 import { useTradingStore } from "@/stores/trading-store";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useApi } from "@/lib/api";
-import { BrokerConnection, TradingPair } from "@/lib/api";
+import { BrokerConnection, TradingPair, WatchlistItem } from "@/lib/api";
 import { toast } from "sonner";
+import { usePairsApi } from "@/lib/pairs-api";
+import { useQuery } from "@tanstack/react-query";
 
 export default function TradingPage() {
   const { brokerConnections, isLoadingBrokers } = useSettings();
   const { selectedPair, setSelectedPair, selectedBroker, setSelectedBroker } = useTradingStore();
   const [tradingPairs, setTradingPairs] = useState<TradingPair[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  // Define as a string with a union type to allow for comparison with "WATCHLIST"
+  const selectedCategory: "FOREX" | "WATCHLIST" | "CRYPTOCURRENCIES" | "SHARES" | "INDICES" | "COMMODITIES" = "FOREX";
   const api = useApi();
+  const pairsApi = usePairsApi();
 
   // Use refs to track state without triggering re-renders
   const fetchingRef = useRef(false);
   const previousBrokerIdRef = useRef<string | null>(null);
   const mountedRef = useRef(true);
+
+  // Fetch watchlist with React Query for better caching
+  const { data: watchlist = [], isLoading: watchlistLoading } = useQuery({
+    queryKey: ["watchlist"],
+    queryFn: api.getWatchlist,
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  });
 
   // Set mounted status on component mount/unmount
   useEffect(() => {
@@ -41,8 +53,48 @@ export default function TradingPage() {
       selectedBroker,
       isFetching: fetchingRef.current,
       previousBrokerId: previousBrokerIdRef.current,
+      selectedCategory,
+      watchlistLength: watchlist.length,
+      watchlistLoading,
     });
-  }, [isLoadingBrokers, brokerConnections, selectedBroker]);
+  }, [isLoadingBrokers, brokerConnections, selectedBroker, selectedCategory, watchlist, watchlistLoading]);
+
+  // Prefetch popular categories when component mounts
+  useEffect(() => {
+    pairsApi.prefetchPopularCategories();
+  }, [pairsApi]);
+
+  // Helper function to fetch trading pair details for watchlist items
+  const fetchWatchlistPairs = async (watchlistItems: WatchlistItem[], isCapitalCom: boolean): Promise<TradingPair[]> => {
+    const pairs: TradingPair[] = [];
+
+    // For each watchlist item, fetch its details
+    for (const item of watchlistItems) {
+      try {
+        let pairData: TradingPair | null = null;
+
+        if (isCapitalCom) {
+          // Direct API call instead of using hook's refetch
+          const searchResults = await api.searchPairsDirect(item.symbol);
+          pairData = searchResults.find((p) => p.symbol === item.symbol) || null;
+        } else if (selectedBroker) {
+          // For other brokers, search in broker-specific API
+          const searchResults = await api.getTradingPairs(selectedBroker.id, item.symbol, 1, "", 0);
+          pairData = searchResults.length > 0 ? searchResults[0] : null;
+        }
+
+        if (pairData) {
+          pairs.push(pairData);
+        } else {
+          console.warn(`Could not find details for watchlist symbol: ${item.symbol}`);
+        }
+      } catch (error) {
+        console.error(`Error fetching details for ${item.symbol}:`, error);
+      }
+    }
+
+    return pairs;
+  };
 
   // Fetch trading pairs when selected broker changes
   useEffect(() => {
@@ -72,28 +124,75 @@ export default function TradingPage() {
         // Start with empty state to ensure a clean display
         setTradingPairs([]);
 
-        // Fetch watchlist and corresponding trading pair details
-        const watchlist = await api.getWatchlist();
-        if (watchlist.length > 0) {
-          // Get full trading pair details for watchlist items
-          const pairs = await api.getTradingPairs(brokerId, "", watchlist.length, "WATCHLIST", 0);
+        // Check if this is a Capital.com broker
+        const isCapitalCom = selectedBroker.broker_name.toLowerCase() === "capital.com" || selectedBroker.broker_name.toLowerCase() === "capital_com";
 
-          // Only update state if component is still mounted
-          if (mountedRef.current) {
-            console.log(`Received ${pairs.length} watchlist trading pairs`);
-            setTradingPairs(pairs);
-            setSelectedPair(null);
-            previousBrokerIdRef.current = brokerId;
+        // Load based on the selected category
+        if (selectedCategory === "WATCHLIST") {
+          // Fetch the watchlist if needed (should be cached by React Query)
+          const watchlistItems = watchlist.length > 0 ? watchlist : await api.getWatchlist();
+
+          if (watchlistItems.length > 0) {
+            console.log(`Found ${watchlistItems.length} watchlist items, fetching details...`);
+
+            // Get full trading pair details for watchlist items
+            const pairs = await fetchWatchlistPairs(watchlistItems, isCapitalCom);
+
+            if (mountedRef.current) {
+              console.log(`Received ${pairs.length} watchlist trading pairs`);
+              setTradingPairs(pairs);
+              setSelectedPair(null);
+              previousBrokerIdRef.current = brokerId;
+            }
+          } else {
+            console.log("Watchlist is empty");
+            setTradingPairs([]);
           }
         } else {
-          // If watchlist is empty, just set empty array
-          setTradingPairs([]);
+          // Load pairs for the selected category
+          if (isCapitalCom) {
+            try {
+              // Direct API call instead of using hook's refetch
+              const categoryPairs = await api.getPairsByCategory(selectedCategory);
+
+              if (mountedRef.current && categoryPairs && categoryPairs.length > 0) {
+                console.log(`Received ${categoryPairs.length} ${selectedCategory} trading pairs`);
+                setTradingPairs(categoryPairs);
+                setSelectedPair(null);
+                previousBrokerIdRef.current = brokerId;
+              } else {
+                console.warn(`No pairs found for category ${selectedCategory}`);
+                setTradingPairs([]);
+              }
+            } catch (error) {
+              console.error(`Error fetching ${selectedCategory} pairs:`, error);
+              toast.error(`Failed to fetch ${selectedCategory} pairs`);
+              setTradingPairs([]);
+            }
+          } else {
+            // For other brokers, use the standard approach
+            try {
+              const pairs = await api.getTradingPairs(brokerId, "", 25, selectedCategory, 0);
+
+              if (mountedRef.current) {
+                console.log(`Received ${pairs.length} ${selectedCategory} trading pairs`);
+                setTradingPairs(pairs);
+                setSelectedPair(null);
+                previousBrokerIdRef.current = brokerId;
+              }
+            } catch (error) {
+              console.error(`Error fetching ${selectedCategory} pairs:`, error);
+              toast.error(`Failed to fetch ${selectedCategory} pairs`);
+              setTradingPairs([]);
+            }
+          }
         }
       } catch (error) {
         console.error("Error fetching trading pairs:", error);
 
         if (mountedRef.current) {
           toast.error("Failed to fetch trading pairs");
+          setTradingPairs([]);
         }
       } finally {
         if (mountedRef.current) {
@@ -107,7 +206,7 @@ export default function TradingPage() {
 
     // Explicitly list dependencies to prevent unwanted re-renders
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedBroker?.id]);
+  }, [selectedBroker?.id, api, pairsApi, selectedCategory, watchlist]);
 
   const handleBrokerChange = useCallback(
     (broker: BrokerConnection | null) => {

@@ -76,6 +76,37 @@ The system includes a monthly validation job that runs on the first day of each 
 - Adds new pairs
 - Refreshes the cache
 
+#### 4.1 Manual Validation
+
+You can also trigger the validation process manually in two ways:
+
+**Using the Script**
+
+```bash
+cd server
+npx ts-node src/scripts/manual-validation.ts
+```
+
+**Using the API** (Pro users only)
+
+```
+POST /v1/pairs/validate
+```
+
+This endpoint requires authentication and Pro subscription status.
+
+#### 4.2 Validation Process
+
+The validation process follows these steps:
+
+1. **Authentication** - Connects to the Capital.com API
+2. **Fetch Market Navigation** - Gets the hierarchy of available markets
+3. **Category Processing** - Processes each category (FOREX, CRYPTO, etc.)
+4. **Pair Updates** - Updates existing pairs or creates new ones
+5. **Cache Refresh** - Refreshes the Redis cache with updated data
+
+During this process, logging is performed to track progress and any errors.
+
 ## Implementation Details
 
 ### Caching
