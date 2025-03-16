@@ -5,6 +5,7 @@ import { createLogger } from "../../utils/logger";
 import { PrismaClient } from "@prisma/client";
 import { decrypt } from "../../utils/encryption.utils";
 import { CapitalComAPI } from "../../services/broker/capital-com/api";
+import { PairsCacheService } from "../../services/cache/pairs-cache.service";
 
 // Define the TradingPair interface
 interface TradingPair {
@@ -21,6 +22,7 @@ const router = Router();
 const logger = createLogger("broker-routes");
 const brokerService = new BrokerService();
 const prisma = new PrismaClient();
+const pairsCache = new PairsCacheService(prisma);
 
 // Simple request cache to prevent duplicate requests
 interface CacheEntry {
@@ -197,6 +199,58 @@ router.get("/connections/:connectionId/pairs", validateAuth, withCache(30000), a
 
     console.log(`Found connection for broker: ${connection.broker_name}`);
 
+    // Check if this is a Capital.com connection - if so, use our database instead of API
+    if (connection.broker_name.toLowerCase() === "capital.com" || connection.broker_name.toLowerCase() === "capital_com") {
+      logger.info("Using database for Capital.com pairs");
+
+      let pairs;
+
+      // If search query is provided, use search
+      if (searchQuery) {
+        pairs = await pairsCache.searchPairs(searchQuery);
+      }
+      // If category is provided, get by category
+      else if (category) {
+        // Map client category name to our database category name if needed
+        const categoryMap: Record<string, string> = {
+          WATCHLIST: "FOREX", // Default to FOREX for watchlist
+          FOREX: "FOREX",
+          CRYPTOCURRENCIES: "CRYPTOCURRENCIES",
+          SHARES: "SHARES",
+          INDICES: "INDICES",
+          COMMODITIES: "COMMODITIES",
+          ETF: "ETF",
+        };
+
+        const dbCategory = categoryMap[category.toUpperCase()] || category.toUpperCase();
+        pairs = await pairsCache.getPairsByCategory(dbCategory);
+      }
+      // Otherwise, default to FOREX
+      else {
+        pairs = await pairsCache.getPairsByCategory("FOREX");
+      }
+
+      // Apply pagination
+      const startIndex = offset;
+      const endIndex = offset + limit;
+      const paginatedPairs = pairs.slice(startIndex, endIndex);
+
+      // Map to the format expected by the client
+      const tradingPairs = paginatedPairs.map((pair) => ({
+        symbol: pair.symbol,
+        name: pair.displayName,
+        displayName: pair.displayName,
+        type: pair.type,
+        minQuantity: parseFloat(pair.minQuantity?.toString() || "0.1"),
+        maxQuantity: parseFloat(pair.maxQuantity?.toString() || "100"),
+        precision: pair.precision || 2,
+      }));
+
+      logger.info(`Returning ${tradingPairs.length} Capital.com pairs from database`);
+      return res.json(tradingPairs);
+    }
+
+    // For other brokers, continue with the existing implementation
     const BrokerAPI = brokerService.getBrokerAPI(connection.broker_name);
     if (!BrokerAPI) {
       logger.warn(`Unsupported broker: ${connection.broker_name}`);

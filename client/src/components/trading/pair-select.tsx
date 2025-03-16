@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { TradingPair } from "@/lib/api";
+import { TradingPair, MarketNode } from "@/lib/api";
 import { useApi } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
@@ -45,6 +45,8 @@ const INSTRUMENT_TYPE_TO_CATEGORY: Record<string, string> = {
   CURRENCY_PAIR: "FOREX",
   MAJOR: "FOREX",
   MINOR: "FOREX",
+  FX_PAIR: "FOREX",
+  CURRENCY_PAIRS: "FOREX",
 
   // Crypto mappings
   CRYPTOCURRENCIES: "CRYPTOCURRENCIES",
@@ -53,6 +55,7 @@ const INSTRUMENT_TYPE_TO_CATEGORY: Record<string, string> = {
   CRYPTO_PAIR: "CRYPTOCURRENCIES",
   BITCOIN: "CRYPTOCURRENCIES",
   ALTCOIN: "CRYPTOCURRENCIES",
+  CRYPTO_PAIRS: "CRYPTOCURRENCIES",
 
   // Stock mappings
   SHARES: "SHARES",
@@ -83,14 +86,53 @@ const INSTRUMENT_TYPE_TO_CATEGORY: Record<string, string> = {
   SILVER: "COMMODITIES",
 };
 
+// Add market navigation node IDs
+const MARKET_CATEGORIES: Record<string, string> = {
+  FOREX: "hierarchy_v1.forex_group",
+  CRYPTOCURRENCIES: "hierarchy_v1.crypto_group",
+  SHARES: "hierarchy_v1.shares_group",
+  INDICES: "hierarchy_v1.indices_group",
+  COMMODITIES: "hierarchy_v1.commodities_group",
+};
+
 // Helper function to map instrument types to categories intelligently
-const getInstrumentCategory = (type: string | undefined): string | null => {
-  if (!type) return null;
+const getInstrumentCategory = (pair: TradingPair): string | null => {
+  if (!pair.type) return null;
 
   // First try exact match in uppercase
-  const upperType = type.toUpperCase();
+  const upperType = pair.type.toUpperCase();
   if (INSTRUMENT_TYPE_TO_CATEGORY[upperType]) {
     return INSTRUMENT_TYPE_TO_CATEGORY[upperType];
+  }
+
+  // Common currency codes for major and minor forex pairs
+  const commonCurrencies = ["EUR", "USD", "GBP", "JPY", "AUD", "NZD", "CAD", "CHF", "SEK", "NOK", "DKK", "HKD", "SGD"];
+
+  // Check for standard forex pair patterns
+  const symbol = pair.symbol.toUpperCase();
+
+  // Check if it's a forex pair by looking at common patterns
+  const isForexPair =
+    // Standard 6-char forex pair (e.g., EURUSD)
+    (symbol.length === 6 && commonCurrencies.some((curr) => symbol.startsWith(curr)) && commonCurrencies.some((curr) => symbol.endsWith(curr))) ||
+    // Forex pair with optional suffix (e.g., EURUSD_W)
+    (symbol.length === 8 && symbol.endsWith("_W") && commonCurrencies.some((curr) => symbol.startsWith(curr)) && commonCurrencies.some((curr) => symbol.slice(3, 6) === curr)) ||
+    // Slash format (e.g., EUR/USD)
+    (symbol.includes("/") && commonCurrencies.some((curr) => symbol.startsWith(curr)) && commonCurrencies.some((curr) => symbol.endsWith(curr)));
+
+  if (isForexPair) {
+    console.log(`Detected FOREX pair by symbol pattern: ${symbol}`);
+    return "FOREX";
+  }
+
+  // Common cryptocurrency tokens
+  const cryptoTokens = ["BTC", "ETH", "USDT", "BNB", "XRP", "ADA", "DOT", "DOGE", "SHIB", "MATIC", "SOL", "AVAX", "LINK", "UNI", "LTC"];
+
+  // Check for crypto patterns
+  const isCryptoPair = cryptoTokens.some((token) => symbol.includes(token)) || symbol.endsWith("USDT") || symbol.includes("PERP") || /[A-Z0-9]{4,}/.test(symbol); // Most crypto symbols are 4+ characters
+
+  if (isCryptoPair) {
+    return "CRYPTOCURRENCIES";
   }
 
   // Try substring matches if no exact match
@@ -98,29 +140,19 @@ const getInstrumentCategory = (type: string | undefined): string | null => {
   const categoryKeywords: Record<string, string[]> = {
     FOREX: ["FX", "CURRENCY", "CURRENCIES", "FOREX"],
     CRYPTOCURRENCIES: ["CRYPTO", "BITCOIN", "ETH", "BTC", "COIN"],
-    SHARES: ["SHARE", "STOCK", "EQUITY"],
-    INDICES: ["INDEX", "INDICE"],
-    COMMODITIES: ["COMMODITY", "OIL", "METAL", "GOLD", "SILVER", "GAS", "ENERGY"],
+    SHARES: ["SHARE", "STOCK", "EQUITY", ".US", ".UK", ".DE"],
+    INDICES: ["INDEX", "INDICE", ".INDEX", "US30", "US500", "GER40", "UK100"],
+    COMMODITIES: ["COMMODITY", "OIL", "METAL", "GOLD", "SILVER", "GAS", "ENERGY", "BRENT", "WTI", "NAT_GAS"],
   };
 
-  // Check if the type contains any of the keywords
+  // Check if the type or symbol contains any of the keywords
   for (const [category, keywords] of Object.entries(categoryKeywords)) {
-    if (keywords.some((keyword) => upperType.includes(keyword))) {
+    if (keywords.some((keyword) => upperType.includes(keyword) || symbol.includes(keyword) || pair.displayName.toUpperCase().includes(keyword))) {
       return category;
     }
   }
 
-  // If nothing matches, use some additional heuristics for specific Capital.com types
-  // Create a debug log to see what we're working with
-  console.log(`Trying to categorize instrument type: ${type}`);
-
-  // Special case for CURRENCIES which should always be FOREX
-  if (upperType === "CURRENCIES") {
-    console.log(`Mapping CURRENCIES to FOREX category`);
-    return "FOREX";
-  }
-
-  console.log(`Unmapped instrument type: ${type}`);
+  console.log(`Unmapped instrument type: ${pair.type} for symbol: ${symbol}, display name: ${pair.displayName}`);
   return null;
 };
 
@@ -130,7 +162,15 @@ const FAVORITE_LIMITS: Record<string, number> = {
   Pro: 50,
 };
 
+// Constants for pagination
+const BATCH_SIZE = 20;
+const CACHE_DURATION = 1000 * 60 * 5; // 5 minutes
+
 export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoading = false, disabled = false, connectionId }: TradingPairSelectProps) {
+  // Add cache for category data
+  const categoryCache = React.useRef<Record<string, TradingPair[]>>({});
+  const categoryTimestamps = React.useRef<Record<string, number>>({});
+
   const [open, setOpen] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState("");
   const [pairs, setPairs] = React.useState<TradingPair[]>(initialPairs);
@@ -208,40 +248,60 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
     }
   }, [open]);
 
-  // Group pairs by category
-  const groupedPairs = React.useMemo(() => {
+  // Group and sort pairs by category
+  const groupAndSortPairs = (pairs: TradingPair[]): Record<string, TradingPair[]> => {
     const grouped: Record<string, TradingPair[]> = {};
 
-    // Initialize all categories with empty arrays
+    // Initialize categories
     Object.keys(ASSET_CATEGORIES).forEach((category) => {
       grouped[category] = [];
     });
 
-    // Add pairs to their respective categories
+    // Group pairs by category
     pairs.forEach((pair) => {
-      // Special handling for Capital.com's CURRENCIES type
-      if (pair.type === "CURRENCIES") {
-        grouped["FOREX"].push(pair);
-        return;
-      }
-
-      // Map the API instrument type to our category system
-      const category = getInstrumentCategory(pair.type);
-
+      const category = getInstrumentCategory(pair);
       if (category && grouped[category]) {
         grouped[category].push(pair);
       }
     });
 
-    // Add favorites to the watchlist from all pairs
-    if (favorites.length > 0) {
-      // Find pairs matching the favorites
-      const watchlistPairs = pairs.filter((pair) => favorites.includes(pair.symbol));
-      grouped.WATCHLIST = watchlistPairs;
-    }
+    // Sort each category by popularity/volume (using symbol patterns as a proxy)
+    Object.keys(grouped).forEach((category) => {
+      grouped[category].sort((a, b) => {
+        // Major forex pairs should come first in FOREX category
+        if (category === "FOREX") {
+          const majorPairs = ["EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "USDCAD", "NZDUSD"];
+          const aIsMajor = majorPairs.some((pair) => a.symbol.startsWith(pair));
+          const bIsMajor = majorPairs.some((pair) => b.symbol.startsWith(pair));
+          if (aIsMajor && !bIsMajor) return -1;
+          if (!aIsMajor && bIsMajor) return 1;
+        }
+
+        // Major crypto pairs should come first in CRYPTOCURRENCIES category
+        if (category === "CRYPTOCURRENCIES") {
+          const majorCryptos = ["BTC", "ETH", "BNB", "XRP", "ADA", "DOT", "SOL"];
+          const aIsMajor = majorCryptos.some((crypto) => a.symbol.includes(crypto));
+          const bIsMajor = majorCryptos.some((crypto) => b.symbol.includes(crypto));
+          if (aIsMajor && !bIsMajor) return -1;
+          if (!aIsMajor && bIsMajor) return 1;
+        }
+
+        // Default to alphabetical sorting by display name
+        return a.displayName.localeCompare(b.displayName);
+      });
+    });
 
     return grouped;
-  }, [pairs, favorites]);
+  };
+
+  // Get pairs to display
+  const displayPairs = React.useMemo(() => {
+    if (searching) {
+      return pairs;
+    }
+    const grouped = groupAndSortPairs(pairs);
+    return grouped[selectedCategory] || [];
+  }, [searching, selectedCategory, pairs]);
 
   // Handle scrolling to load more items
   React.useEffect(() => {
@@ -264,69 +324,248 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
     return () => scrollElement.removeEventListener("scroll", handleScroll);
   }, [scrollContainerRef, selectedCategory, hasMore, isFetchingMore, searching]);
 
-  // Debounced search
+  // Load category data when a category is selected
+  const loadCategoryData = React.useCallback(
+    async (category: string) => {
+      if (!connectionId || category === "WATCHLIST") {
+        console.log(`Skipping category load - invalid conditions: ${category}`);
+        return;
+      }
+
+      // Check if we have fresh cached data
+      const now = Date.now();
+      const cachedTimestamp = categoryTimestamps.current[category] || 0;
+      if (now - cachedTimestamp < CACHE_DURATION && categoryCache.current[category]) {
+        console.log(`Using cached data for category: ${category}, ${categoryCache.current[category].length} pairs available`);
+        setPairs(categoryCache.current[category]);
+        setLoadedCategories((prev) => (prev.includes(category) ? prev : [...prev, category]));
+        return;
+      }
+
+      console.log(`Loading category data for: ${category}`);
+      setCategoryLoading((prev) => ({ ...prev, [category]: true }));
+      setHasMore(true);
+      setCategoryPage((prev) => ({ ...prev, [category]: 0 }));
+
+      const loadWithRetry = async (retryCount = 0, delay = 2000) => {
+        try {
+          console.log(`Fetching initial data for category: ${category}`);
+
+          let results: TradingPair[] = [];
+          const nodeId = MARKET_CATEGORIES[category];
+
+          if (nodeId) {
+            // Use market navigation API with retries
+            try {
+              console.log(`Using market navigation API for ${category} with node ID: ${nodeId}`);
+              const markets = await api.getMarketNavigation(nodeId, BATCH_SIZE);
+              console.log(`Received market navigation response:`, markets);
+
+              if (markets?.nodes && markets.nodes.length > 0) {
+                console.log(`Found ${markets.nodes.length} markets in navigation`);
+                // Get details for each market in batches to avoid rate limits
+                const epics = markets.nodes.map((node: MarketNode) => node.id);
+                const batchSize = 10; // Process 10 instruments at a time
+
+                for (let i = 0; i < epics.length; i += batchSize) {
+                  const batch = epics.slice(i, i + batchSize).join(",");
+                  if (batch) {
+                    console.log(`Fetching details for batch ${i / batchSize + 1}/${Math.ceil(epics.length / batchSize)}`);
+                    const batchResults = await api.getMarketDetails(batch);
+                    console.log(`Received ${batchResults.length} pairs for current batch`);
+                    results = [...results, ...batchResults];
+                  }
+                  // Add a small delay between batches to avoid rate limits
+                  if (i + batchSize < epics.length) {
+                    await new Promise((resolve) => setTimeout(resolve, 200));
+                  }
+                }
+              } else {
+                console.warn(`No markets found in navigation response for ${category}`);
+              }
+            } catch (navError) {
+              console.warn(`Market navigation failed for ${category}, falling back to direct query:`, navError);
+              // Fall back to direct category query if navigation fails
+              results = await api.getTradingPairs(connectionId, "", BATCH_SIZE, category, 0);
+            }
+          } else {
+            console.log(`No navigation node ID for ${category}, using direct query`);
+            // Direct category query for categories without node IDs
+            results = await api.getTradingPairs(connectionId, "", BATCH_SIZE, category, 0);
+          }
+
+          console.log(`Received ${results.length} total instruments for category ${category}`);
+
+          if (results.length < BATCH_SIZE) {
+            console.log(`No more pages available for category ${category}`);
+            setHasMore(false);
+          }
+
+          // Filter and sort results
+          const filteredResults = results.filter((pair) => {
+            const detectedCategory = getInstrumentCategory(pair);
+            return detectedCategory === category;
+          });
+
+          console.log(`After filtering: ${filteredResults.length} pairs match category ${category}`);
+          if (filteredResults.length === 0) {
+            console.log(
+              "Filtered pairs:",
+              results.map((p) => ({
+                symbol: p.symbol,
+                type: p.type,
+                detectedCategory: getInstrumentCategory(p),
+              }))
+            );
+          }
+
+          // Cache the filtered results
+          categoryCache.current[category] = filteredResults;
+          categoryTimestamps.current[category] = Date.now();
+
+          setPairs(filteredResults);
+          setLoadedCategories((prev) => (prev.includes(category) ? prev : [...prev, category]));
+        } catch (error) {
+          console.error(`Error loading category ${category}:`, error);
+
+          if (axios.isAxiosError(error)) {
+            console.error("API Error details:", {
+              status: error.response?.status,
+              data: error.response?.data,
+              headers: error.response?.headers,
+            });
+          }
+
+          if (axios.isAxiosError(error) && error.response?.status === 429 && retryCount < 3) {
+            console.log(`Rate limit hit, retrying in ${delay}ms (attempt ${retryCount + 1})...`);
+            await new Promise((resolve) => setTimeout(resolve, delay));
+            return loadWithRetry(retryCount + 1, delay * 2); // Exponential backoff
+          }
+
+          toast.error(`Failed to load ${ASSET_CATEGORIES[category] || category} instruments`);
+          setHasMore(false);
+        }
+      };
+
+      try {
+        await loadWithRetry();
+      } finally {
+        setCategoryLoading((prev) => ({ ...prev, [category]: false }));
+      }
+    },
+    [connectionId, api]
+  );
+
+  // Handle category change with debounce and caching
+  const debouncedCategoryChange = React.useCallback(
+    debounce((category: string) => {
+      console.log(`Changing category to: ${category}`);
+      setSelectedCategory(category);
+      setHasMore(true);
+
+      // For watchlist, restore initial pairs
+      if (category === "WATCHLIST") {
+        console.log("Restoring initial pairs for watchlist category");
+        setPairs(initialPairs);
+        return;
+      }
+
+      // Load category data if not in cache or cache is stale
+      const now = Date.now();
+      const cachedTimestamp = categoryTimestamps.current[category] || 0;
+      if (now - cachedTimestamp >= CACHE_DURATION || !categoryCache.current[category]) {
+        loadCategoryData(category);
+      } else {
+        console.log(`Using cached data for category: ${category}`);
+        setPairs(categoryCache.current[category]);
+      }
+    }, 500),
+    [loadCategoryData, initialPairs]
+  );
+
+  // Update search effect with better rate limit handling
   React.useEffect(() => {
     if (!connectionId || !open) return;
 
-    const handler = setTimeout(async () => {
+    console.log("Search effect triggered:", {
+      searchQuery,
+      selectedCategory,
+      isLoaded: loadedCategories.includes(selectedCategory),
+      pairs: pairs.length,
+    });
+
+    let searchTimeout: NodeJS.Timeout;
+    let retryCount = 0;
+    const maxRetries = 3;
+    const baseDelay = 2000;
+
+    const performSearch = async () => {
       if (searchQuery.length >= 2) {
         setSearching(true);
         try {
           console.log(`Searching for trading pairs: "${searchQuery}"`);
-          const results = await api.getTradingPairs(connectionId, searchQuery, 100);
-          console.log(`Found ${results.length} matching pairs`);
+          const results = await api.getTradingPairs(connectionId, searchQuery, BATCH_SIZE);
+          console.log(`Found ${results.length} matching pairs:`, results.map((p) => p.symbol).join(", "));
           setPairs(results);
+          retryCount = 0; // Reset retry count on success
         } catch (err) {
           console.error("Error searching pairs:", err);
-          if (axios.isAxiosError(err) && err.response?.status === 429) {
-            toast.error("Too many requests. Please wait a moment before searching again.");
+          if (axios.isAxiosError(err) && err.response?.status === 429 && retryCount < maxRetries) {
+            const delay = baseDelay * Math.pow(2, retryCount);
+            console.log(`Rate limit hit, retrying in ${delay}ms...`);
+            retryCount++;
+            searchTimeout = setTimeout(performSearch, delay);
+            return;
           }
+          toast.error("Too many requests. Please wait a moment before searching again.");
         } finally {
           setSearching(false);
         }
       } else if (searchQuery.length === 0) {
-        console.log("Search cleared, restoring category pairs");
-        setSearching(false);
-
-        // If we're in a specific category, reload that category's data
-        if (selectedCategory !== "WATCHLIST" && loadedCategories.includes(selectedCategory)) {
-          try {
-            // Add a small delay before reloading to prevent rate limiting
-            await new Promise((resolve) => setTimeout(resolve, 1000));
-            console.log(`Reloading pairs for category: ${selectedCategory}`);
-            const results = await api.getTradingPairs(connectionId, "", 100, selectedCategory, 0);
-            console.log(`Restored ${results.length} pairs for category ${selectedCategory}`);
-            setPairs(results);
-            setHasMore(results.length === 100);
-            setCategoryPage({ [selectedCategory]: 0 });
-          } catch (error) {
-            console.error(`Error restoring category pairs:`, error);
-            if (axios.isAxiosError(error) && error.response?.status === 429) {
-              // If we hit rate limit, try again after a delay
-              console.log("Rate limit hit, retrying after delay...");
-              setTimeout(async () => {
-                try {
-                  const results = await api.getTradingPairs(connectionId, "", 100, selectedCategory, 0);
-                  setPairs(results);
-                  setHasMore(results.length === 100);
-                  setCategoryPage({ [selectedCategory]: 0 });
-                } catch (retryError) {
-                  console.error("Retry failed:", retryError);
-                  toast.error("Failed to load category data. Please try again.");
-                }
-              }, 2000);
-            }
-          }
-        } else if (selectedCategory === "WATCHLIST") {
-          // For watchlist, restore initial pairs
-          console.log("Restoring initial pairs for watchlist");
+        // When clearing search, use cached data if available
+        if (selectedCategory === "WATCHLIST") {
           setPairs(initialPairs);
+        } else if (categoryCache.current[selectedCategory]) {
+          console.log(`Restoring cached data for ${selectedCategory}`);
+          setPairs(categoryCache.current[selectedCategory]);
         }
       }
-    }, 500); // Increased debounce time from 300ms to 500ms
+    };
 
-    return () => clearTimeout(handler);
-  }, [searchQuery, connectionId, initialPairs, open, api, selectedCategory, loadedCategories]);
+    searchTimeout = setTimeout(performSearch, 500);
+
+    return () => {
+      clearTimeout(searchTimeout);
+    };
+  }, [searchQuery, connectionId, initialPairs, open, api, selectedCategory]);
+
+  // Handle category change
+  const handleCategoryChange = (category: string) => {
+    if (category === selectedCategory) {
+      console.log("Skipping category change - already selected:", category);
+      return;
+    }
+    console.log("Changing category from", selectedCategory, "to", category);
+    setSearchQuery(""); // Clear search when changing categories
+    debouncedCategoryChange(category);
+  };
+
+  // Toggle favorite status for a pair
+  const toggleFavorite = (symbol: string, event: React.MouseEvent) => {
+    event.stopPropagation(); // Prevent triggering the parent button click
+
+    if (favorites.includes(symbol)) {
+      // Remove from favorites
+      removeFromWatchlistMutation.mutate(symbol);
+    } else {
+      // Add to favorites if under limit
+      if (favorites.length >= favoriteLimit) {
+        toast.error(`You can only add ${favoriteLimit} pairs to your watchlist with your ${subscriptionPlan} plan`);
+        return;
+      }
+      addToWatchlistMutation.mutate(symbol);
+    }
+  };
 
   // Function to load more items for the selected category
   const loadMoreForCategory = async (category: string) => {
@@ -339,15 +578,15 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
     try {
       // Get current page for this category
       const currentPage = categoryPage[category] || 0;
-      const offset = currentPage * 100; // Use 100 items per page
+      const offset = currentPage * BATCH_SIZE; // Use BATCH_SIZE items per page
 
       console.log(`Loading more data for category ${category}, offset ${offset}`);
 
-      const results = await api.getTradingPairs(connectionId, "", 100, category, offset);
+      const results = await api.getTradingPairs(connectionId, "", BATCH_SIZE, category, offset);
       console.log(`Received ${results.length} additional instruments for category ${category}`);
 
-      // If we get less than 100 results, we've reached the end
-      if (results.length < 100) {
+      // If we get less than BATCH_SIZE results, we've reached the end
+      if (results.length < BATCH_SIZE) {
         setHasMore(false);
       }
 
@@ -371,102 +610,6 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
       setIsFetchingMore(false);
     }
   };
-
-  // Load category data when a category is selected
-  const loadCategoryData = async (category: string) => {
-    if (loadedCategories.includes(category) || category === "WATCHLIST" || !connectionId) {
-      console.log(`Skipping category load - already loaded: ${category}`);
-      return;
-    }
-
-    console.log(`Loading category data for: ${category}`);
-    setCategoryLoading((prev) => ({ ...prev, [category]: true }));
-    setHasMore(true);
-    setCategoryPage((prev) => ({ ...prev, [category]: 0 }));
-
-    const loadWithRetry = async (retryCount = 0) => {
-      try {
-        console.log(`Fetching initial data for category: ${category}`);
-        const results = await api.getTradingPairs(connectionId, "", 100, category, 0);
-        console.log(`Received ${results.length} instruments for category ${category}`);
-
-        if (results.length < 100) {
-          console.log(`No more pages available for category ${category}`);
-          setHasMore(false);
-        }
-
-        setPairs(results);
-        setLoadedCategories((prev) => [...prev, category]);
-      } catch (error) {
-        console.error(`Error loading category ${category}:`, error);
-
-        if (axios.isAxiosError(error) && error.response?.status === 429 && retryCount < 2) {
-          console.log(`Rate limit hit, retrying (attempt ${retryCount + 1})...`);
-          await new Promise((resolve) => setTimeout(resolve, 2000 * (retryCount + 1)));
-          return loadWithRetry(retryCount + 1);
-        }
-
-        toast.error(`Failed to load ${ASSET_CATEGORIES[category] || category} instruments`);
-        setHasMore(false);
-      }
-    };
-
-    try {
-      await loadWithRetry();
-    } finally {
-      setCategoryLoading((prev) => ({ ...prev, [category]: false }));
-    }
-  };
-
-  // Handle category change with debounce
-  const debouncedCategoryChange = React.useCallback(
-    debounce((category: string) => {
-      console.log(`Changing category to: ${category}`);
-      setSelectedCategory(category);
-      setHasMore(true);
-      setSearchQuery(""); // Clear search when changing categories
-
-      // Load category data if not loaded yet
-      if (!loadedCategories.includes(category) && category !== "WATCHLIST") {
-        loadCategoryData(category);
-      } else if (category === "WATCHLIST") {
-        // For watchlist, restore initial pairs
-        console.log("Restoring initial pairs for watchlist category");
-        setPairs(initialPairs);
-      }
-    }, 500),
-    [loadedCategories, loadCategoryData, initialPairs]
-  );
-
-  // Handle category change
-  const handleCategoryChange = (category: string) => {
-    debouncedCategoryChange(category);
-  };
-
-  // Toggle favorite status for a pair
-  const toggleFavorite = (symbol: string, event: React.MouseEvent) => {
-    event.stopPropagation(); // Prevent triggering the parent button click
-
-    if (favorites.includes(symbol)) {
-      // Remove from favorites
-      removeFromWatchlistMutation.mutate(symbol);
-    } else {
-      // Add to favorites if under limit
-      if (favorites.length >= favoriteLimit) {
-        toast.error(`You can only add ${favoriteLimit} pairs to your watchlist with your ${subscriptionPlan} plan`);
-        return;
-      }
-      addToWatchlistMutation.mutate(symbol);
-    }
-  };
-
-  // Get pairs to display
-  const displayPairs = React.useMemo(() => {
-    if (searching) {
-      return pairs;
-    }
-    return groupedPairs[selectedCategory] || [];
-  }, [searching, selectedCategory, groupedPairs, pairs]);
 
   return (
     <>
@@ -603,17 +746,18 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
             ) : (
               <div className="py-1">
                 {displayPairs.map((pair) => (
-                  <button
+                  <div
                     key={pair.symbol}
                     className={cn(
-                      "flex items-center justify-between w-full px-4 py-2 text-left transition-colors",
+                      "flex items-center justify-between w-full px-4 py-2 transition-colors",
                       value === pair.symbol ? "bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400" : "hover:bg-slate-50 dark:hover:bg-slate-800/30"
-                    )}
-                    onClick={() => {
-                      onChange(pair.symbol);
-                      setOpen(false);
-                    }}>
-                    <div className="flex items-center gap-3">
+                    )}>
+                    <button
+                      className="flex-1 flex items-center gap-3 text-left"
+                      onClick={() => {
+                        onChange(pair.symbol);
+                        setOpen(false);
+                      }}>
                       <div
                         className={cn(
                           "w-1.5 h-8 rounded-sm",
@@ -632,7 +776,7 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
                         <div className="font-medium">{pair.displayName}</div>
                         <div className="text-xs text-slate-500 font-mono">{pair.symbol}</div>
                       </div>
-                    </div>
+                    </button>
                     <div className="flex items-center gap-2">
                       <button
                         className={cn(
@@ -645,7 +789,7 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
                         <Star className={cn("h-5 w-5", favorites.includes(pair.symbol) ? "text-yellow-500 fill-yellow-500" : "text-slate-300 dark:text-slate-600")} />
                       </button>
                     </div>
-                  </button>
+                  </div>
                 ))}
 
                 {/* Loading indicator */}

@@ -106,6 +106,15 @@ export interface WatchlistItem {
     | null;
 }
 
+export interface MarketNode {
+  id: string;
+  name: string;
+}
+
+export interface MarketNavigationResponse {
+  nodes: MarketNode[];
+}
+
 // Create authenticated API client
 export function useApi() {
   const { getToken } = useAuth();
@@ -219,6 +228,21 @@ export function useApi() {
 
     removeFromWatchlist: async (symbol: string): Promise<{ success: boolean }> => {
       const { data } = await api.delete<{ success: boolean }>(`/user/watchlist/${symbol}`);
+      return data;
+    },
+
+    // Market navigation methods
+    getMarketNavigation: async (nodeId: string, limit?: number) => {
+      const { data } = await api.get<MarketNavigationResponse>(`/market/navigation/${nodeId}`, {
+        params: {
+          limit: limit,
+        },
+      });
+      return data;
+    },
+
+    getMarketDetails: async (epics: string) => {
+      const { data } = await api.get<TradingPair[]>(`/market/details/${epics}`);
       return data;
     },
 

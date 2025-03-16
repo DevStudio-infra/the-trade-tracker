@@ -25,7 +25,7 @@ export function CTASection() {
                 asChild
                 variant="outline"
                 size="lg"
-                className="rounded-full border-white text-white hover:bg-white/10 transform transition-transform duration-500 hover:scale-105">
+                className="rounded-full border-white bg-white/10 text-white hover:bg-white/20 transform transition-transform duration-500 hover:scale-105">
                 <Link href="/pricing">View Plans</Link>
               </Button>
             </div>

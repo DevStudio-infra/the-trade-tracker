@@ -72,21 +72,22 @@ export default function TradingPage() {
         // Start with empty state to ensure a clean display
         setTradingPairs([]);
 
-        // Fetch a larger initial set for better selection options
-        const pairs = await api.getTradingPairs(brokerId, "", 100);
+        // Fetch watchlist and corresponding trading pair details
+        const watchlist = await api.getWatchlist();
+        if (watchlist.length > 0) {
+          // Get full trading pair details for watchlist items
+          const pairs = await api.getTradingPairs(brokerId, "", watchlist.length, "WATCHLIST", 0);
 
-        // Only update state if component is still mounted
-        if (mountedRef.current) {
-          console.log(`Received ${pairs.length} initial trading pairs`);
-
-          // Verify the pairs have the expected structure
-          if (pairs.length > 0) {
-            console.log("First pair sample:", pairs[0]);
+          // Only update state if component is still mounted
+          if (mountedRef.current) {
+            console.log(`Received ${pairs.length} watchlist trading pairs`);
+            setTradingPairs(pairs);
+            setSelectedPair(null);
+            previousBrokerIdRef.current = brokerId;
           }
-
-          setTradingPairs(pairs);
-          setSelectedPair(null);
-          previousBrokerIdRef.current = brokerId;
+        } else {
+          // If watchlist is empty, just set empty array
+          setTradingPairs([]);
         }
       } catch (error) {
         console.error("Error fetching trading pairs:", error);

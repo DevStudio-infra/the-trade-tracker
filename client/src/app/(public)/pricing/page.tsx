@@ -217,8 +217,8 @@ export default function PricingPage() {
           viewport={{ once: true }}
           className="mx-auto mt-24 max-w-[800px] rounded-2xl border border-black/10 dark:border-white/10 bg-gradient-to-r from-blue-500/20 to-cyan-500/20 p-8 text-center backdrop-blur-xl md:p-12">
           <h2 className="text-2xl font-bold text-black dark:text-white md:text-3xl">Ready to Start Trading?</h2>
-          <p className="mt-4 text-black/70 dark:text-white/70">Get started with 6 free AI credits. No credit card required.</p>
-          <Button asChild size="lg" className="mt-8 rounded-full bg-black dark:bg-white text-white dark:text-black hover:bg-black/90 dark:hover:bg-white/90">
+          <p className="mt-4 text-black/70 dark:text-white/70">Get started with 10 free AI credits monthly. No credit card required.</p>
+          <Button asChild size="lg" className="mt-8 rounded-full bg-blue-600 hover:bg-blue-700 dark:bg-white text-white dark:text-blue-600 dark:hover:bg-white/90">
             <Link href="/dashboard">
               Get Started Free <ArrowRight className="ml-2 h-4 w-4" />
             </Link>

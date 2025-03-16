@@ -1,224 +1,237 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
-    provider = "prisma-client-js"
+  provider = "prisma-client-js"
 }
 
 datasource db {
-    provider = "postgresql"
-    url      = env("DATABASE_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model Strategy {
-    id             String        @id @default(uuid())
-    name           String        @unique
-    description    String
-    rules          Json
-    timeframes     String[]
-    riskParameters Json
-    isActive       Boolean       @default(true)
-    createdAt      DateTime      @default(now()) @map("created_at")
-    botInstances   BotInstance[]
-    embedding      RAGEmbedding?
+  id             String        @id @default(uuid())
+  name           String        @unique
+  description    String
+  rules          Json
+  timeframes     String[]
+  riskParameters Json
+  isActive       Boolean       @default(true)
+  createdAt      DateTime      @default(now()) @map("created_at")
+  botInstances   BotInstance[]
+  embedding      RAGEmbedding?
 
-    @@map("strategies")
+  @@map("strategies")
 }
 
 model BotInstance {
-    id           String         @id @default(uuid())
-    userId       String         @map("user_id")
-    strategyId   String         @map("strategy_id")
-    pair         String
-    timeframe    String
-    riskSettings Json           @map("risk_settings")
-    isActive     Boolean        @default(true) @map("is_active")
-    createdAt    DateTime       @default(now()) @map("created_at")
-    updatedAt    DateTime       @updatedAt @map("updated_at")
-    strategy     Strategy       @relation(fields: [strategyId], references: [id])
-    signals      Signal[]
-    trades       Trade[]
-    evaluations  AIEvaluation[]
+  id           String         @id @default(uuid())
+  userId       String         @map("user_id")
+  strategyId   String         @map("strategy_id")
+  pair         String
+  timeframe    String
+  riskSettings Json           @map("risk_settings")
+  isActive     Boolean        @default(true) @map("is_active")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+  evaluations  AIEvaluation[]
+  strategy     Strategy       @relation(fields: [strategyId], references: [id])
+  signals      Signal[]
+  trades       Trade[]
 
-    @@map("bot_instances")
+  @@map("bot_instances")
 }
 
 model RAGEmbedding {
-    id         String   @id @default(uuid())
-    strategyId String   @unique @map("strategy_id")
-    embedding  Float[]
-    metadata   Json
-    createdAt  DateTime @default(now()) @map("created_at")
-    strategy   Strategy @relation(fields: [strategyId], references: [id])
+  id         String   @id @default(uuid())
+  strategyId String   @unique @map("strategy_id")
+  embedding  Float[]
+  metadata   Json
+  createdAt  DateTime @default(now()) @map("created_at")
+  strategy   Strategy @relation(fields: [strategyId], references: [id])
 
-    @@map("rag_embeddings")
+  @@map("rag_embeddings")
 }
 
 model Signal {
-    id            String         @id @default(uuid())
-    botInstanceId String         @map("bot_instance_id")
-    userId        String         @map("user_id")
-    pair          String
-    timeframe     String
-    signalType    String         @map("signal_type")
-    confidence    Int
-    stopLoss      Decimal        @map("stop_loss")
-    takeProfit    Decimal        @map("take_profit")
-    riskScore     Int            @map("risk_score")
-    chartImageUrl String         @map("chart_image_url")
-    status        String
-    createdAt     DateTime       @default(now()) @map("created_at")
-    executedAt    DateTime?      @map("executed_at")
-    tradeId       String?        @unique @map("trade_id")
-    botInstance   BotInstance    @relation(fields: [botInstanceId], references: [id])
-    trade         Trade?         @relation(fields: [tradeId], references: [id])
-    evaluations   AIEvaluation[]
-    User          User           @relation(fields: [userId], references: [id])
-    ChartImage    ChartImage[]
+  id            String         @id @default(uuid())
+  botInstanceId String         @map("bot_instance_id")
+  userId        String         @map("user_id")
+  pair          String
+  timeframe     String
+  signalType    String         @map("signal_type")
+  confidence    Int
+  stopLoss      Decimal        @map("stop_loss")
+  takeProfit    Decimal        @map("take_profit")
+  riskScore     Int            @map("risk_score")
+  chartImageUrl String         @map("chart_image_url")
+  status        String
+  createdAt     DateTime       @default(now()) @map("created_at")
+  executedAt    DateTime?      @map("executed_at")
+  tradeId       String?        @unique @map("trade_id")
+  evaluations   AIEvaluation[]
+  ChartImage    ChartImage[]
+  botInstance   BotInstance    @relation(fields: [botInstanceId], references: [id])
+  trade         Trade?         @relation(fields: [tradeId], references: [id])
+  User          User           @relation(fields: [userId], references: [id])
 
-    @@map("signals")
+  @@map("signals")
 }
 
 model Trade {
-    id            String      @id @default(uuid())
-    userId        String      @map("user_id")
-    botInstanceId String      @map("bot_instance_id")
-    signalId      String?     @unique @map("signal_id")
-    pair          String
-    entryPrice    Decimal     @map("entry_price")
-    exitPrice     Decimal?    @map("exit_price")
-    quantity      Decimal
-    profitLoss    Decimal?    @map("profit_loss")
-    riskPercent   Decimal     @map("risk_percent")
-    riskReward    Decimal?    @map("risk_reward")
-    createdAt     DateTime    @default(now()) @map("created_at")
-    closedAt      DateTime?   @map("closed_at")
-    metadata      Json
-    botInstance   BotInstance @relation(fields: [botInstanceId], references: [id])
-    signal        Signal?     @relation()
-    User          User        @relation(fields: [userId], references: [id])
+  id            String      @id @default(uuid())
+  userId        String      @map("user_id")
+  botInstanceId String      @map("bot_instance_id")
+  signalId      String?     @unique @map("signal_id")
+  pair          String
+  entryPrice    Decimal     @map("entry_price")
+  exitPrice     Decimal?    @map("exit_price")
+  quantity      Decimal
+  profitLoss    Decimal?    @map("profit_loss")
+  riskPercent   Decimal     @map("risk_percent")
+  riskReward    Decimal?    @map("risk_reward")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  closedAt      DateTime?   @map("closed_at")
+  metadata      Json
+  signal        Signal?
+  botInstance   BotInstance @relation(fields: [botInstanceId], references: [id])
+  User          User        @relation(fields: [userId], references: [id])
 
-    @@map("trades")
+  @@map("trades")
 }
 
 model AIEvaluation {
-    id            String      @id @default(uuid())
-    signalId      String      @map("signal_id")
-    botInstanceId String      @map("bot_instance_id")
-    evalType      String      @map("eval_type")
-    chartImageUrl String      @map("chart_image_url")
-    promptUsed    String      @map("prompt_used")
-    llmResponse   Json        @map("llm_response")
-    createdAt     DateTime    @default(now()) @map("created_at")
-    metadata      Json
-    signal        Signal      @relation(fields: [signalId], references: [id])
-    botInstance   BotInstance @relation(fields: [botInstanceId], references: [id])
+  id            String      @id @default(uuid())
+  signalId      String      @map("signal_id")
+  botInstanceId String      @map("bot_instance_id")
+  evalType      String      @map("eval_type")
+  chartImageUrl String      @map("chart_image_url")
+  promptUsed    String      @map("prompt_used")
+  llmResponse   Json        @map("llm_response")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  metadata      Json
+  botInstance   BotInstance @relation(fields: [botInstanceId], references: [id])
+  signal        Signal      @relation(fields: [signalId], references: [id])
 
-    @@map("ai_evaluations")
+  @@map("ai_evaluations")
 }
 
 model User {
-    id                   String              @id @default(cuid())
-    email                String              @unique
-    name                 String?
-    subscription_plan    String              @default("free")
-    credits              Int                 @default(0)
-    onboarding_step      Int                 @default(1)
-    onboarding_completed Boolean             @default(false)
-    is_active            Boolean             @default(true)
-    created_at           DateTime            @default(now())
-    updated_at           DateTime            @updatedAt
-    last_login           DateTime?
-    onboarding           UserOnboarding?
-    trades               Trade[]
-    signals              Signal[]
-    broker_credentials   BrokerCredential[]
-    credit_transactions  CreditTransaction[]
-    credit_purchases     CreditPurchase[]
-    watchlist_items      WatchlistItem[]
+  id                   String              @id @default(cuid())
+  email                String              @unique
+  name                 String?
+  subscription_plan    String              @default("free")
+  credits              Int                 @default(0)
+  onboarding_step      Int                 @default(1)
+  onboarding_completed Boolean             @default(false)
+  is_active            Boolean             @default(true)
+  created_at           DateTime            @default(now())
+  updated_at           DateTime            @updatedAt
+  last_login           DateTime?
+  broker_credentials   BrokerCredential[]
+  credit_purchases     CreditPurchase[]
+  credit_transactions  CreditTransaction[]
+  signals              Signal[]
+  trades               Trade[]
+  onboarding           UserOnboarding?
+  watchlist_items      WatchlistItem[]
 
-    @@map("users")
+  @@map("users")
 }
 
 model UserOnboarding {
-    id         String   @id @default(uuid())
-    user_id    String   @unique
-    step       Int      @default(1)
-    status     String   @default("Not_Started")
-    data       Json
-    created_at DateTime @default(now())
-    updated_at DateTime @updatedAt
-    user       User     @relation(fields: [user_id], references: [id])
+  id         String   @id @default(uuid())
+  user_id    String   @unique
+  step       Int      @default(1)
+  status     String   @default("Not_Started")
+  data       Json
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  user       User     @relation(fields: [user_id], references: [id])
 
-    @@map("user_onboarding")
+  @@map("user_onboarding")
 }
 
 model BrokerCredential {
-    id          String    @id @default(uuid())
-    user_id     String
-    broker_name String
-    description String    @default("")
-    credentials Json
-    is_active   Boolean   @default(true)
-    last_used   DateTime?
-    created_at  DateTime  @default(now())
-    updated_at  DateTime  @updatedAt
-    user        User      @relation(fields: [user_id], references: [id])
+  id          String    @id @default(uuid())
+  user_id     String
+  broker_name String
+  description String    @default("")
+  credentials Json
+  is_active   Boolean   @default(true)
+  last_used   DateTime?
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+  user        User      @relation(fields: [user_id], references: [id])
 
-    @@map("broker_credentials")
+  @@map("broker_credentials")
 }
 
 model CreditTransaction {
-    id            String   @id @default(uuid())
-    userId        String   @map("user_id")
-    creditsUsed   Int      @map("credits_used")
-    action        String
-    balanceBefore Int      @map("balance_before")
-    balanceAfter  Int      @map("balance_after")
-    metadata      Json
-    createdAt     DateTime @default(now()) @map("created_at")
-    user          User     @relation(fields: [userId], references: [id])
+  id            String   @id @default(uuid())
+  userId        String   @map("user_id")
+  creditsUsed   Int      @map("credits_used")
+  action        String
+  balanceBefore Int      @map("balance_before")
+  balanceAfter  Int      @map("balance_after")
+  metadata      Json
+  createdAt     DateTime @default(now()) @map("created_at")
+  user          User     @relation(fields: [userId], references: [id])
 
-    @@map("credit_transactions")
+  @@map("credit_transactions")
 }
 
 model CreditPurchase {
-    id        String   @id @default(uuid())
-    userId    String   @map("user_id")
-    amount    Int
-    cost      Decimal
-    paymentId String   @map("payment_id")
-    status    String
-    createdAt DateTime @default(now()) @map("created_at")
-    user      User     @relation(fields: [userId], references: [id])
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  amount    Int
+  cost      Decimal
+  paymentId String   @map("payment_id")
+  status    String
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id])
 
-    @@map("credit_purchases")
+  @@map("credit_purchases")
 }
 
 model ChartImage {
-    id          String   @id @default(uuid())
-    signalId    String   @map("signal_id")
-    timeframe   String
-    chartType   String   @map("chart_type")
-    storagePath String   @map("storage_path")
-    publicUrl   String   @map("public_url")
-    createdAt   DateTime @default(now()) @map("created_at")
-    metadata    Json
-    signal      Signal   @relation(fields: [signalId], references: [id])
+  id          String   @id @default(uuid())
+  signalId    String   @map("signal_id")
+  timeframe   String
+  chartType   String   @map("chart_type")
+  storagePath String   @map("storage_path")
+  publicUrl   String   @map("public_url")
+  createdAt   DateTime @default(now()) @map("created_at")
+  metadata    Json
+  signal      Signal   @relation(fields: [signalId], references: [id])
 
-    @@map("chart_images")
+  @@map("chart_images")
 }
 
 model WatchlistItem {
-    id           String   @id @default(uuid())
-    user_id      String
-    symbol       String
-    broker_id    String?
-    added_at     DateTime @default(now())
-    notes        String?
-    price_alerts Json?
-    user         User     @relation(fields: [user_id], references: [id])
+  id           String   @id @default(uuid())
+  user_id      String
+  symbol       String
+  broker_id    String?
+  added_at     DateTime @default(now())
+  notes        String?
+  price_alerts Json?
+  user         User     @relation(fields: [user_id], references: [id])
 
-    @@unique([user_id, symbol])
-    @@map("watchlist_items")
+  @@unique([user_id, symbol])
+  @@map("watchlist_items")
+}
+
+model CapitalComPair {
+  symbol      String   @id
+  displayName String
+  type        String
+  category    String
+  minQuantity Decimal? @db.Decimal(10, 5)
+  maxQuantity Decimal? @db.Decimal(10, 5)
+  precision   Int?
+  isActive    Boolean  @default(true)
+  lastUpdated DateTime @default(now()) @updatedAt
+
+  @@index([category])
+  @@index([type])
+  @@map("capital_com_pairs")
 }

@@ -7,6 +7,7 @@ import { QueryProvider } from "@/providers/query-provider";
 import { NotificationsProvider } from "@/providers/notifications-provider";
 import { Toaster } from "@/components/ui/toaster";
 import "./globals.css";
+import { Footer } from "@/components/layout/footer";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -14,7 +15,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "TradePro - Advanced Algorithmic Trading",
+  title: "Trade Tracker - Advanced Algorithmic Trading with AI",
   description: "Advanced algorithmic trading with automated execution, dynamic stop-losses, and AI-powered technical analysis.",
 };
 
@@ -32,6 +33,7 @@ export default function RootLayout({
               <NotificationsProvider>
                 <Navbar />
                 <main className="pt-16">{children}</main>
+                <Footer />
                 <Toaster />
               </NotificationsProvider>
             </QueryProvider>

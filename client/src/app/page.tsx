@@ -1,7 +1,7 @@
 import { HeroSection } from "@/components/landing/HeroSection";
 import { BenefitsSection } from "@/components/landing/BenefitsSection";
 import { CTASection } from "@/components/landing/CTASection";
-import { TestApi } from "@/components/test-api";
+//import { TestApi } from "@/components/test-api";
 
 export default function HomePage() {
   return (
@@ -14,10 +14,6 @@ export default function HomePage() {
         <HeroSection />
         <BenefitsSection />
         <CTASection />
-        <div className="mb-8">
-          <h2 className="text-2xl font-semibold mb-4">API Connection Test</h2>
-          <TestApi />
-        </div>
       </div>
     </div>
   );

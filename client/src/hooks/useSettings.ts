@@ -28,7 +28,7 @@ export function useSettings() {
         console.log("Fetching user profile...");
         const response = await api.getUserProfile();
         console.log("User profile response:", response);
-        return { data: response };
+        return response;
       } catch (error) {
         const axiosError = error as AxiosError;
         console.error("Error fetching user profile:", {
@@ -41,10 +41,9 @@ export function useSettings() {
         if (axiosError.response?.status === 404 && userId) {
           try {
             console.log("Attempting to create user...");
-            // Create user through settings endpoint
             const newUser = await api.createUser();
             console.log("User created successfully:", newUser);
-            return { data: newUser };
+            return newUser;
           } catch (createError) {
             console.error("Error creating user:", createError);
             throw createError;
@@ -69,7 +68,7 @@ export function useSettings() {
         console.log("Fetching broker connections...");
         const response = await api.getBrokerConnections();
         console.log("Broker connections response:", response);
-        return { data: { connections: response } };
+        return response;
       } catch (error) {
         const axiosError = error as AxiosError;
         console.error("Error fetching broker connections:", {
@@ -81,7 +80,7 @@ export function useSettings() {
       }
     },
     retry: false,
-    enabled: !!profile?.data, // Only fetch broker connections if we have a user profile
+    enabled: !!profile,
   });
 
   // Update broker connection
@@ -94,6 +93,7 @@ export function useSettings() {
           identifier: data.credentials.identifier,
           password: data.credentials.password || "",
         },
+        description: `${data.broker} ${data.is_demo ? "Demo" : "Live"} Account`,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["broker-connections"] });
@@ -115,6 +115,7 @@ export function useSettings() {
           identifier: "",
           password: "",
         },
+        description: "",
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["broker-connections"] });
@@ -127,8 +128,8 @@ export function useSettings() {
   });
 
   const result = {
-    profile: profile?.data,
-    brokerConnections: brokerConnections?.data?.connections,
+    profile,
+    brokerConnections,
     isLoadingProfile,
     isLoadingBrokers,
     updateBrokerConnection: updateBrokerConnection.mutate,
@@ -138,6 +139,9 @@ export function useSettings() {
       broker: brokerError,
     },
   };
+
+  /**
+ *
 
   console.log("useSettings hook result:", {
     ...result,
@@ -156,6 +160,8 @@ export function useSettings() {
         }
       : null,
   });
+
+ */
 
   return result;
 }

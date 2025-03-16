@@ -9,6 +9,8 @@ import subscriptionRouter from "./routes/v1/subscription.routes";
 import brokerRouter from "./routes/v1/broker.routes";
 import strategyRouter from "./routes/v1/strategies.routes";
 import webhookRouter from "./routes/v1/webhook.routes";
+import pairsRouter from "./routes/v1/pairs.routes";
+import { startScheduledJobs } from "./services/jobs";
 
 const logger = createLogger("app");
 
@@ -88,6 +90,7 @@ app.use("/v1/subscription", subscriptionRouter);
 app.use("/v1/broker", brokerRouter);
 app.use("/v1/strategies", strategyRouter);
 app.use("/v1/webhooks", webhookRouter);
+app.use("/v1/pairs", pairsRouter);
 
 // Error handling
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
@@ -106,4 +109,7 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 const PORT = parseInt(process.env.PORT || "8080", 10);
 server.listen(PORT, "0.0.0.0", () => {
   logger.info(`Server running on port ${PORT}`);
+
+  // Start scheduled jobs
+  startScheduledJobs();
 });
