@@ -242,7 +242,34 @@ router.post("/onboarding/:step", validateAuth, userRateLimit, async (req, res) =
         break;
 
       case 3: // Optional broker connection
-        if (data.skip_broker) {
+        // Save favorite broker if provided
+        if (data.favoritebroker) {
+          // Store in onboarding data instead of user model directly
+          await prisma.userOnboarding.upsert({
+            where: { user_id: userId },
+            create: {
+              user_id: userId,
+              step: 3,
+              status: "In_Progress",
+              data: {
+                favorite_broker: data.favoritebroker,
+              },
+            },
+            update: {
+              data: {
+                favorite_broker: data.favoritebroker,
+              },
+            },
+          });
+
+          logger.info({
+            message: "User favorite broker preference saved",
+            userId,
+            favoritebroker: data.favoritebroker,
+          });
+        }
+
+        if (data.skip_broker || !data.broker) {
           // Skip broker connection
           await prisma.user.update({
             where: { id: userId },
@@ -253,8 +280,12 @@ router.post("/onboarding/:step", validateAuth, userRateLimit, async (req, res) =
           await prisma.brokerCredential.create({
             data: {
               user_id: userId,
-              broker_name: data.broker_name,
-              credentials: data.credentials,
+              broker_name: data.broker.name,
+              credentials: {
+                apiKey: data.broker.apiKey,
+                identifier: data.broker.identifier || "",
+                password: data.broker.password || "",
+              },
               is_active: true,
             },
           });

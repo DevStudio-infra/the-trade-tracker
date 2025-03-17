@@ -10,11 +10,13 @@ export interface OnboardingData {
   tradingStyle: string;
   riskTolerance: string;
   preferredMarkets: string[];
+  favoritebroker?: string;
   broker: {
     name: string;
     apiKey: string;
-    apiSecret: string;
-    isDemo: boolean;
+    apiSecret?: string;
+    identifier?: string;
+    password?: string;
   } | null;
 }
 

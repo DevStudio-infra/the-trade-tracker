@@ -35,17 +35,74 @@ router.get("/", validateAuth, async (req, res) => {
   }
 });
 
+// Get strategy by ID
+router.get("/:id", validateAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const strategy = await prisma.strategy.findUnique({
+      where: { id },
+    });
+
+    if (!strategy) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: "STRATEGY_NOT_FOUND",
+          message: "Strategy not found",
+        },
+      });
+    }
+
+    res.json({
+      success: true,
+      data: strategy,
+    });
+  } catch (error) {
+    logger.error({
+      message: "Error fetching strategy",
+      error: error instanceof Error ? error.message : "Unknown error",
+      strategyId: req.params.id,
+    });
+    res.status(500).json({
+      success: false,
+      error: {
+        code: "STRATEGY_FETCH_ERROR",
+        message: "Failed to fetch strategy",
+      },
+    });
+  }
+});
+
 // Add new strategy (admin only)
 router.post("/", validateAuth, async (req, res) => {
   try {
     const { name, description, rules, timeframes, riskParameters } = req.body;
+    const userId = (req as AuthenticatedRequest).auth.userId;
 
-    // Add strategy to RAG system
-    await ragService.addStrategyToRAG(name, description, rules, timeframes, riskParameters);
+    // Create strategy directly with Prisma instead of using RAG
+    const strategy = await prisma.strategy.create({
+      data: {
+        name,
+        description,
+        rules: rules as any,
+        timeframes: timeframes,
+        riskParameters: riskParameters as any,
+        isActive: true,
+      },
+    });
+
+    // Log successful creation
+    logger.info({
+      message: "Strategy created successfully",
+      strategyId: strategy.id,
+      userId,
+    });
 
     res.json({
       success: true,
       message: "Strategy added successfully",
+      data: strategy,
     });
   } catch (error) {
     logger.error({
@@ -57,6 +114,147 @@ router.post("/", validateAuth, async (req, res) => {
       error: {
         code: "STRATEGY_CREATE_ERROR",
         message: "Failed to create strategy",
+      },
+    });
+  }
+});
+
+// Update strategy
+router.patch("/:id", validateAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, description, rules, timeframes, riskParameters, isActive } = req.body;
+    const userId = (req as AuthenticatedRequest).auth.userId;
+
+    // Check if strategy exists
+    const existingStrategy = await prisma.strategy.findUnique({
+      where: { id },
+    });
+
+    if (!existingStrategy) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: "STRATEGY_NOT_FOUND",
+          message: "Strategy not found",
+        },
+      });
+    }
+
+    // Prepare update data
+    const updateData: any = {};
+    if (name !== undefined) updateData.name = name;
+    if (description !== undefined) updateData.description = description;
+    if (rules !== undefined) updateData.rules = rules;
+    if (isActive !== undefined) updateData.isActive = isActive;
+
+    // Handle timeframes array if provided
+    if (timeframes !== undefined) {
+      updateData.timeframes = timeframes;
+    }
+
+    // Handle risk parameters if provided
+    if (riskParameters !== undefined) {
+      updateData.riskParameters = riskParameters;
+    }
+
+    // Update strategy
+    const updatedStrategy = await prisma.strategy.update({
+      where: { id },
+      data: updateData,
+    });
+
+    // Log successful update
+    logger.info({
+      message: "Strategy updated successfully",
+      strategyId: id,
+      userId,
+    });
+
+    res.json({
+      success: true,
+      data: updatedStrategy,
+      message: "Strategy updated successfully",
+    });
+  } catch (error) {
+    logger.error({
+      message: "Error updating strategy",
+      error: error instanceof Error ? error.message : "Unknown error",
+      strategyId: req.params.id,
+    });
+    res.status(500).json({
+      success: false,
+      error: {
+        code: "STRATEGY_UPDATE_ERROR",
+        message: "Failed to update strategy",
+      },
+    });
+  }
+});
+
+// Delete strategy
+router.delete("/:id", validateAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = (req as AuthenticatedRequest).auth.userId;
+
+    // Check if strategy exists
+    const existingStrategy = await prisma.strategy.findUnique({
+      where: { id },
+    });
+
+    if (!existingStrategy) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: "STRATEGY_NOT_FOUND",
+          message: "Strategy not found",
+        },
+      });
+    }
+
+    // Check if any bot instances use this strategy
+    const botCount = await prisma.botInstance.count({
+      where: { strategyId: id },
+    });
+
+    if (botCount > 0) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: "STRATEGY_IN_USE",
+          message: "Cannot delete strategy as it's being used by one or more bots",
+        },
+      });
+    }
+
+    // Delete strategy directly
+    await prisma.strategy.delete({
+      where: { id },
+    });
+
+    // Log successful deletion
+    logger.info({
+      message: "Strategy deleted successfully",
+      strategyId: id,
+      userId,
+    });
+
+    res.json({
+      success: true,
+      message: "Strategy deleted successfully",
+    });
+  } catch (error) {
+    logger.error({
+      message: "Error deleting strategy",
+      error: error instanceof Error ? error.message : "Unknown error",
+      strategyId: req.params.id,
+    });
+    res.status(500).json({
+      success: false,
+      error: {
+        code: "STRATEGY_DELETE_ERROR",
+        message: "Failed to delete strategy",
       },
     });
   }
@@ -168,38 +366,6 @@ router.patch("/bots/:botId", validateAuth, async (req, res) => {
       error: {
         code: "BOT_UPDATE_ERROR",
         message: "Failed to update bot instance",
-      },
-    });
-  }
-});
-
-// Delete bot instance
-router.delete("/bots/:botId", validateAuth, async (req, res) => {
-  try {
-    const userId = (req as AuthenticatedRequest).auth.userId;
-    const { botId } = req.params;
-
-    await prisma.botInstance.delete({
-      where: {
-        id: botId,
-        userId, // Ensure user owns the bot
-      },
-    });
-
-    res.json({
-      success: true,
-      message: "Bot instance deleted successfully",
-    });
-  } catch (error) {
-    logger.error({
-      message: "Error deleting bot instance",
-      error: error instanceof Error ? error.message : "Unknown error",
-    });
-    res.status(500).json({
-      success: false,
-      error: {
-        code: "BOT_DELETE_ERROR",
-        message: "Failed to delete bot instance",
       },
     });
   }

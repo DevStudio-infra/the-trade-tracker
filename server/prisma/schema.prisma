@@ -17,7 +17,6 @@ model Strategy {
   isActive       Boolean       @default(true)
   createdAt      DateTime      @default(now()) @map("created_at")
   botInstances   BotInstance[]
-  embedding      RAGEmbedding?
 
   @@map("strategies")
 }
@@ -46,7 +45,6 @@ model RAGEmbedding {
   embedding  Float[]
   metadata   Json
   createdAt  DateTime @default(now()) @map("created_at")
-  strategy   Strategy @relation(fields: [strategyId], references: [id])
 
   @@map("rag_embeddings")
 }

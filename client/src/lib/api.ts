@@ -278,9 +278,56 @@ export function useApi() {
   };
 }
 
+// Create an Axios instance with default configuration
 export const api = axios.create({
-  baseURL: BASE_URL,
+  baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api",
   headers: {
     "Content-Type": "application/json",
   },
+  withCredentials: true, // Important for cookies/sessions
 });
+
+// Add a request interceptor to include authentication headers
+api.interceptors.request.use(
+  (config) => {
+    // You can add auth token here if needed
+    // const token = localStorage.getItem("token");
+    // if (token) {
+    //   config.headers.Authorization = `Bearer ${token}`;
+    // }
+    return config;
+  },
+  (error) => {
+    console.error("API request error:", error);
+    return Promise.reject(error);
+  }
+);
+
+// Add a response interceptor for error handling
+api.interceptors.response.use(
+  (response) => {
+    return response;
+  },
+  (error) => {
+    // Log details about the error for debugging
+    if (error.response) {
+      // The request was made and the server responded with a status code outside of 2xx range
+      console.error("API error response:", {
+        status: error.response.status,
+        data: error.response.data,
+        headers: error.response.headers,
+      });
+    } else if (error.request) {
+      // The request was made but no response was received
+      console.error("API error request:", error.request);
+    } else {
+      // Something happened in setting up the request that triggered an Error
+      console.error("API error message:", error.message);
+    }
+
+    return Promise.reject(error);
+  }
+);
+
+// Export default API instance
+export default api;
