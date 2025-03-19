@@ -3,7 +3,9 @@ import { api } from "./api";
 export interface BrokerCredentials {
   id: string;
   broker_name: string;
+  description?: string;
   is_active: boolean;
+  is_demo: boolean;
   credentials: {
     apiKey: string;
     identifier: string;
@@ -29,6 +31,7 @@ export interface UserSettings {
       password: string;
     };
     is_active: boolean;
+    is_demo: boolean;
     last_used: string | null;
     created_at: string;
     updated_at: string;

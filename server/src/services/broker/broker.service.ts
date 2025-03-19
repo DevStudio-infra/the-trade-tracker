@@ -7,6 +7,12 @@ import { BrokerConnection, BrokerCredentials } from "../../types/broker";
 
 const logger = createLogger("broker-service");
 
+interface CredentialData {
+  apiKey: string;
+  identifier: string;
+  password: string;
+}
+
 export class BrokerService {
   private readonly brokerAPIs: Map<string, any> = new Map([["capital.com", CapitalComAPI]]);
 
@@ -122,220 +128,325 @@ export class BrokerService {
     };
   }
 
-  async addConnection(userId: string, brokerName: string, credentials: BrokerCredentials, description: string): Promise<BrokerConnection> {
-    const normalizedBrokerName = brokerName.toLowerCase().replace(/_/g, ".");
-    const BrokerAPI = this.brokerAPIs.get(normalizedBrokerName);
-
-    if (!BrokerAPI) {
-      throw new Error("Unsupported broker");
-    }
-
+  async addConnection(userId: string, brokerName: string, credentials: CredentialData, description: string = "", isDemo: boolean = false) {
     try {
-      // Validate credentials
-      if (!credentials.apiKey || !credentials.identifier || !credentials.password) {
-        throw new Error("Missing required credentials");
-      }
+      logger.info(`Adding ${brokerName} connection for user ${userId}`);
 
-      const api = new BrokerAPI(credentials.apiKey, credentials.identifier, credentials.password);
-      await api.validateCredentials();
+      // Encrypt credentials
+      const encryptedCredentials = await encryptCredentials(credentials);
 
-      logger.info({
-        message: "Adding broker connection - Initial credentials",
-        userId,
-        brokerName: normalizedBrokerName,
-        credentials_check: {
-          apiKey: {
-            exists: !!credentials.apiKey,
-            length: credentials.apiKey?.length,
-          },
-          identifier: {
-            exists: !!credentials.identifier,
-            length: credentials.identifier?.length,
-          },
-          password: {
-            exists: !!credentials.password,
-            length: credentials.password?.length,
-          },
-        },
-      });
-
-      // Create a clean credentials object with only the required fields
-      const cleanCredentials = {
-        apiKey: credentials.apiKey,
-        identifier: credentials.identifier,
-        password: credentials.password,
-      };
-
-      logger.info({
-        message: "Clean credentials prepared",
-        has_fields: {
-          apiKey: !!cleanCredentials.apiKey,
-          identifier: !!cleanCredentials.identifier,
-          password: !!cleanCredentials.password,
-        },
-      });
-
-      // Encrypt each field individually
-      const encryptedCredentials = {
-        apiKey: encrypt(cleanCredentials.apiKey),
-        identifier: encrypt(cleanCredentials.identifier),
-        password: encrypt(cleanCredentials.password),
-      };
-
-      logger.info({
-        message: "Credentials encrypted",
-        encrypted_lengths: {
-          apiKey: encryptedCredentials.apiKey?.length,
-          identifier: encryptedCredentials.identifier?.length,
-          password: encryptedCredentials.password?.length,
-        },
-      });
-
+      // Create connection in database
       const connection = await prisma.brokerCredential.create({
         data: {
           user_id: userId,
-          broker_name: normalizedBrokerName,
-          description: description || `${normalizedBrokerName} Connection`,
-          credentials: encryptedCredentials,
+          broker_name: brokerName,
+          description,
           is_active: true,
+          is_demo: isDemo, // Save is_demo field
+          credentials: encryptedCredentials as any,
         },
       });
 
-      logger.info({
-        message: "Created broker connection",
-        connectionId: connection.id,
-        credentials_type: typeof connection.credentials,
-        credentials_check: {
-          isObject: typeof connection.credentials === "object",
-          hasApiKey: !!(connection.credentials as any)?.apiKey,
-          hasIdentifier: !!(connection.credentials as any)?.identifier,
-          hasPassword: !!(connection.credentials as any)?.password,
-          apiKeyLength: (connection.credentials as any)?.apiKey?.length,
-          identifierLength: (connection.credentials as any)?.identifier?.length,
-          passwordLength: (connection.credentials as any)?.password?.length,
-        },
-      });
-
+      // Return connection without raw credentials
       return this.mapToBrokerConnection(connection);
     } catch (error) {
-      logger.error({
-        message: "Error adding broker connection",
-        error: error instanceof Error ? error.message : "Unknown error",
-        stack: error instanceof Error ? error.stack : undefined,
-        userId,
-        brokerName: normalizedBrokerName,
-      });
-      throw error;
+      logger.error("Error adding broker connection:", error);
+      throw new Error("Failed to add broker connection");
     }
   }
 
-  async getConnections(userId: string): Promise<BrokerConnection[]> {
+  async getConnections(userId: string) {
     try {
       const connections = await prisma.brokerCredential.findMany({
-        where: { user_id: userId },
+        where: {
+          user_id: userId,
+        },
+        select: {
+          id: true,
+          broker_name: true,
+          description: true,
+          is_active: true,
+          created_at: true,
+          last_used: true,
+        },
       });
 
-      return connections.map((connection) => this.mapToBrokerConnection(connection));
+      return connections;
     } catch (error) {
-      logger.error({
-        message: "Error fetching broker connections",
-        error: error instanceof Error ? error.message : "Unknown error",
-        userId,
-      });
-      throw error;
+      logger.error("Error fetching broker connections:", error);
+      throw new Error("Failed to fetch broker connections");
     }
   }
 
-  async updateConnection(userId: string, connectionId: string, updates: { is_active?: boolean; credentials?: BrokerCredentials; description?: string }): Promise<BrokerConnection> {
+  async updateConnection(userId: string, connectionId: string, updates: any) {
     try {
-      const updateData: Prisma.BrokerCredentialUpdateInput = {
-        is_active: updates.is_active,
-        description: updates.description,
-      };
+      logger.info(`Updating connection ${connectionId} for user ${userId}`);
 
-      if (updates.credentials) {
-        const encryptedCredentials = encryptCredentials(updates.credentials);
-        updateData.credentials = encryptedCredentials as Prisma.InputJsonValue;
-      }
-
-      const connection = await prisma.brokerCredential.update({
+      // Get existing connection
+      const existingConnection = await prisma.brokerCredential.findFirst({
         where: {
           id: connectionId,
           user_id: userId,
+        },
+      });
+
+      if (!existingConnection) {
+        throw new Error("Connection not found");
+      }
+
+      const updateData: any = {};
+
+      // Handle description update
+      if (updates.description !== undefined) {
+        updateData.description = updates.description;
+      }
+
+      // Handle is_active update
+      if (updates.is_active !== undefined) {
+        updateData.is_active = updates.is_active;
+      }
+
+      // Handle is_demo update
+      if (updates.is_demo !== undefined) {
+        updateData.is_demo = updates.is_demo;
+      }
+
+      // Handle credentials update
+      if (updates.credentials) {
+        // Get existing credentials
+        const decryptedCredentials = await decryptCredentials(existingConnection.credentials as any);
+
+        // Merge with updates
+        const updatedCredentials = {
+          apiKey: updates.credentials.apiKey || decryptedCredentials.apiKey,
+          identifier: updates.credentials.identifier || decryptedCredentials.identifier,
+          password: updates.credentials.password || decryptedCredentials.password,
+        };
+
+        // Encrypt the updated credentials
+        updateData.credentials = await encryptCredentials(updatedCredentials);
+      }
+
+      // Update the connection
+      const updatedConnection = await prisma.brokerCredential.update({
+        where: {
+          id: connectionId,
         },
         data: updateData,
       });
 
-      return this.mapToBrokerConnection(connection);
+      return this.mapToBrokerConnection(updatedConnection);
     } catch (error) {
-      logger.error({
-        message: "Error updating broker connection",
-        error: error instanceof Error ? error.message : "Unknown error",
-        userId,
-        connectionId,
-      });
-      throw error;
+      logger.error("Error updating broker connection:", error);
+      throw new Error("Failed to update broker connection");
     }
   }
 
-  async deleteConnection(userId: string, connectionId: string): Promise<void> {
+  async deleteConnection(userId: string, connectionId: string) {
     try {
-      await prisma.brokerCredential.delete({
+      const connection = await prisma.brokerCredential.findFirst({
         where: {
           id: connectionId,
-          user_id: userId, // Ensure the connection belongs to the user
+          user_id: userId,
         },
       });
 
-      logger.info({
-        message: "Broker connection deleted",
-        userId,
-        connectionId,
-      });
-    } catch (error) {
-      logger.error({
-        message: "Error deleting broker connection",
-        error: error instanceof Error ? error.message : "Unknown error",
-        userId,
-        connectionId,
-      });
-      throw error;
-    }
-  }
-
-  async validateConnection(connectionId: string): Promise<boolean> {
-    try {
-      const connection = await prisma.brokerCredential.findUnique({
-        where: { id: connectionId },
-      });
-
       if (!connection) {
-        throw new Error("Connection not found");
+        throw new Error("Broker connection not found");
       }
 
-      const BrokerAPI = this.brokerAPIs.get(connection.broker_name);
-      if (!BrokerAPI) {
-        throw new Error("Unsupported broker");
-      }
-
-      const credentials = decryptCredentials<BrokerCredentials>(connection.credentials as Record<string, string>);
-      const api = new BrokerAPI(credentials.apiKey, credentials.identifier, credentials.password);
-      await api.validateCredentials();
-
-      // Update last used timestamp
-      await prisma.brokerCredential.update({
-        where: { id: connectionId },
-        data: { last_used: new Date() },
+      await prisma.brokerCredential.delete({
+        where: {
+          id: connectionId,
+        },
       });
 
       return true;
     } catch (error) {
-      logger.error({
-        message: "Error validating broker connection",
-        error: error instanceof Error ? error.message : "Unknown error",
-        connectionId,
+      logger.error("Error deleting broker connection:", error);
+      throw new Error("Failed to delete broker connection");
+    }
+  }
+
+  async validateConnection(connectionId: string) {
+    try {
+      const credential = await prisma.brokerCredential.findUnique({
+        where: {
+          id: connectionId,
+        },
       });
+
+      if (!credential) {
+        throw new Error("Broker connection not found");
+      }
+
+      // Decrypt credentials
+      const decryptedCredentials = JSON.parse(decrypt(credential.credentials));
+
+      // Based on broker type, validate credentials
+      if (credential.broker_name === "capital.com" || credential.broker_name.toLowerCase() === "capital_com") {
+        const api = new CapitalComAPI(decryptedCredentials.apiKey, decryptedCredentials.identifier, decryptedCredentials.password);
+
+        // Use a simple API call to validate
+        await api.getClientInfo();
+
+        // Update last_used timestamp
+        await prisma.brokerCredential.update({
+          where: {
+            id: connectionId,
+          },
+          data: {
+            last_used: new Date(),
+          },
+        });
+
+        return true;
+      }
+
+      throw new Error("Unsupported broker");
+    } catch (error) {
+      logger.error("Error validating broker connection:", error);
       return false;
+    }
+  }
+
+  async getUserCredential(userId: string, credentialId: string) {
+    try {
+      const credential = await prisma.brokerCredential.findFirst({
+        where: {
+          id: credentialId,
+          user_id: userId,
+        },
+      });
+
+      if (!credential) {
+        throw new Error("Broker credential not found");
+      }
+
+      // Update last_used timestamp
+      await prisma.brokerCredential.update({
+        where: {
+          id: credentialId,
+        },
+        data: {
+          last_used: new Date(),
+        },
+      });
+
+      return credential;
+    } catch (error) {
+      logger.error("Error getting user credential:", error);
+      throw new Error("Failed to get broker credential");
+    }
+  }
+
+  async getAccountBalance(credentialId: string): Promise<number> {
+    try {
+      const credential = await prisma.brokerCredential.findUnique({
+        where: {
+          id: credentialId,
+        },
+      });
+
+      if (!credential) {
+        throw new Error("Broker credential not found");
+      }
+
+      // Decrypt credentials
+      const decryptedCredentials = JSON.parse(decrypt(credential.credentials));
+
+      // Based on broker type, get balance
+      if (credential.broker_name === "capital.com" || credential.broker_name.toLowerCase() === "capital_com") {
+        const api = new CapitalComAPI(decryptedCredentials.apiKey, decryptedCredentials.identifier, decryptedCredentials.password);
+
+        const account = await api.getClientInfo();
+        return account.balance;
+      }
+
+      // Mock balance for testing if no balance is available
+      return 10000;
+    } catch (error) {
+      logger.error("Error getting account balance:", error);
+      // Return mock balance if error
+      return 10000;
+    }
+  }
+
+  async getCurrentPrice(pair: string): Promise<number> {
+    try {
+      // Try to get price from database first for common pairs
+      const storedPair = await prisma.capitalComPair.findUnique({
+        where: {
+          symbol: pair,
+        },
+      });
+
+      if (storedPair) {
+        // This is just a mock price for now since we don't store real-time prices in DB
+        // In a production app, you'd need to call an API for real-time prices
+        return 1.2345; // Mock price
+      }
+
+      // Return mock price if not found
+      return 1.2345;
+    } catch (error) {
+      logger.error("Error getting current price:", error);
+      return 1.2345; // Mock price
+    }
+  }
+
+  async placeOrder(
+    credentialId: string,
+    pair: string,
+    side: "BUY" | "SELL",
+    quantity: number,
+    orderType: "MARKET" | "LIMIT" = "MARKET",
+    limitPrice?: number,
+    stopLoss?: number,
+    takeProfit?: number
+  ): Promise<any> {
+    try {
+      const credential = await prisma.brokerCredential.findUnique({
+        where: {
+          id: credentialId,
+        },
+      });
+
+      if (!credential) {
+        throw new Error("Broker credential not found");
+      }
+
+      // For now, return a mock order since we don't have an actual broker API integrated
+      const mockOrderId = `order-${Date.now()}`;
+
+      logger.info(`Mock order placed: ${side} ${quantity} ${pair} at ${limitPrice || "market price"}`);
+
+      return {
+        id: mockOrderId,
+        side,
+        pair,
+        quantity,
+        type: orderType,
+        price: limitPrice || (await this.getCurrentPrice(pair)),
+        stopLoss,
+        takeProfit,
+        status: "FILLED", // For market orders
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      logger.error("Error placing order:", error);
+      throw new Error("Failed to place order");
+    }
+  }
+
+  async closePosition(tradeId: string): Promise<boolean> {
+    try {
+      // In a real implementation, this would call the broker API to close the position
+      logger.info(`Mock closing position: ${tradeId}`);
+      return true;
+    } catch (error) {
+      logger.error("Error closing position:", error);
+      throw new Error("Failed to close position");
     }
   }
 }

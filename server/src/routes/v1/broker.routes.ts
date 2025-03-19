@@ -90,7 +90,7 @@ router.get("/connections", validateAuth, async (req, res) => {
 router.post("/connect", validateAuth, async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).auth;
-    const { broker_name, credentials, description } = req.body;
+    const { broker_name, credentials, description, is_demo } = req.body;
 
     if (!credentials?.apiKey || !credentials?.identifier || !credentials?.password) {
       return res.status(400).json({ error: "Missing required credentials" });
@@ -104,7 +104,8 @@ router.post("/connect", validateAuth, async (req, res) => {
         identifier: credentials.identifier,
         password: credentials.password,
       },
-      description
+      description,
+      is_demo || false // Pass is_demo field with default to false
     );
 
     res.json(connection);
@@ -122,12 +123,13 @@ router.patch("/connections/:connectionId", validateAuth, async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).auth;
     const { connectionId } = req.params;
-    const { is_active, credentials, description } = req.body;
+    const { is_active, credentials, description, is_demo } = req.body;
 
     const connection = await brokerService.updateConnection(userId, connectionId, {
       is_active,
       credentials,
       description,
+      is_demo,
     });
 
     res.json(connection);

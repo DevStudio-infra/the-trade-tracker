@@ -155,6 +155,7 @@ model BrokerCredential {
   description String    @default("")
   credentials Json
   is_active   Boolean   @default(true)
+  is_demo     Boolean   @default(false)
   last_used   DateTime?
   created_at  DateTime  @default(now())
   updated_at  DateTime  @updatedAt

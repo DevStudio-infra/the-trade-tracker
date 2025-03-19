@@ -6,10 +6,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { UserSettings } from "@/lib/api/settings";
 import { Eye, EyeOff } from "lucide-react";
 import { useState, useEffect } from "react";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface BrokerFormData {
   broker_name: string;
   description: string;
+  is_demo: boolean;
   credentials: {
     apiKey: string;
     identifier: string;
@@ -29,6 +31,7 @@ export function BrokerFormDialog({ open, onOpenChange, editingBroker, onSubmit }
     id: editingBroker?.id,
     broker_name: editingBroker?.broker_name,
     description: editingBroker?.description,
+    is_demo: editingBroker?.is_demo,
     credentials: editingBroker?.credentials
       ? {
           hasApiKey: !!editingBroker.credentials.apiKey,
@@ -45,6 +48,7 @@ export function BrokerFormDialog({ open, onOpenChange, editingBroker, onSubmit }
     return {
       broker_name: "",
       description: "",
+      is_demo: false,
       credentials: {
         apiKey: "",
         identifier: "",
@@ -59,6 +63,7 @@ export function BrokerFormDialog({ open, onOpenChange, editingBroker, onSubmit }
       isEditing: !!editingBroker,
       broker_name: editingBroker?.broker_name,
       description: editingBroker?.description,
+      is_demo: editingBroker?.is_demo,
       credentials: editingBroker?.credentials
         ? {
             raw: editingBroker.credentials,
@@ -74,6 +79,7 @@ export function BrokerFormDialog({ open, onOpenChange, editingBroker, onSubmit }
       setFormData({
         broker_name: editingBroker.broker_name,
         description: editingBroker.description || "",
+        is_demo: editingBroker.is_demo || false,
         credentials: {
           apiKey: editingBroker.credentials?.apiKey || "",
           identifier: editingBroker.credentials?.identifier || "",
@@ -84,6 +90,7 @@ export function BrokerFormDialog({ open, onOpenChange, editingBroker, onSubmit }
       setFormData({
         broker_name: "",
         description: "",
+        is_demo: false,
         credentials: {
           apiKey: "",
           identifier: "",
@@ -103,6 +110,7 @@ export function BrokerFormDialog({ open, onOpenChange, editingBroker, onSubmit }
       setFormData({
         broker_name: "",
         description: "",
+        is_demo: false,
         credentials: {
           apiKey: "",
           identifier: "",
@@ -113,31 +121,28 @@ export function BrokerFormDialog({ open, onOpenChange, editingBroker, onSubmit }
   };
 
   const handleSubmit = async () => {
-    console.log("Submitting form with data:", {
+    console.log("Submitting form data:", {
       broker_name: formData.broker_name,
       description: formData.description,
-      hasCredentials: {
-        apiKey: !!formData.credentials.apiKey,
-        identifier: !!formData.credentials.identifier,
-        password: !!formData.credentials.password,
+      is_demo: formData.is_demo,
+      credentials: {
+        hasApiKey: !!formData.credentials.apiKey,
+        hasIdentifier: !!formData.credentials.identifier,
+        hasPassword: !!formData.credentials.password,
       },
     });
-
-    try {
-      await onSubmit(formData);
-      console.log("Form submitted successfully");
-      handleClose();
-    } catch (error) {
-      console.error("Error submitting broker form:", error);
-    }
+    await onSubmit(formData);
+    handleClose();
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent>
         <DialogHeader>
-          <DialogTitle>{editingBroker ? "Edit Broker Connection" : "Add New Broker"}</DialogTitle>
-          <DialogDescription>{editingBroker ? "Update your broker connection settings." : "Connect a new broker to start trading."}</DialogDescription>
+          <DialogTitle>{editingBroker ? "Edit Broker Connection" : "Add Broker Connection"}</DialogTitle>
+          <DialogDescription>
+            {editingBroker ? "Manage your broker connection details. You can update the description or credentials." : "Connect your trading broker to enable automated trading."}
+          </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <div className="grid gap-2">
@@ -185,7 +190,28 @@ export function BrokerFormDialog({ open, onOpenChange, editingBroker, onSubmit }
             />
           </div>
 
-          {(editingBroker?.broker_name === "capital.com" || formData.broker_name === "capital.com") && (
+          {/* Demo Account Checkbox */}
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="is_demo"
+              checked={formData.is_demo}
+              onCheckedChange={(checked) => {
+                console.log("Demo account checkbox changed:", checked);
+                setFormData({
+                  ...formData,
+                  is_demo: checked === true,
+                  // Update description to help users identify the account type
+                  description: checked === true && formData.description === "" ? "Demo Account" : formData.description,
+                });
+              }}
+            />
+            <Label htmlFor="is_demo" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+              This is a demo account
+            </Label>
+          </div>
+          <div className="text-xs text-muted-foreground mb-2">Make sure to select the correct account type.</div>
+
+          {formData.broker_name === "capital.com" && (
             <>
               <div className="grid gap-2">
                 <Label htmlFor="apiKey">API Key</Label>

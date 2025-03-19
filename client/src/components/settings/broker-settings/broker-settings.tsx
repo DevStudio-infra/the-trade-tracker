@@ -8,6 +8,7 @@ import { BrokerFormDialog } from "./broker-form-dialog";
 interface BrokerFormData {
   broker_name: string;
   description: string;
+  is_demo: boolean;
   credentials: {
     apiKey: string;
     identifier: string;
@@ -48,6 +49,7 @@ export function BrokerSettings({ settings, onAddBroker, onEditBroker, onDeleteBr
       formData: {
         broker_name: data.broker_name,
         description: data.description,
+        is_demo: data.is_demo,
         hasCredentials: {
           apiKey: !!data.credentials.apiKey,
           identifier: !!data.credentials.identifier,
@@ -61,6 +63,7 @@ export function BrokerSettings({ settings, onAddBroker, onEditBroker, onDeleteBr
         ...editingBroker,
         broker_name: data.broker_name,
         description: data.description,
+        is_demo: data.is_demo,
         credentials: {
           apiKey: data.credentials.apiKey || editingBroker.credentials.apiKey,
           identifier: data.credentials.identifier || editingBroker.credentials.identifier,

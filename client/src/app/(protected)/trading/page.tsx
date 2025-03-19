@@ -1,11 +1,11 @@
 "use client";
 
-import { Card } from "@/components/ui/card";
 import { TradingChart } from "@/components/trading/chart";
 import { OrderForm } from "@/components/trading/order-form";
 import { PositionsList } from "@/components/trading/positions-list";
 import { TradingPairSelect } from "@/components/trading/pair-select";
 import { BrokerSelect } from "@/components/trading/broker-select";
+import { AITradingConfig } from "@/components/trading/ai-trading-config";
 import { useSettings } from "@/hooks/useSettings";
 import { useTradingStore } from "@/stores/trading-store";
 import { useEffect, useState, useRef, useCallback } from "react";
@@ -14,12 +14,15 @@ import { BrokerConnection, TradingPair, WatchlistItem } from "@/lib/api";
 import { toast } from "sonner";
 import { usePairsApi } from "@/lib/pairs-api";
 import { useQuery } from "@tanstack/react-query";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Bot, BarChart2 } from "lucide-react";
 
 export default function TradingPage() {
   const { brokerConnections, isLoadingBrokers } = useSettings();
   const { selectedPair, setSelectedPair, selectedBroker, setSelectedBroker } = useTradingStore();
   const [tradingPairs, setTradingPairs] = useState<TradingPair[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<string>("manual");
   // Define as a string with a union type to allow for comparison with "WATCHLIST"
   const selectedCategory: "FOREX" | "WATCHLIST" | "CRYPTOCURRENCIES" | "SHARES" | "INDICES" | "COMMODITIES" = "FOREX";
   const api = useApi();
@@ -250,29 +253,43 @@ export default function TradingPage() {
           </div>
         </div>
 
-        <div className="grid gap-6">
-          {/* Main trading area */}
-          <div className="grid lg:grid-cols-4 gap-6">
-            {/* Chart */}
-            <Card className="lg:col-span-3 backdrop-blur-sm bg-white/40 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800">
-              <TradingChart pair={selectedPair} />
-            </Card>
+        {/* Trading tabs - Manual vs AI-powered */}
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="w-full grid grid-cols-2 mb-8">
+            <TabsTrigger value="manual" className="flex items-center gap-2 py-3">
+              <BarChart2 className="w-5 h-5" />
+              <span className="font-medium">Manual Trading</span>
+            </TabsTrigger>
+            <TabsTrigger value="ai" className="flex items-center gap-2 py-3">
+              <Bot className="w-5 h-5" />
+              <span className="font-medium">AI-Powered Trading</span>
+            </TabsTrigger>
+          </TabsList>
 
-            {/* Order form */}
-            <Card className="lg:col-span-1 backdrop-blur-sm bg-white/40 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800">
-              <div className="p-6">
-                <OrderForm pair={selectedPair} />
+          <TabsContent value="manual" className="space-y-6">
+            <div className="grid grid-cols-3 gap-6">
+              <div className="col-span-2">
+                <TradingChart pair={selectedPair} />
               </div>
-            </Card>
-          </div>
-
-          {/* Positions list */}
-          <Card className="backdrop-blur-sm bg-white/40 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800">
-            <div className="p-6">
-              <PositionsList />
+              <div className="space-y-6">
+                <OrderForm pair={selectedPair} />
+                <PositionsList />
+              </div>
             </div>
-          </Card>
-        </div>
+          </TabsContent>
+
+          <TabsContent value="ai" className="space-y-6">
+            <div className="grid grid-cols-3 gap-6">
+              <div className="col-span-2">
+                <TradingChart pair={selectedPair} />
+              </div>
+              <div className="space-y-6">
+                <AITradingConfig />
+                <PositionsList />
+              </div>
+            </div>
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );
