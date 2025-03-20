@@ -7,6 +7,7 @@ const logger = createLogger("auth-middleware");
 export interface AuthenticatedRequest extends Request {
   auth: {
     userId: string;
+    email?: string;
   };
 }
 

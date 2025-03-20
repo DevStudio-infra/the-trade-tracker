@@ -167,11 +167,20 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
   const [isFetchingMore, setIsFetchingMore] = React.useState(false);
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
   const api = useApi();
-  const { profile } = useSettings();
+  const { profile, brokerConnections } = useSettings();
   const queryClient = useQueryClient();
 
   const subscriptionPlan = profile?.subscriptionPlan || "Free";
   const favoriteLimit = FAVORITE_LIMITS[subscriptionPlan] || FAVORITE_LIMITS.Free;
+
+  // Add logging to check broker connections
+  React.useEffect(() => {
+    console.log("TradingPairSelect - Broker connections:", {
+      connections: brokerConnections,
+      connectionId,
+      hasConnections: Array.isArray(brokerConnections) && brokerConnections.length > 0,
+    });
+  }, [brokerConnections, connectionId]);
 
   // Load watchlist from API using React Query
   const { data: watchlist = [], isLoading: isLoadingWatchlist } = useQuery({
@@ -181,6 +190,11 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
     // Only refetch when the component is mounted and visible
     refetchOnMount: true,
     refetchOnWindowFocus: false, // Disable auto refetching when window gets focus
+    retry: 2, // Retry twice on failure
+    onError: (error) => {
+      console.error("Error fetching watchlist:", error);
+      toast.error("Failed to load watchlist");
+    },
   });
 
   // New: Load all available categories using React Query
@@ -288,51 +302,28 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
     return value ? pairs.find((pair) => pair.symbol === value) : null;
   }, [value, pairs]);
 
-  // Function to load more items for the selected category
-  const loadMoreForCategory = React.useCallback(
-    async (category: string) => {
-      if (!connectionId || isFetchingMore || !hasMore || category === "WATCHLIST") {
-        return;
+  // Modified loadPairs function with better error handling
+  const loadPairs = React.useCallback(
+    async (connection: string, offset: number = 0) => {
+      if (!connection) {
+        console.error("Cannot load pairs: No connection ID provided");
+        return [];
       }
 
-      setIsFetchingMore(true);
-
       try {
-        // Get current page for this category
-        const currentPage = categoryPage[category] || 0;
-        const offset = currentPage * BATCH_SIZE; // Use BATCH_SIZE items per page
-
-        console.log(`Loading more data for category ${category}, offset ${offset}`);
-
-        const results = await api.getTradingPairs(connectionId, "", BATCH_SIZE, category, offset);
-        console.log(`Received ${results.length} additional instruments for category ${category}`);
-
-        // If we get less than BATCH_SIZE results, we've reached the end
-        if (results.length < BATCH_SIZE) {
-          setHasMore(false);
-        }
-
-        // Merge with existing pairs, avoid duplicates
-        setPairs((prev) => {
-          const existingSymbols = new Set(prev.map((p) => p.symbol));
-          const newPairs = results.filter((p) => !existingSymbols.has(p.symbol));
-          return [...prev, ...newPairs];
-        });
-
-        // Update the page number for this category
-        setCategoryPage((prev) => ({
-          ...prev,
-          [category]: currentPage + 1,
-        }));
+        setIsFetchingMore(true);
+        console.log(`Loading more pairs for ${connection}, category: ${selectedCategory}, offset: ${offset}`);
+        const results = await api.getTradingPairs(connection, "", BATCH_SIZE, selectedCategory, offset);
+        return results;
       } catch (error) {
-        console.error(`Error loading more items for category ${category}:`, error);
-        toast.error(`Failed to load more ${ASSET_CATEGORIES[category] || category} instruments`);
-        setHasMore(false);
+        console.error("Error loading pairs:", error);
+        toast.error(`Failed to load trading pairs: ${error instanceof Error ? error.message : "Unknown error"}`);
+        return [];
       } finally {
         setIsFetchingMore(false);
       }
     },
-    [connectionId, isFetchingMore, hasMore, categoryPage, api, setIsFetchingMore, setHasMore, setPairs, setCategoryPage]
+    [api, selectedCategory]
   );
 
   // Group and sort pairs by category
@@ -429,14 +420,14 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
       if (scrollTop + clientHeight >= scrollHeight - 100) {
         // Only load more if we have more to show and we're not already fetching
         if (!isFetchingMore && hasMore && selectedCategory !== "WATCHLIST" && !searching) {
-          await loadMoreForCategory(selectedCategory);
+          await loadPairs(connectionId || "", (categoryPage[selectedCategory] || 0) * BATCH_SIZE);
         }
       }
     };
 
     scrollElement.addEventListener("scroll", handleScroll);
     return () => scrollElement.removeEventListener("scroll", handleScroll);
-  }, [isFetchingMore, hasMore, selectedCategory, searching, loadMoreForCategory]);
+  }, [isFetchingMore, hasMore, selectedCategory, searching, connectionId, loadPairs, categoryPage]);
 
   // Updated search function to use the direct API
   React.useEffect(() => {

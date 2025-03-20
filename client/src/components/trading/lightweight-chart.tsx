@@ -169,9 +169,17 @@ export function LightweightChart({ data, colors = {}, indicators = [], timeframe
           // Convert string timestamp to Time
           return timeValue as Time;
         } else if (typeof timeValue === "number") {
-          // Convert number to UTC format string that Time accepts
-          const date = new Date(timeValue * 1000); // Assuming timestamps are in seconds
-          return date.toISOString().split("T")[0] as Time;
+          // For timestamps in seconds
+          // For intraday timeframes (less than a day), we need to use a timestamp format
+          // Otherwise, for daily and above, we use YYYY-MM-DD format
+          if (selectedTimeframe === "1d" || selectedTimeframe === "1w") {
+            // For daily/weekly charts, use date string (YYYY-MM-DD)
+            const date = new Date(timeValue * 1000);
+            return date.toISOString().split("T")[0] as Time;
+          } else {
+            // For intraday charts, use timestamp directly
+            return timeValue as Time;
+          }
         }
         // Default fallback in case of invalid time
         return "2023-01-01" as Time;

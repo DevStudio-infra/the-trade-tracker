@@ -10,7 +10,9 @@ import brokerRouter from "./routes/v1/broker.routes";
 import strategyRouter from "./routes/v1/strategies.routes";
 import webhookRouter from "./routes/v1/webhook.routes";
 import pairsRouter from "./routes/v1/pairs.routes";
+import candlesRouter from "./routes/v1/candles.routes";
 import { startScheduledJobs } from "./services/jobs";
+import { initRedis } from "./config/redis.config";
 
 const logger = createLogger("app");
 
@@ -91,6 +93,7 @@ app.use("/v1/broker", brokerRouter);
 app.use("/v1/strategies", strategyRouter);
 app.use("/v1/webhooks", webhookRouter);
 app.use("/v1/pairs", pairsRouter);
+app.use("/v1/candles", candlesRouter);
 
 // Error handling
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
@@ -107,8 +110,20 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 
 // Start server
 const PORT = parseInt(process.env.PORT || "8080", 10);
-server.listen(PORT, "0.0.0.0", () => {
+server.listen(PORT, "0.0.0.0", async () => {
   logger.info(`Server running on port ${PORT}`);
+
+  // Initialize Redis with proper error handling
+  try {
+    await initRedis();
+    logger.info("Redis initialized successfully");
+  } catch (redisError) {
+    logger.error({
+      message: "Failed to initialize Redis, continuing without caching",
+      error: redisError instanceof Error ? redisError.message : "Unknown error",
+    });
+    // We'll continue without Redis rather than crashing the application
+  }
 
   // Start scheduled jobs
   startScheduledJobs();

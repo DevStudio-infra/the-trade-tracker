@@ -61,13 +61,25 @@ export function useSettings() {
     data: brokerConnections,
     isLoading: isLoadingBrokers,
     error: brokerError,
+    refetch: refetchBrokerConnections,
   } = useQuery({
     queryKey: ["broker-connections"],
     queryFn: async () => {
       try {
         console.log("Fetching broker connections...");
+
+        // Add a small delay to ensure other API calls have completed
+        // This helps avoid race conditions when multiple API calls are made in quick succession
+        await new Promise((resolve) => setTimeout(resolve, 300));
+
         const response = await api.getBrokerConnections();
         console.log("Broker connections response:", response);
+
+        if (!Array.isArray(response)) {
+          console.error("Unexpected response format for broker connections:", response);
+          throw new Error("Unexpected response format for broker connections");
+        }
+
         return response;
       } catch (error) {
         const axiosError = error as AxiosError;
@@ -75,12 +87,24 @@ export function useSettings() {
           error: axiosError,
           status: axiosError.response?.status,
           data: axiosError.response?.data,
+          message: axiosError.message,
+          stack: axiosError.stack,
         });
+
+        // Check if it's an authentication error
+        if (axiosError.response?.status === 401) {
+          console.log("Authentication error when fetching broker connections, user may need to log in again");
+          // We could add code here to redirect to login or refresh token
+        }
+
         throw error;
       }
     },
-    retry: false,
-    enabled: !!profile,
+    retry: 2, // Retry twice before failing
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000), // Exponential backoff
+    enabled: !!profile, // Don't run this query until we have a profile
+    // Increased stale time to avoid too many refreshes
+    staleTime: 1000 * 60 * 2, // 2 minutes
   });
 
   // Update broker connection
@@ -134,6 +158,7 @@ export function useSettings() {
     isLoadingBrokers,
     updateBrokerConnection: updateBrokerConnection.mutate,
     deleteBrokerConnection: deleteBrokerConnection.mutate,
+    refetchBrokerConnections,
     errors: {
       profile: profileError,
       broker: brokerError,
