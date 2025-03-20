@@ -231,14 +231,28 @@ function mapTimeframeToCapital(timeframe: string): string {
 
 // Helper function to format Capital.com candles to our format
 function formatCapitalCandles(capitalCandles: CapitalCandle[]): CandleData[] {
-  return capitalCandles.map((candle) => ({
-    time: new Date(candle.snapshotTime).getTime() / 1000,
-    open: candle.openPrice.bid,
-    high: candle.highPrice.bid,
-    low: candle.lowPrice.bid,
-    close: candle.closePrice.bid,
-    volume: candle.lastTradedVolume || 0,
-  }));
+  const uniqueCandles = new Map<number, CandleData>();
+
+  // Process each candle, keeping only unique timestamps
+  capitalCandles.forEach((candle) => {
+    const timestamp = new Date(candle.snapshotTime).getTime() / 1000;
+
+    if (!uniqueCandles.has(timestamp)) {
+      uniqueCandles.set(timestamp, {
+        time: timestamp,
+        open: candle.openPrice.bid,
+        high: candle.highPrice.bid,
+        low: candle.lowPrice.bid,
+        close: candle.closePrice.bid,
+        volume: candle.lastTradedVolume || 0,
+      });
+    } else {
+      console.log(`Filtered out duplicate API timestamp: ${timestamp} (${candle.snapshotTime})`);
+    }
+  });
+
+  // Convert map values to array and sort by timestamp
+  return Array.from(uniqueCandles.values()).sort((a, b) => a.time - b.time);
 }
 
 // Generate mock candles for development and testing

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { LightweightChart } from "./lightweight-chart";
 import { useApi } from "@/lib/api";
@@ -10,6 +10,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { RefreshCw, AlertCircle } from "lucide-react";
+import React from "react";
 
 interface TradingChartProps {
   pair: string | null;
@@ -29,9 +30,17 @@ export function TradingChart({ pair }: TradingChartProps) {
   const api = useApi();
   const { selectedBroker } = useTradingStore();
 
+  // Log the broker's demo status for debugging
+  useEffect(() => {
+    if (selectedBroker) {
+      console.log("Selected broker:", selectedBroker.broker_name);
+      console.log("Is demo account:", selectedBroker.is_demo);
+    }
+  }, [selectedBroker]);
+
   // Fetch candles data using React Query
   const {
-    data: candles = [],
+    data: rawCandles = [],
     isLoading,
     error,
     refetch,
@@ -64,8 +73,28 @@ export function TradingChart({ pair }: TradingChartProps) {
     staleTime: 30000, // Consider data stale after 30 seconds
   });
 
+  // Filter out any duplicate timestamps in the candle data
+  const candles = React.useMemo(() => {
+    const uniqueCandles: CandleData[] = [];
+    const timeMap = new Map<number, boolean>();
+
+    // Loop through candles and only keep those with unique timestamps
+    for (const candle of rawCandles) {
+      if (!timeMap.has(candle.time)) {
+        timeMap.set(candle.time, true);
+        uniqueCandles.push(candle);
+      } else {
+        console.log(`Filtered out duplicate timestamp: ${candle.time}`);
+      }
+    }
+
+    // Sort by timestamp to ensure they're in ascending order
+    return uniqueCandles.sort((a, b) => a.time - b.time);
+  }, [rawCandles]);
+
   // Get account type directly from the broker credential
-  const isDemo = selectedBroker?.is_demo || false;
+  // Force the variable to be of type boolean to avoid any type issues
+  const isDemo = selectedBroker?.is_demo === true;
 
   // Prepare volume data for chart
   const volumeData = candles.map((candle) => ({
@@ -192,8 +221,20 @@ function generateMockCandles(pair: string, timeframe: string): CandleData[] {
   const timeframeSeconds = getTimeframeSeconds(timeframe);
   const basePrice = getBasePriceForPair(pair);
 
+  // Create a set to track used timestamps to prevent duplicates
+  const usedTimestamps = new Set<number>();
+
   for (let i = 0; i < 200; i++) {
     const time = now - timeframeSeconds * (200 - i);
+
+    // Skip if this timestamp is already used
+    if (usedTimestamps.has(time)) {
+      continue;
+    }
+
+    // Add timestamp to used set
+    usedTimestamps.add(time);
+
     const volatility = basePrice * 0.01; // 1% volatility
 
     // Generate random price movement
@@ -213,7 +254,8 @@ function generateMockCandles(pair: string, timeframe: string): CandleData[] {
     });
   }
 
-  return candles;
+  // Ensure candles are sorted by time in ascending order
+  return candles.sort((a, b) => a.time - b.time);
 }
 
 // Helper function to convert timeframe to seconds

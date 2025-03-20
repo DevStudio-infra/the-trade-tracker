@@ -72,178 +72,254 @@ export function LightweightChart({ data, colors = {}, indicators = [], timeframe
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
-    const isDarkTheme = theme === "dark";
-
-    // Chart colors based on theme
-    const chartColors = {
-      backgroundColor: colors.backgroundColor || (isDarkTheme ? "#1E222D" : "#FFFFFF"),
-      lineColor: colors.lineColor || (isDarkTheme ? "#2B2B43" : "#D9D9D9"),
-      textColor: colors.textColor || (isDarkTheme ? "#D9D9D9" : "#191919"),
-      upColor: colors.upColor || "#26a69a",
-      downColor: colors.downColor || "#ef5350",
-      wickUpColor: colors.wickUpColor || "#26a69a",
-      wickDownColor: colors.wickDownColor || "#ef5350",
-    };
-
-    // Create chart instance
-    const newChart = createChart(chartContainerRef.current, {
-      width: width || chartContainerRef.current.clientWidth,
-      height: height || 500,
-      layout: {
-        background: { type: ColorType.Solid, color: chartColors.backgroundColor },
-        textColor: chartColors.textColor,
-      },
-      grid: {
-        vertLines: { color: chartColors.lineColor },
-        horzLines: { color: chartColors.lineColor },
-      },
-      crosshair: {
-        mode: 1,
-      },
-      rightPriceScale: {
-        borderColor: chartColors.lineColor,
-      },
-      timeScale: {
-        borderColor: chartColors.lineColor,
-        timeVisible: true,
-        secondsVisible: false,
-      },
-      handleScroll: { vertTouchDrag: false },
-    });
-
-    // Add candlestick series
-    const newCandleSeries = newChart.addCandlestickSeries({
-      upColor: chartColors.upColor,
-      downColor: chartColors.downColor,
-      borderUpColor: chartColors.upColor,
-      borderDownColor: chartColors.downColor,
-      wickUpColor: chartColors.wickUpColor,
-      wickDownColor: chartColors.wickDownColor,
-    });
-
-    // Add indicators
+    let newChart: IChartApi | null = null;
+    let newCandleSeries: ISeriesApi<"Candlestick"> | null = null;
     const newIndicatorSeries: ISeriesApi<"Line" | "Histogram">[] = [];
 
-    // Format data with Time object
-    const formattedData = data.map((d) => ({
-      time: parseTime(d.time),
-      open: d.open,
-      high: d.high,
-      low: d.low,
-      close: d.close,
-    }));
-
-    // Helper function to safely parse time values
-    function parseTime(timeValue: string | number): Time {
-      if (typeof timeValue === "string") {
-        // Convert string timestamp to Time
-        return timeValue as Time;
-      } else if (typeof timeValue === "number") {
-        // Convert number to UTC format string that Time accepts
-        const date = new Date(timeValue * 1000); // Assuming timestamps are in seconds
-        return date.toISOString().split("T")[0] as Time;
-      }
-      // Default fallback in case of invalid time
-      return "2023-01-01" as Time;
-    }
-
-    // Set data to series
     try {
-      newCandleSeries.setData(formattedData);
+      const isDarkTheme = theme === "dark";
+
+      // Chart colors based on theme
+      const chartColors = {
+        backgroundColor: colors.backgroundColor || (isDarkTheme ? "#1E222D" : "#FFFFFF"),
+        lineColor: colors.lineColor || (isDarkTheme ? "#2B2B43" : "#D9D9D9"),
+        textColor: colors.textColor || (isDarkTheme ? "#D9D9D9" : "#191919"),
+        upColor: colors.upColor || "#26a69a",
+        downColor: colors.downColor || "#ef5350",
+        wickUpColor: colors.wickUpColor || "#26a69a",
+        wickDownColor: colors.wickDownColor || "#ef5350",
+      };
+
+      // Create chart instance
+      newChart = createChart(chartContainerRef.current, {
+        width: width || chartContainerRef.current.clientWidth,
+        height: height || 500,
+        layout: {
+          background: { type: ColorType.Solid, color: chartColors.backgroundColor },
+          textColor: chartColors.textColor,
+        },
+        grid: {
+          vertLines: { color: chartColors.lineColor },
+          horzLines: { color: chartColors.lineColor },
+        },
+        crosshair: {
+          mode: 1,
+        },
+        rightPriceScale: {
+          borderColor: chartColors.lineColor,
+        },
+        timeScale: {
+          borderColor: chartColors.lineColor,
+          timeVisible: true,
+          secondsVisible: false,
+        },
+        handleScroll: { vertTouchDrag: false },
+      });
+
+      // Add candlestick series
+      newCandleSeries = newChart.addCandlestickSeries({
+        upColor: chartColors.upColor,
+        downColor: chartColors.downColor,
+        borderUpColor: chartColors.upColor,
+        borderDownColor: chartColors.downColor,
+        wickUpColor: chartColors.wickUpColor,
+        wickDownColor: chartColors.wickDownColor,
+      });
+
+      // Format data with Time object and ensure no duplicate timestamps
+      const formattedData = data
+        .map((d) => ({
+          time: parseTime(d.time),
+          open: d.open,
+          high: d.high,
+          low: d.low,
+          close: d.close,
+        }))
+        .reduce((acc: { time: Time; open: number; high: number; low: number; close: number }[], current) => {
+          // Check if this timestamp already exists in our accumulator
+          const exists = acc.find((item) => item.time === current.time);
+          if (!exists) {
+            // If it doesn't exist, add it to the accumulator
+            acc.push(current);
+          }
+          return acc;
+        }, [])
+        // Ensure data is sorted by time in ascending order
+        .sort((a, b) => {
+          if (typeof a.time === "string" && typeof b.time === "string") {
+            return a.time.localeCompare(b.time);
+          } else if (typeof a.time === "number" && typeof b.time === "number") {
+            return a.time - b.time;
+          }
+          return 0;
+        });
+
+      // Set data to series if we have data
+      if (formattedData.length > 0) {
+        try {
+          newCandleSeries.setData(formattedData);
+        } catch (error) {
+          console.error("Error setting candlestick data:", error);
+        }
+      }
+
+      // Helper function to safely parse time values
+      function parseTime(timeValue: string | number): Time {
+        if (typeof timeValue === "string") {
+          // Convert string timestamp to Time
+          return timeValue as Time;
+        } else if (typeof timeValue === "number") {
+          // Convert number to UTC format string that Time accepts
+          const date = new Date(timeValue * 1000); // Assuming timestamps are in seconds
+          return date.toISOString().split("T")[0] as Time;
+        }
+        // Default fallback in case of invalid time
+        return "2023-01-01" as Time;
+      }
+
+      // Add indicators if any
+      if (Array.isArray(indicators)) {
+        indicators.forEach((indicator) => {
+          if (!indicator || !indicator.data || !Array.isArray(indicator.data) || indicator.data.length === 0) {
+            return; // Skip invalid indicators
+          }
+
+          try {
+            if (indicator.type === "sma") {
+              const sma = newChart!.addLineSeries({
+                color: indicator.options?.color || "rgba(4, 111, 232, 1)",
+                lineWidth: (indicator.options?.lineWidth as DeepPartial<LineWidth>) || (2 as DeepPartial<LineWidth>),
+                priceLineVisible: false,
+              });
+
+              // Process indicator data to remove duplicates
+              const smaData: LineData<Time>[] = indicator.data
+                .map((d) => ({
+                  time: parseTime(d.time),
+                  value: d.value,
+                }))
+                .reduce((acc: LineData<Time>[], current) => {
+                  const exists = acc.find((item) => item.time === current.time);
+                  if (!exists) {
+                    acc.push(current);
+                  }
+                  return acc;
+                }, [])
+                .sort((a, b) => {
+                  if (typeof a.time === "string" && typeof b.time === "string") {
+                    return a.time.localeCompare(b.time);
+                  } else if (typeof a.time === "number" && typeof b.time === "number") {
+                    return (a.time as number) - (b.time as number);
+                  }
+                  return 0;
+                });
+
+              if (smaData.length > 0) {
+                sma.setData(smaData);
+                newIndicatorSeries.push(sma);
+              }
+            } else if (indicator.type === "ema") {
+              const ema = newChart!.addLineSeries({
+                color: indicator.options?.color || "rgba(255, 192, 0, 1)",
+                lineWidth: (indicator.options?.lineWidth as DeepPartial<LineWidth>) || (2 as DeepPartial<LineWidth>),
+                priceLineVisible: false,
+              });
+
+              // Process indicator data to remove duplicates
+              const emaData: LineData<Time>[] = indicator.data
+                .map((d) => ({
+                  time: parseTime(d.time),
+                  value: d.value,
+                }))
+                .reduce((acc: LineData<Time>[], current) => {
+                  const exists = acc.find((item) => item.time === current.time);
+                  if (!exists) {
+                    acc.push(current);
+                  }
+                  return acc;
+                }, [])
+                .sort((a, b) => {
+                  if (typeof a.time === "string" && typeof b.time === "string") {
+                    return a.time.localeCompare(b.time);
+                  } else if (typeof a.time === "number" && typeof b.time === "number") {
+                    return (a.time as number) - (b.time as number);
+                  }
+                  return 0;
+                });
+
+              if (emaData.length > 0) {
+                ema.setData(emaData);
+                newIndicatorSeries.push(ema);
+              }
+            } else if (indicator.type === "volume") {
+              const volume = newChart!.addHistogramSeries({
+                color: indicator.options?.color || "#26a69a80",
+                priceFormat: {
+                  type: "volume",
+                },
+                priceScaleId: "", // Set to create a separate scale
+              });
+
+              // Process indicator data to remove duplicates
+              const volumeData: HistogramData<Time>[] = indicator.data
+                .map((d) => ({
+                  time: parseTime(d.time),
+                  value: d.value,
+                  color: d.value >= 0 ? "#26a69a80" : "#ef535080",
+                }))
+                .reduce((acc: HistogramData<Time>[], current) => {
+                  const exists = acc.find((item) => item.time === current.time);
+                  if (!exists) {
+                    acc.push(current);
+                  }
+                  return acc;
+                }, [])
+                .sort((a, b) => {
+                  if (typeof a.time === "string" && typeof b.time === "string") {
+                    return a.time.localeCompare(b.time);
+                  } else if (typeof a.time === "number" && typeof b.time === "number") {
+                    return (a.time as number) - (b.time as number);
+                  }
+                  return 0;
+                });
+
+              if (volumeData.length > 0) {
+                volume.setData(volumeData);
+                newIndicatorSeries.push(volume);
+              }
+            }
+          } catch (error) {
+            console.error(`Error adding ${indicator.type} indicator:`, error);
+          }
+        });
+      }
+
+      // Fit content if we have a chart
+      if (newChart) {
+        newChart.timeScale().fitContent();
+      }
+
+      // Set states
+      setChart(newChart);
+      if (newCandleSeries) {
+        setCandleSeries(newCandleSeries);
+      }
+      setIndicatorSeries(newIndicatorSeries);
     } catch (error) {
-      console.error("Error setting candlestick data:", error);
+      console.error("Error initializing chart:", error);
     }
 
-    // Add indicators if any
-    indicators.forEach((indicator) => {
-      if (indicator.type === "sma") {
-        const sma = newChart.addLineSeries({
-          color: indicator.options?.color || "rgba(4, 111, 232, 1)",
-          lineWidth: (indicator.options?.lineWidth as DeepPartial<LineWidth>) || (2 as DeepPartial<LineWidth>),
-          priceLineVisible: false,
-        });
-
-        try {
-          const smaData: LineData<Time>[] = indicator.data.map((d) => ({
-            time: parseTime(d.time),
-            value: d.value,
-          }));
-          sma.setData(smaData);
-          newIndicatorSeries.push(sma);
-        } catch (error) {
-          console.error("Error setting SMA data:", error);
-        }
-      } else if (indicator.type === "ema") {
-        const ema = newChart.addLineSeries({
-          color: indicator.options?.color || "rgba(255, 192, 0, 1)",
-          lineWidth: (indicator.options?.lineWidth as DeepPartial<LineWidth>) || (2 as DeepPartial<LineWidth>),
-          priceLineVisible: false,
-        });
-
-        try {
-          const emaData: LineData<Time>[] = indicator.data.map((d) => ({
-            time: parseTime(d.time),
-            value: d.value,
-          }));
-          ema.setData(emaData);
-          newIndicatorSeries.push(ema);
-        } catch (error) {
-          console.error("Error setting EMA data:", error);
-        }
-      } else if (indicator.type === "volume") {
-        const volume = newChart.addHistogramSeries({
-          color: indicator.options?.color || "#26a69a80",
-          priceFormat: {
-            type: "volume",
-          },
-          priceScaleId: "", // Set to create a separate scale
-        });
-
-        try {
-          const volumeData: HistogramData<Time>[] = indicator.data.map((d) => ({
-            time: parseTime(d.time),
-            value: d.value,
-            color: d.value >= 0 ? "#26a69a80" : "#ef535080",
-          }));
-          volume.setData(volumeData);
-          newIndicatorSeries.push(volume);
-        } catch (error) {
-          console.error("Error setting volume data:", error);
-        }
-      }
-    });
-
-    // Fit content
-    newChart.timeScale().fitContent();
-
-    // Set states
-    setChart(newChart);
-    setCandleSeries(newCandleSeries);
-    setIndicatorSeries(newIndicatorSeries);
-
-    // Handle window resize
-    const handleResize = () => {
-      if (chartContainerRef.current && newChart) {
-        newChart.applyOptions({
-          width: chartContainerRef.current.clientWidth,
-        });
-      }
-    };
-
-    window.addEventListener("resize", handleResize);
-
+    // Cleanup function
     return () => {
-      window.removeEventListener("resize", handleResize);
       if (newChart) {
         try {
           newChart.remove();
         } catch (error) {
-          console.error("Error removing chart on unmount:", error);
-          // Chart was already disposed, no action needed
+          console.error("Error removing chart:", error);
         }
       }
     };
-  }, [data, theme, colors, height, width]);
+  }, [data, theme, colors, height, width, indicators]);
 
   // Handle timeframe change
   const handleTimeframeChange = (newTimeframe: string) => {
