@@ -10,8 +10,37 @@ import { toast } from "sonner";
 import { Loader2, AlertCircle } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
 import { createChart, ColorType, CandlestickData, HistogramData, Time, IChartApi, ISeriesApi } from "lightweight-charts";
+import { useTheme } from "next-themes";
 
 const timeframes = ["1m", "5m", "15m", "1h", "4h", "1d", "1w"];
+
+// Chart colors for light/dark themes
+const chartColors = {
+  light: {
+    background: "#FFFFFF",
+    text: "#333333",
+    grid: "#EAEAEA",
+    borderColor: "#DDDDDD",
+    upColor: "#26A69A",
+    downColor: "#EF5350",
+    wickUpColor: "#26A69A",
+    wickDownColor: "#EF5350",
+    volumeUp: "rgba(38, 166, 154, 0.5)",
+    volumeDown: "rgba(239, 83, 80, 0.5)",
+  },
+  dark: {
+    background: "#1E222D",
+    text: "#DDD",
+    grid: "#2B2B43",
+    borderColor: "#2B2B43",
+    upColor: "#4CAF50",
+    downColor: "#FF5252",
+    wickUpColor: "#4CAF50",
+    wickDownColor: "#FF5252",
+    volumeUp: "rgba(76, 175, 80, 0.5)",
+    volumeDown: "rgba(255, 82, 82, 0.5)",
+  },
+};
 
 interface TradingChartProps {
   pair: string | null;
@@ -23,8 +52,10 @@ export function TradingChart({ pair }: TradingChartProps) {
   const [isRetrying, setIsRetrying] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const [candles, setCandles] = useState<Candle[] | null>(null);
+  const [precision, setPrecision] = useState(5); // Default precision
   const [error, setError] = useState<string | null>(null);
   const [brokerConnectionIssue, setBrokerConnectionIssue] = useState(false);
+  const { theme } = useTheme(); // Get current theme
 
   // Track request state to prevent loops
   const requestInProgressRef = useRef(false);
@@ -45,6 +76,11 @@ export function TradingChart({ pair }: TradingChartProps) {
   const api = useApi();
   const { selectedBroker } = useTradingStore();
   const { brokerConnections } = useSettings();
+
+  // Function to get chart colors based on theme
+  const getChartColors = () => {
+    return theme === "dark" ? chartColors.dark : chartColors.light;
+  };
 
   // Add logging to check broker connections
   useEffect(() => {
@@ -69,16 +105,19 @@ export function TradingChart({ pair }: TradingChartProps) {
     // Store container reference for cleanup
     const chartContainer = chartContainerRef.current;
 
+    // Get colors based on current theme
+    const colors = getChartColors();
+
     // Create chart instance
     const chart = createChart(chartContainer, {
       layout: {
-        background: { type: ColorType.Solid, color: "#1E222D" },
-        textColor: "#DDD",
+        background: { type: ColorType.Solid, color: colors.background },
+        textColor: colors.text,
         fontSize: 12,
       },
       grid: {
-        vertLines: { color: "#2B2B43" },
-        horzLines: { color: "#2B2B43" },
+        vertLines: { color: colors.grid },
+        horzLines: { color: colors.grid },
       },
       timeScale: {
         timeVisible: true,
@@ -87,10 +126,10 @@ export function TradingChart({ pair }: TradingChartProps) {
         barSpacing: 8,
         fixLeftEdge: true,
         fixRightEdge: true,
-        borderColor: "#2B2B43",
+        borderColor: colors.borderColor,
       },
       rightPriceScale: {
-        borderColor: "#2B2B43",
+        borderColor: colors.borderColor,
         entireTextOnly: true,
       },
       width: chartContainer.clientWidth,
@@ -99,11 +138,16 @@ export function TradingChart({ pair }: TradingChartProps) {
 
     // Add candlestick series
     const candlestickSeries = chart.addCandlestickSeries({
-      upColor: "#4CAF50",
-      downColor: "#FF5252",
+      upColor: colors.upColor,
+      downColor: colors.downColor,
       borderVisible: false,
-      wickUpColor: "#4CAF50",
-      wickDownColor: "#FF5252",
+      wickUpColor: colors.wickUpColor,
+      wickDownColor: colors.wickDownColor,
+      priceFormat: {
+        type: "price",
+        precision: precision,
+        minMove: Math.pow(10, -precision),
+      },
     });
 
     // Add volume series
@@ -112,7 +156,7 @@ export function TradingChart({ pair }: TradingChartProps) {
         type: "volume",
       },
       priceScaleId: "",
-      color: "rgba(76, 175, 80, 0.5)",
+      color: colors.volumeUp,
     });
 
     // Store references
@@ -160,7 +204,7 @@ export function TradingChart({ pair }: TradingChartProps) {
         volumeSeries: null,
       };
     };
-  }, [candles]); // Add candles to dependencies
+  }, [candles, theme]); // Add theme to dependencies to recreate chart when theme changes
 
   // Add a helper function for forcing chart reflow
   const forceChartReflow = () => {
@@ -205,7 +249,10 @@ export function TradingChart({ pair }: TradingChartProps) {
         };
       });
 
-      console.log(`Setting chart data: ${formattedCandles.length} candles`);
+      console.log(`Setting chart data: ${formattedCandles.length} candles with precision ${precision}`);
+
+      // Get colors based on current theme
+      const colors = getChartColors();
 
       // Update candlestick series
       chartInstanceRef.current.candlestickSeries.setData(
@@ -221,14 +268,14 @@ export function TradingChart({ pair }: TradingChartProps) {
         )
       );
 
-      // Update volume series
+      // Update volume series with color based on candle direction
       chartInstanceRef.current.volumeSeries.setData(
         formattedCandles.map(
           ({ time, value, open, close }) =>
             ({
               time,
               value,
-              color: open <= close ? "rgba(76, 175, 80, 0.5)" : "rgba(255, 82, 82, 0.5)",
+              color: open <= close ? colors.volumeUp : colors.volumeDown,
             } as HistogramData<Time>)
         )
       );
@@ -262,7 +309,7 @@ export function TradingChart({ pair }: TradingChartProps) {
     } catch (err) {
       console.error("Error updating chart with candle data:", err);
     }
-  }, [candles]);
+  }, [candles, theme]); // Add theme to dependencies
 
   // Effect to send trading data to server when pair, timeframe, or broker changes
   useEffect(() => {
@@ -335,6 +382,22 @@ export function TradingChart({ pair }: TradingChartProps) {
 
         if (response.success) {
           setCandles(response.data.candles);
+
+          // Update precision from API response
+          if (response.data.precision) {
+            setPrecision(response.data.precision);
+
+            // If we have a chart instance, update its price format
+            if (chartInstanceRef.current.candlestickSeries) {
+              chartInstanceRef.current.candlestickSeries.applyOptions({
+                priceFormat: {
+                  type: "price",
+                  precision: response.data.precision,
+                  minMove: Math.pow(10, -response.data.precision),
+                },
+              });
+            }
+          }
 
           // Store successful request params to prevent duplicate requests
           requestParamsRef.current = currentRequestParams;

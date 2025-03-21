@@ -117,6 +117,7 @@ export interface CandleDataResponse {
     timeframe: string;
     candles: Candle[];
     source: "cache" | "api";
+    precision: number;
   };
 }
 
@@ -131,6 +132,19 @@ export interface Candle {
 
 // Helper for implementing retry with exponential backoff
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Add a helper function to determine appropriate decimal precision for a trading pair
+const getSymbolPrecision = (symbol: string): number => {
+  // Common precision rules for different asset classes
+  if (symbol.includes("JPY")) return 3; // JPY pairs typically have 3 decimals
+  if (symbol.includes("BTC") || symbol.startsWith("BTC")) return 8; // Bitcoin pairs need 8 decimals
+  if (symbol.includes("ETH") || symbol.startsWith("ETH")) return 6; // Ethereum pairs
+  if (symbol.includes("USD") || symbol.includes("EUR") || symbol.includes("GBP") || symbol.includes("AUD")) {
+    return 5; // Major forex pairs typically have 5 decimals
+  }
+  // Default precision for other instruments
+  return 4;
+};
 
 // Create authenticated API client
 export function useApi() {
@@ -352,6 +366,11 @@ export function useApi() {
                 tradingPair,
                 timeframe,
               });
+
+              // Add precision info to the response if it's successful
+              if (data.success && data.data && data.data.candles) {
+                data.data.precision = getSymbolPrecision(tradingPair);
+              }
 
               return data;
             } catch (error) {

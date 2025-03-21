@@ -207,7 +207,7 @@ router.post("/", validateAuth, async (req: Request, res: Response) => {
         broker: connection.broker_name,
       });
 
-      const candles = await api.getCandles(tradingPair, timeframe, 200);
+      const candles = await api.getCandles(tradingPair, timeframe, 400);
 
       // Validate candles data
       if (!Array.isArray(candles)) {

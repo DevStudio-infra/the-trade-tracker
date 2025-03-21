@@ -26,7 +26,7 @@ async function testAISignalDetection() {
 
     // 1. Fetch candle data
     console.log("📊 Fetching candle data for EURUSD...");
-    const candles = await capitalCom.getCandles("EURUSD", "1H", 200);
+    const candles = await capitalCom.getCandles("EURUSD", "1H", 400);
     console.log(`✅ Fetched ${candles.length} candles\n`);
 
     // 2. Generate chart image
@@ -62,7 +62,7 @@ async function testAISignalDetection() {
       console.log("\n🔍 High confidence detected, running confirmation (AI Agent #2)...");
 
       // Fetch higher timeframe data
-      const higherTfCandles = await capitalCom.getCandles("EURUSD", "4H", 200);
+      const higherTfCandles = await capitalCom.getCandles("EURUSD", "4H", 400);
 
       // Generate higher timeframe chart
       const higherTfChart = await chartGenerator.generateChart(higherTfCandles, {
