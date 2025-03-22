@@ -7,10 +7,16 @@ import { useState, useEffect, useRef } from "react";
 import { useApi, Candle } from "@/lib/api";
 import { useTradingStore } from "@/stores/trading-store";
 import { toast } from "sonner";
-import { Loader2, AlertCircle } from "lucide-react";
-import { useSettings } from "@/hooks/useSettings";
-import { createChart, ColorType, CandlestickData, HistogramData, Time, IChartApi, ISeriesApi } from "lightweight-charts";
+import { Loader2, AlertCircle, BarChart4, ChevronDown } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useTheme } from "next-themes";
+import { createChart, ColorType } from "lightweight-charts";
+import type { IChartApi, ISeriesApi, Time, CandlestickData, HistogramData } from "lightweight-charts";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Badge } from "@/components/ui/badge";
+import { useSettings } from "@/hooks/useSettings";
 
 const timeframes = ["1m", "5m", "15m", "1h", "4h", "1d", "1w"];
 
@@ -46,6 +52,114 @@ interface TradingChartProps {
   pair: string | null;
 }
 
+// Define top indicators
+type IndicatorType = "sma" | "ema" | "rsi" | "macd" | "bollinger" | "stochastic" | "atr" | "ichimoku" | "fibonacci" | "volume";
+
+// Define types for indicator parameters
+interface IndicatorParameters {
+  period?: number;
+  color?: string;
+  overbought?: number;
+  oversold?: number;
+  fastPeriod?: number;
+  slowPeriod?: number;
+  signalPeriod?: number;
+  macdColor?: string;
+  signalColor?: string;
+  histogramColorPositive?: string;
+  histogramColorNegative?: string;
+  stdDev?: number;
+  kPeriod?: number;
+  dPeriod?: number;
+  conversionPeriod?: number;
+  basePeriod?: number;
+  spanPeriod?: number;
+  displacement?: number;
+  levels?: number[];
+  upColor?: string;
+  downColor?: string;
+}
+
+interface IndicatorConfig {
+  id: string;
+  type: IndicatorType;
+  name: string;
+  color: string;
+  visible: boolean;
+  parameters: IndicatorParameters;
+  series?: ISeriesApi<"Line" | "Histogram" | "Area"> | null;
+}
+
+// Common indicator default parameters
+const indicatorDefaults: Record<IndicatorType, { name: string; parameters: IndicatorParameters }> = {
+  sma: {
+    name: "Simple Moving Average",
+    parameters: { period: 20, color: "#2962FF" },
+  },
+  ema: {
+    name: "Exponential Moving Average",
+    parameters: { period: 20, color: "#FF6D00" },
+  },
+  rsi: {
+    name: "Relative Strength Index",
+    parameters: { period: 14, color: "#F44336", overbought: 70, oversold: 30 },
+  },
+  macd: {
+    name: "MACD",
+    parameters: {
+      fastPeriod: 12,
+      slowPeriod: 26,
+      signalPeriod: 9,
+      macdColor: "#2962FF",
+      signalColor: "#FF6D00",
+      histogramColorPositive: "#26A69A",
+      histogramColorNegative: "#EF5350",
+    },
+  },
+  bollinger: {
+    name: "Bollinger Bands",
+    parameters: { period: 20, stdDev: 2, color: "#7B1FA2" },
+  },
+  stochastic: {
+    name: "Stochastic Oscillator",
+    parameters: { kPeriod: 14, dPeriod: 3, color: "#43A047" },
+  },
+  atr: {
+    name: "Average True Range",
+    parameters: { period: 14, color: "#FFB300" },
+  },
+  ichimoku: {
+    name: "Ichimoku Cloud",
+    parameters: {
+      conversionPeriod: 9,
+      basePeriod: 26,
+      spanPeriod: 52,
+      displacement: 26,
+    },
+  },
+  fibonacci: {
+    name: "Fibonacci Retracement",
+    parameters: { levels: [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1] },
+  },
+  volume: {
+    name: "Volume",
+    parameters: {
+      upColor: "rgba(76, 175, 80, 0.5)",
+      downColor: "rgba(255, 82, 82, 0.5)",
+    },
+  },
+};
+
+// Define a type for candle data to address 'any' type warnings
+interface FormattedCandle {
+  time: Time;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  value: number;
+}
+
 export function TradingChart({ pair }: TradingChartProps) {
   const [selectedTimeframe, setSelectedTimeframe] = useState("1h");
   const [isLoading, setIsLoading] = useState(false);
@@ -55,7 +169,7 @@ export function TradingChart({ pair }: TradingChartProps) {
   const [precision, setPrecision] = useState(5); // Default precision
   const [error, setError] = useState<string | null>(null);
   const [brokerConnectionIssue, setBrokerConnectionIssue] = useState(false);
-  const { theme } = useTheme(); // Get current theme
+  const { resolvedTheme } = useTheme(); // Get current theme
 
   // Track request state to prevent loops
   const requestInProgressRef = useRef(false);
@@ -73,34 +187,65 @@ export function TradingChart({ pair }: TradingChartProps) {
     volumeSeries: null,
   });
 
+  // Reference to track indicators for cleanup
+  const prevIndicatorsRef = useRef<Record<string, IndicatorConfig>>({});
+
   const api = useApi();
   const { selectedBroker } = useTradingStore();
-  const { brokerConnections } = useSettings();
+  const settings = useSettings();
+
+  const [indicators, setIndicators] = useState<IndicatorConfig[]>([]);
+  const [indicatorDialogOpen, setIndicatorDialogOpen] = useState(false);
+  const [selectedIndicatorType, setSelectedIndicatorType] = useState<IndicatorType | null>(null);
+  const [indicatorParams, setIndicatorParams] = useState<IndicatorParameters>({});
+  const [indicatorName, setIndicatorName] = useState("");
 
   // Function to get chart colors based on theme
   const getChartColors = () => {
-    return theme === "dark" ? chartColors.dark : chartColors.light;
+    return resolvedTheme === "dark" ? chartColors.dark : chartColors.light;
   };
 
   // Add logging to check broker connections
   useEffect(() => {
     console.log("TradingChart - Broker data:", {
       selectedBroker,
-      connections: brokerConnections,
-      hasConnections: Array.isArray(brokerConnections) && brokerConnections.length > 0,
-      activeBrokerFound: Array.isArray(brokerConnections) && selectedBroker ? brokerConnections.some((conn) => conn.id === selectedBroker.id) : false,
+      connections: settings?.brokerConnections,
+      hasConnections: Array.isArray(settings?.brokerConnections) && settings?.brokerConnections.length > 0,
+      activeBrokerFound: Array.isArray(settings?.brokerConnections) && selectedBroker ? settings?.brokerConnections.some((conn) => conn.id === selectedBroker.id) : false,
     });
 
     // Reset any error related to broker connections when the connections change
-    if (brokerConnectionIssue && Array.isArray(brokerConnections) && brokerConnections.length > 0) {
+    if (brokerConnectionIssue && Array.isArray(settings?.brokerConnections) && settings?.brokerConnections.length > 0) {
       setBrokerConnectionIssue(false);
       setError(null);
     }
-  }, [brokerConnections, selectedBroker, brokerConnectionIssue]);
+  }, [settings?.brokerConnections, selectedBroker, brokerConnectionIssue]);
 
   // Initialize chart
   useEffect(() => {
     if (!chartContainerRef.current) return;
+
+    // Clean up any existing chart first
+    if (chartInstanceRef.current.chart) {
+      try {
+        // Clear all indicators from ref
+        Object.keys(prevIndicatorsRef.current).forEach((id) => {
+          if (prevIndicatorsRef.current[id]?.series) {
+            delete prevIndicatorsRef.current[id];
+          }
+        });
+
+        // Remove the chart
+        chartInstanceRef.current.chart.remove();
+        chartInstanceRef.current = {
+          chart: null,
+          candlestickSeries: null,
+          volumeSeries: null,
+        };
+      } catch (err) {
+        console.error("Error cleaning up existing chart:", err);
+      }
+    }
 
     // Store container reference for cleanup
     const chartContainer = chartContainerRef.current;
@@ -219,14 +364,29 @@ export function TradingChart({ pair }: TradingChartProps) {
       // Clean up
       resizeObserver.unobserve(chartContainer);
       resizeObserver.disconnect();
-      chart.remove();
-      chartInstanceRef.current = {
-        chart: null,
-        candlestickSeries: null,
-        volumeSeries: null,
-      };
+
+      try {
+        // Only remove if chart still exists
+        if (chartInstanceRef.current.chart) {
+          // Clear all indicators from ref
+          Object.keys(prevIndicatorsRef.current).forEach((id) => {
+            if (prevIndicatorsRef.current[id]?.series) {
+              delete prevIndicatorsRef.current[id];
+            }
+          });
+
+          chart.remove();
+          chartInstanceRef.current = {
+            chart: null,
+            candlestickSeries: null,
+            volumeSeries: null,
+          };
+        }
+      } catch (err) {
+        console.error("Error cleaning up chart:", err);
+      }
     };
-  }, [candles, theme]); // Add theme to dependencies to recreate chart when theme changes
+  }, [pair, selectedTimeframe, resolvedTheme]); // Recreate chart when pair, timeframe, or theme changes
 
   // Add a helper function for forcing chart reflow
   const forceChartReflow = () => {
@@ -306,6 +466,109 @@ export function TradingChart({ pair }: TradingChartProps) {
         )
       );
 
+      // Only apply indicators if we have a chart and there are indicators to show
+      if (chartInstanceRef.current.chart && indicators.length > 0) {
+        // Process indicators in a separate microtask to avoid blocking rendering
+        setTimeout(() => {
+          try {
+            // Store formatted candles for indicators to use
+            const formattedCandlesRef = formattedCandles;
+
+            // Apply indicators one by one
+            indicators.forEach((indicator) => {
+              // Skip if the chart is no longer available
+              if (!chartInstanceRef.current.chart) return;
+
+              // If this indicator already has a series attached, use it
+              // Otherwise create a new one
+              if (!indicator.series) {
+                // Create different types of series based on indicator type
+                switch (indicator.type) {
+                  case "sma":
+                  case "ema":
+                    // Create a line series for moving averages
+                    const lineSeries = chartInstanceRef.current.chart.addLineSeries({
+                      color: indicator.color,
+                      lineWidth: 2,
+                      priceLineVisible: false,
+                      lastValueVisible: true,
+                      crosshairMarkerVisible: true,
+                      title: `${indicator.type.toUpperCase()} (${indicator.parameters.period})`,
+                    });
+
+                    // Add to the indicator object for future reference
+                    indicator.series = lineSeries;
+                    break;
+                  case "rsi":
+                    // RSI typically appears in a separate panel
+                    const rsiSeries = chartInstanceRef.current.chart.addLineSeries({
+                      color: indicator.color,
+                      lineWidth: 2,
+                      priceScaleId: "rsi",
+                      lastValueVisible: true,
+                      priceFormat: {
+                        type: "price",
+                        precision: 2,
+                        minMove: 0.01,
+                      },
+                      title: `RSI (${indicator.parameters.period})`,
+                    });
+
+                    // Configure the panel for RSI
+                    rsiSeries.priceScale().applyOptions({
+                      scaleMargins: {
+                        top: 0.85, // Small panel at bottom of chart, below price and volume
+                        bottom: 0.0,
+                      },
+                      borderVisible: true,
+                      borderColor: getChartColors().borderColor,
+                      visible: true,
+                    });
+
+                    // Add to the indicator object for future reference
+                    indicator.series = rsiSeries;
+                    break;
+                  // Additional indicator types would be handled here
+                }
+              }
+
+              // If we have a series attached to this indicator, update its data
+              if (indicator.series && formattedCandlesRef.length > 0) {
+                // Calculate the indicator values based on type
+                switch (indicator.type) {
+                  case "sma":
+                    // Simple Moving Average calculation
+                    const period = Number(indicator.parameters.period) || 20;
+                    const smaData = calculateSMA(formattedCandlesRef, period);
+                    indicator.series.setData(smaData);
+                    break;
+                  case "ema":
+                    // Exponential Moving Average calculation
+                    const emaPeriod = Number(indicator.parameters.period) || 20;
+                    const emaData = calculateEMA(formattedCandlesRef, emaPeriod);
+                    indicator.series.setData(emaData);
+                    break;
+                  case "rsi":
+                    // Relative Strength Index calculation
+                    const rsiPeriod = Number(indicator.parameters.period) || 14;
+                    const rsiData = calculateRSI(formattedCandlesRef, rsiPeriod);
+                    indicator.series.setData(rsiData);
+                    break;
+                  // Additional indicators would be calculated here
+                }
+              }
+            });
+
+            // Store current indicators in ref for cleanup
+            indicators.forEach((indicator) => {
+              prevIndicatorsRef.current[indicator.id] = indicator;
+            });
+          } catch (indicatorError) {
+            console.error("Error applying indicators:", indicatorError);
+          }
+        }, 0);
+      }
+
       // Fit content and workaround for chart not rendering initially
       if (chartInstanceRef.current.chart) {
         // First fit the content
@@ -335,7 +598,133 @@ export function TradingChart({ pair }: TradingChartProps) {
     } catch (err) {
       console.error("Error updating chart with candle data:", err);
     }
-  }, [candles, theme]); // Add theme to dependencies
+  }, [candles, resolvedTheme, indicators]); // Add indicators to dependencies
+
+  // Helper function to calculate Simple Moving Average
+  function calculateSMA(candles: FormattedCandle[], period: number) {
+    const result = [];
+
+    for (let i = period - 1; i < candles.length; i++) {
+      let sum = 0;
+      for (let j = 0; j < period; j++) {
+        sum += candles[i - j].close;
+      }
+      result.push({
+        time: candles[i].time,
+        value: sum / period,
+      });
+    }
+
+    return result;
+  }
+
+  // Helper function to calculate Exponential Moving Average
+  function calculateEMA(candles: FormattedCandle[], period: number) {
+    const result = [];
+
+    // First value is SMA
+    let sum = 0;
+    for (let i = 0; i < period; i++) {
+      sum += candles[i].close;
+    }
+    let ema = sum / period;
+
+    // Multiplier: (2 / (period + 1))
+    const multiplier = 2 / (period + 1);
+
+    result.push({
+      time: candles[period - 1].time,
+      value: ema,
+    });
+
+    // Calculate EMA for the rest
+    for (let i = period; i < candles.length; i++) {
+      ema = (candles[i].close - ema) * multiplier + ema;
+      result.push({
+        time: candles[i].time,
+        value: ema,
+      });
+    }
+
+    return result;
+  }
+
+  // Helper function to calculate Relative Strength Index
+  function calculateRSI(candles: FormattedCandle[], period: number) {
+    const result = [];
+    const gains = [];
+    const losses = [];
+
+    // Calculate initial gains and losses
+    for (let i = 1; i < candles.length; i++) {
+      const change = candles[i].close - candles[i - 1].close;
+      gains.push(change > 0 ? change : 0);
+      losses.push(change < 0 ? Math.abs(change) : 0);
+
+      // Once we have enough data to calculate the first RSI value
+      if (i >= period) {
+        // Calculate average gain and loss for the period
+        let avgGain = 0;
+        let avgLoss = 0;
+
+        if (i === period) {
+          // First calculation is a simple average
+          for (let j = 0; j < period; j++) {
+            avgGain += gains[j];
+            avgLoss += losses[j];
+          }
+          avgGain /= period;
+          avgLoss /= period;
+        } else {
+          // Subsequent calculations use the previous values
+          const prevAvgGain = result[result.length - 1].avgGain;
+          const prevAvgLoss = result[result.length - 1].avgLoss;
+
+          // Smoothed averages
+          avgGain = (prevAvgGain * (period - 1) + gains[gains.length - 1]) / period;
+          avgLoss = (prevAvgLoss * (period - 1) + losses[losses.length - 1]) / period;
+        }
+
+        // Calculate RS and RSI
+        const rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+        const rsi = 100 - 100 / (1 + rs);
+
+        result.push({
+          time: candles[i].time,
+          value: rsi,
+          avgGain,
+          avgLoss,
+        });
+      }
+    }
+
+    // Remove the avgGain and avgLoss properties for the final result
+    return result.map(({ time, value }) => ({ time, value }));
+  }
+
+  // Effect to clean up indicators when they are removed
+  useEffect(() => {
+    if (!chartInstanceRef.current.chart) return;
+
+    // Clean up any removed indicators
+    const indicatorIds = indicators.map((i) => i.id);
+    const storedIds = Object.keys(prevIndicatorsRef.current);
+
+    // Find indicators that were removed
+    storedIds.forEach((id) => {
+      if (!indicatorIds.includes(id) && prevIndicatorsRef.current[id]?.series) {
+        try {
+          // If the chart still exists, remove the series
+          chartInstanceRef.current.chart?.removeSeries(prevIndicatorsRef.current[id].series!);
+          // Remove from our reference object
+          delete prevIndicatorsRef.current[id];
+          console.log(`Removed indicator: ${id}`);
+        } catch (err) {
+          console.error("Error removing indicator series:", err);
+        }
+      }
+    });
+  }, [indicators]);
 
   // Effect to send trading data to server when pair, timeframe, or broker changes
   useEffect(() => {
@@ -350,7 +739,7 @@ export function TradingChart({ pair }: TradingChartProps) {
     }
 
     // Check if broker connections are available
-    if (!Array.isArray(brokerConnections) || brokerConnections.length === 0) {
+    if (!Array.isArray(settings?.brokerConnections) || settings?.brokerConnections.length === 0) {
       console.error("No broker connections available");
       setError("No broker connections available. Please connect a broker first.");
       setBrokerConnectionIssue(true);
@@ -358,7 +747,7 @@ export function TradingChart({ pair }: TradingChartProps) {
     }
 
     // Check if the selected broker exists in the connections
-    const brokerExists = brokerConnections.some((conn) => conn.id === selectedBroker.id);
+    const brokerExists = settings?.brokerConnections.some((conn) => conn.id === selectedBroker.id);
     if (!brokerExists) {
       console.error(`Selected broker (${selectedBroker.id}) not found in connections`);
       setError("Selected broker connection not found. Please select another broker.");
@@ -483,7 +872,7 @@ export function TradingChart({ pair }: TradingChartProps) {
     pair,
     selectedTimeframe,
     selectedBroker?.id, // Use ID instead of the whole object to prevent unnecessary renders
-    brokerConnections, // Add this to the dependency array to react to connection changes
+    settings?.brokerConnections, // Add this to the dependency array to react to connection changes
   ]);
 
   // Add an additional effect to force chart visibility after data is loaded
@@ -548,6 +937,54 @@ export function TradingChart({ pair }: TradingChartProps) {
     setError(null);
   };
 
+  // Function to open the indicator dialog
+  const openIndicatorDialog = (type: IndicatorType) => {
+    console.log("Opening dialog for:", type);
+
+    // Get default parameters
+    const defaults = indicatorDefaults[type];
+
+    // Set dialog state
+    setSelectedIndicatorType(type);
+    setIndicatorName(defaults.name);
+    setIndicatorParams({ ...defaults.parameters });
+
+    // Open the dialog with a small delay to ensure state is set first
+    setTimeout(() => {
+      setIndicatorDialogOpen(true);
+    }, 50);
+  };
+
+  // Function to add a new indicator
+  const handleAddIndicator = () => {
+    if (!selectedIndicatorType) return;
+
+    const newIndicator: IndicatorConfig = {
+      id: `${selectedIndicatorType}-${Date.now()}`,
+      type: selectedIndicatorType,
+      name: indicatorName,
+      color: selectedIndicatorType === "macd" ? indicatorParams.macdColor || "#2962FF" : indicatorParams.color || "#4CAF50",
+      visible: true,
+      parameters: { ...indicatorParams },
+    };
+
+    // Add to indicators list
+    setIndicators((prev) => [...prev, newIndicator]);
+
+    // Close dialog and reset state
+    setIndicatorDialogOpen(false);
+    setSelectedIndicatorType(null);
+
+    // Show success message
+    toast.success(`${indicatorName} added to chart`);
+  };
+
+  // Function to remove an indicator
+  const handleRemoveIndicator = (id: string) => {
+    setIndicators((prev) => prev.filter((indicator) => indicator.id !== id));
+    toast.success("Indicator removed");
+  };
+
   if (!pair) {
     return (
       <div className="p-4 flex items-center justify-center h-full">
@@ -563,23 +1000,82 @@ export function TradingChart({ pair }: TradingChartProps) {
           <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Chart</h2>
           <p className="text-sm text-slate-500 dark:text-slate-400">{pair}</p>
         </div>
-        <div className="flex gap-2">
-          {timeframes.map((timeframe) => (
-            <Button
-              key={timeframe}
-              variant="ghost"
-              size="sm"
-              className={cn(
-                "font-medium",
-                selectedTimeframe === timeframe
-                  ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30"
-                  : "text-slate-900 dark:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
-              )}
-              onClick={() => handleTimeframeChange(timeframe)}
-              disabled={isLoading || isRetrying}>
-              {timeframe}
-            </Button>
-          ))}
+        <div className="flex gap-2 items-center">
+          {/* Indicators Management Button */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="flex items-center gap-1 font-medium" disabled={isLoading}>
+                <BarChart4 className="h-4 w-4" />
+                <span>Indicators</span>
+                <ChevronDown className="h-3 w-3 opacity-70" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuItem onClick={() => openIndicatorDialog("sma")}>Simple Moving Average (SMA)</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => openIndicatorDialog("ema")}>Exponential Moving Average (EMA)</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => openIndicatorDialog("rsi")}>Relative Strength Index (RSI)</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => openIndicatorDialog("macd")}>MACD</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => openIndicatorDialog("bollinger")}>Bollinger Bands</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => openIndicatorDialog("stochastic")}>Stochastic Oscillator</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => openIndicatorDialog("atr")}>Average True Range (ATR)</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => openIndicatorDialog("ichimoku")}>Ichimoku Cloud</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => openIndicatorDialog("fibonacci")}>Fibonacci Retracement</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* Active indicators list */}
+          {indicators.length > 0 && (
+            <div className="flex gap-1 items-center overflow-x-auto py-0.5 px-1 max-w-xs">
+              {indicators.map((indicator) => (
+                <Badge
+                  key={indicator.id}
+                  variant="outline"
+                  className="flex items-center gap-1 py-0 h-6 text-xs cursor-pointer group"
+                  style={{ borderColor: indicator.color + "80" }}>
+                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: indicator.color }} />
+                  <span>
+                    {indicator.type.toUpperCase()}-{indicator.parameters.period || "—"}
+                  </span>
+                  <Button variant="ghost" size="icon" className="h-4 w-4 p-0 ml-1 opacity-70 hover:opacity-100" onClick={() => handleRemoveIndicator(indicator.id)}>
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round">
+                      <line x1="18" y1="6" x2="6" y2="18"></line>
+                      <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                  </Button>
+                </Badge>
+              ))}
+            </div>
+          )}
+
+          {/* Timeframe selection */}
+          <div className="flex gap-2">
+            {timeframes.map((timeframe) => (
+              <Button
+                key={timeframe}
+                variant="ghost"
+                size="sm"
+                className={cn(
+                  "font-medium",
+                  selectedTimeframe === timeframe
+                    ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30"
+                    : "text-slate-900 dark:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
+                )}
+                onClick={() => handleTimeframeChange(timeframe)}
+                disabled={isLoading || isRetrying}>
+                {timeframe}
+              </Button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -619,6 +1115,173 @@ export function TradingChart({ pair }: TradingChartProps) {
           </div>
         )}
       </div>
+
+      {/* Indicator Dialog */}
+      <Dialog
+        open={indicatorDialogOpen}
+        onOpenChange={(open) => {
+          console.log("Dialog open state changed:", open);
+          setIndicatorDialogOpen(open);
+          if (!open) {
+            // Reset on close
+            setSelectedIndicatorType(null);
+          }
+        }}>
+        <DialogContent className="sm:max-w-[425px] bg-white dark:bg-gray-900">
+          <DialogHeader>
+            <DialogTitle>Add Indicator</DialogTitle>
+          </DialogHeader>
+
+          {selectedIndicatorType && (
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <Label htmlFor="indicator-name">Name</Label>
+                <Input id="indicator-name" value={indicatorName} onChange={(e) => setIndicatorName(e.target.value)} />
+              </div>
+
+              {/* Parameter fields based on indicator type */}
+              {(selectedIndicatorType === "sma" || selectedIndicatorType === "ema") && (
+                <div className="space-y-2">
+                  <Label htmlFor="period">Period</Label>
+                  <Input
+                    id="period"
+                    type="number"
+                    min={1}
+                    max={200}
+                    value={indicatorParams.period || 20}
+                    onChange={(e) =>
+                      setIndicatorParams({
+                        ...indicatorParams,
+                        period: parseInt(e.target.value),
+                      })
+                    }
+                  />
+
+                  <div className="pt-2">
+                    <Label htmlFor="color">Color</Label>
+                    <div className="flex gap-2 items-center">
+                      <Input
+                        id="color"
+                        type="color"
+                        value={indicatorParams.color || "#2962FF"}
+                        className="w-16 h-8 p-1"
+                        onChange={(e) =>
+                          setIndicatorParams({
+                            ...indicatorParams,
+                            color: e.target.value,
+                          })
+                        }
+                      />
+                      <Input
+                        value={indicatorParams.color || "#2962FF"}
+                        onChange={(e) =>
+                          setIndicatorParams({
+                            ...indicatorParams,
+                            color: e.target.value,
+                          })
+                        }
+                        className="flex-1"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* RSI Parameters */}
+              {selectedIndicatorType === "rsi" && (
+                <div className="space-y-2">
+                  <Label htmlFor="rsi-period">Period</Label>
+                  <Input
+                    id="rsi-period"
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={indicatorParams.period || 14}
+                    onChange={(e) =>
+                      setIndicatorParams({
+                        ...indicatorParams,
+                        period: parseInt(e.target.value),
+                      })
+                    }
+                  />
+
+                  <div className="pt-2">
+                    <Label htmlFor="rsi-color">Color</Label>
+                    <div className="flex gap-2 items-center">
+                      <Input
+                        id="rsi-color"
+                        type="color"
+                        value={indicatorParams.color || "#F44336"}
+                        className="w-16 h-8 p-1"
+                        onChange={(e) =>
+                          setIndicatorParams({
+                            ...indicatorParams,
+                            color: e.target.value,
+                          })
+                        }
+                      />
+                      <Input
+                        value={indicatorParams.color || "#F44336"}
+                        onChange={(e) =>
+                          setIndicatorParams({
+                            ...indicatorParams,
+                            color: e.target.value,
+                          })
+                        }
+                        className="flex-1"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 pt-2">
+                    <div>
+                      <Label htmlFor="overbought">Overbought</Label>
+                      <Input
+                        id="overbought"
+                        type="number"
+                        min={50}
+                        max={100}
+                        value={indicatorParams.overbought || 70}
+                        onChange={(e) =>
+                          setIndicatorParams({
+                            ...indicatorParams,
+                            overbought: parseInt(e.target.value),
+                          })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="oversold">Oversold</Label>
+                      <Input
+                        id="oversold"
+                        type="number"
+                        min={0}
+                        max={50}
+                        value={indicatorParams.oversold || 30}
+                        onChange={(e) =>
+                          setIndicatorParams({
+                            ...indicatorParams,
+                            oversold: parseInt(e.target.value),
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Additional indicator parameters can be added here */}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIndicatorDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleAddIndicator}>Add Indicator</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
