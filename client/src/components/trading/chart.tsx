@@ -133,7 +133,7 @@ export function TradingChart({ pair }: TradingChartProps) {
         entireTextOnly: true,
       },
       width: chartContainer.clientWidth,
-      height: 400,
+      height: 500,
     });
 
     // Add candlestick series
@@ -150,13 +150,35 @@ export function TradingChart({ pair }: TradingChartProps) {
       },
     });
 
-    // Add volume series
+    // Add volume series with separate panel configuration
     const volumeSeries = chart.addHistogramSeries({
       priceFormat: {
         type: "volume",
       },
-      priceScaleId: "",
+      // Configure as a separate panel with its own price scale
+      priceScaleId: "volume", // Unique ID for the volume price scale
       color: colors.volumeUp,
+    });
+
+    // Configure the volume panel to be at the bottom with smaller height
+    volumeSeries.priceScale().applyOptions({
+      scaleMargins: {
+        top: 0.85, // Start at 85% from the top (smaller panel at the bottom)
+        bottom: 0.05, // Add a small margin at the bottom
+      },
+      // Hide the scale values for cleaner appearance
+      borderVisible: true,
+      borderColor: colors.borderColor,
+      // Show scale values (optional)
+      visible: true,
+    });
+
+    // Configure the main price scale for candlesticks
+    candlestickSeries.priceScale().applyOptions({
+      scaleMargins: {
+        top: 0.05, // Small margin at top
+        bottom: 0.25, // Leave 25% space at bottom for volume panel
+      },
     });
 
     // Store references
@@ -275,7 +297,11 @@ export function TradingChart({ pair }: TradingChartProps) {
             ({
               time,
               value,
-              color: open <= close ? colors.volumeUp : colors.volumeDown,
+              color:
+                open <= close
+                  ? // Use more transparent colors for volume bars
+                    colors.volumeUp.replace("0.5", "0.3")
+                  : colors.volumeDown.replace("0.5", "0.3"),
             } as HistogramData<Time>)
         )
       );
