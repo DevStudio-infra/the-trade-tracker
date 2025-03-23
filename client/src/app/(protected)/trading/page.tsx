@@ -254,8 +254,8 @@ export default function TradingPage() {
         </div>
 
         {/* Trading tabs - Manual vs AI-powered */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="w-full grid grid-cols-2 mb-8">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full ">
+          <TabsList className="w-full grid grid-cols-2 mb-8  h-fit">
             <TabsTrigger value="manual" className="flex items-center gap-2 py-3">
               <BarChart2 className="w-5 h-5" />
               <span className="font-medium">Manual Trading</span>

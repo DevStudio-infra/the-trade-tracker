@@ -13,8 +13,7 @@ import { CandlestickRenderer } from "./CandlestickRenderer";
 import { ChartHeader } from "./ChartHeader";
 import { ChartLoadingState } from "./ChartLoadingState";
 import { ChartErrorState } from "./ChartErrorState";
-import { IndicatorManager } from "./indicators/IndicatorManager";
-import { IndicatorRenderer } from "./indicators/IndicatorRenderer";
+import { IndicatorManager, IndicatorRenderer } from "./indicators";
 
 /**
  * Main Trading Chart component
@@ -250,12 +249,15 @@ export function TradingChart({ pair }: TradingChartProps) {
   // Open the indicator dialog
   const openIndicatorDialog = (type: IndicatorType) => {
     console.log("Opening dialog for:", type);
+
+    // First set indicator type
     setSelectedIndicatorType(type);
 
-    // Open the dialog with a small delay to ensure state is set first
-    setTimeout(() => {
-      setIndicatorDialogOpen(true);
-    }, 50);
+    // Then immediately open the dialog to avoid timing issues
+    setIndicatorDialogOpen(true);
+
+    // Log to make sure we've updated the state
+    console.log("Dialog state updated:", { type, isOpen: true });
   };
 
   // Handle indicator updates

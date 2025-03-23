@@ -46,19 +46,29 @@ export interface IndicatorConfig {
   series?: ISeriesApi<"Line" | "Histogram" | "Area"> | null;
 }
 
+// Updated indicator defaults interface with description
+interface IndicatorDefault {
+  name: string;
+  parameters: IndicatorParameters;
+  description: string;
+}
+
 // Common indicator default parameters
-export const indicatorDefaults: Record<IndicatorType, { name: string; parameters: IndicatorParameters }> = {
+export const indicatorDefaults: Record<IndicatorType, IndicatorDefault> = {
   sma: {
     name: "Simple Moving Average",
     parameters: { period: 20, color: "#2962FF" },
+    description: "Simple average of prices over a period",
   },
   ema: {
     name: "Exponential Moving Average",
     parameters: { period: 20, color: "#FF6D00" },
+    description: "Weighted average giving more importance to recent prices",
   },
   rsi: {
     name: "Relative Strength Index",
     parameters: { period: 14, color: "#F44336", overbought: 70, oversold: 30 },
+    description: "Momentum oscillator measuring speed of price movements",
   },
   macd: {
     name: "MACD",
@@ -71,18 +81,22 @@ export const indicatorDefaults: Record<IndicatorType, { name: string; parameters
       histogramColorPositive: "#26A69A",
       histogramColorNegative: "#EF5350",
     },
+    description: "Trend-following momentum indicator showing relationship between two moving averages",
   },
   bollinger: {
     name: "Bollinger Bands",
     parameters: { period: 20, stdDev: 2, color: "#7B1FA2" },
+    description: "Volatility bands placed above and below a moving average",
   },
   stochastic: {
     name: "Stochastic Oscillator",
     parameters: { kPeriod: 14, dPeriod: 3, color: "#43A047" },
+    description: "Momentum indicator comparing closing price to price range over time",
   },
   atr: {
     name: "Average True Range",
     parameters: { period: 14, color: "#FFB300" },
+    description: "Volatility indicator measuring market volatility",
   },
   ichimoku: {
     name: "Ichimoku Cloud",
@@ -92,10 +106,12 @@ export const indicatorDefaults: Record<IndicatorType, { name: string; parameters
       spanPeriod: 52,
       displacement: 26,
     },
+    description: "Technical indicator showing support and resistance levels and trend direction",
   },
   fibonacci: {
     name: "Fibonacci Retracement",
     parameters: { levels: [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1] },
+    description: "Potential support and resistance levels based on Fibonacci ratios",
   },
   volume: {
     name: "Volume",
@@ -103,6 +119,7 @@ export const indicatorDefaults: Record<IndicatorType, { name: string; parameters
       upColor: "rgba(76, 175, 80, 0.5)",
       downColor: "rgba(255, 82, 82, 0.5)",
     },
+    description: "Trading volume indicator showing market activity",
   },
 };
 

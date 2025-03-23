@@ -1,14 +1,13 @@
 "use client";
 
 import { IndicatorDialog } from "./IndicatorDialog";
-import { IndicatorBadge } from "./IndicatorBadge";
 import { IndicatorType, IndicatorConfig, IndicatorParameters } from "../utils/chartTypes";
 import { toast } from "sonner";
+import { useEffect } from "react";
 
 interface IndicatorManagerProps {
   indicators: IndicatorConfig[];
   onIndicatorsChange: (indicators: IndicatorConfig[]) => void;
-  onAddIndicator?: (type: IndicatorType) => void; // Make optional since not used directly
   selectedIndicatorType: IndicatorType | null;
   isDialogOpen: boolean;
   onDialogOpenChange: (open: boolean) => void;
@@ -16,8 +15,15 @@ interface IndicatorManagerProps {
 
 /**
  * Component for managing chart indicators
+ * This version focuses only on the dialog functionality,
+ * with the active indicators managed by the ChartHeader dropdown
  */
 export function IndicatorManager({ indicators, onIndicatorsChange, selectedIndicatorType, isDialogOpen, onDialogOpenChange }: IndicatorManagerProps) {
+  // Log props for debugging
+  useEffect(() => {
+    console.log("IndicatorManager props:", { isDialogOpen, selectedIndicatorType });
+  }, [isDialogOpen, selectedIndicatorType]);
+
   // Handle adding a new indicator
   const handleAddIndicator = (name: string, type: IndicatorType, parameters: IndicatorParameters) => {
     // Create a new indicator config
@@ -30,6 +36,8 @@ export function IndicatorManager({ indicators, onIndicatorsChange, selectedIndic
       parameters,
     };
 
+    console.log("Creating new indicator:", newIndicator);
+
     // Add to indicators list
     onIndicatorsChange([...indicators, newIndicator]);
 
@@ -37,24 +45,9 @@ export function IndicatorManager({ indicators, onIndicatorsChange, selectedIndic
     toast.success(`${name} added to chart`);
   };
 
-  // Handle removing an indicator
-  const handleRemoveIndicator = (id: string) => {
-    onIndicatorsChange(indicators.filter((indicator) => indicator.id !== id));
-    toast.success("Indicator removed");
-  };
-
   return (
     <>
-      {/* Active indicators list */}
-      {indicators.length > 0 && (
-        <div className="flex gap-1 items-center overflow-x-auto py-0.5 px-1 max-w-xs">
-          {indicators.map((indicator) => (
-            <IndicatorBadge key={indicator.id} indicator={indicator} onRemove={handleRemoveIndicator} />
-          ))}
-        </div>
-      )}
-
-      {/* Indicator configuration dialog */}
+      {/* Indicator configuration dialog - only shows when a type is selected */}
       <IndicatorDialog open={isDialogOpen} onOpenChange={onDialogOpenChange} selectedIndicatorType={selectedIndicatorType} onAddIndicator={handleAddIndicator} />
     </>
   );
