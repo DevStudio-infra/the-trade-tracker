@@ -3,9 +3,9 @@
 import { useEffect, useRef } from "react";
 import { LineSeries, SeriesType, IPaneApi } from "lightweight-charts";
 import { ChartInstanceRef, IndicatorConfig, FormattedCandle, indicatorDefaults } from "../utils/chartTypes";
-import { calculateSMA, calculateEMA, calculateRSI, calculateMACD, calculateBollingerBands } from "../utils/indicatorCalculations";
+import { calculateSMA, calculateEMA, calculateRSI, calculateMACD, calculateBollingerBands, calculateStochastic } from "../utils/indicatorCalculations";
 
-// For type safety, import IChartApi
+// For type safety, import IChartApi, ISeriesApi and Time
 import type { IChartApi, ISeriesApi, Time } from "lightweight-charts";
 
 // Define extended indicator type with additional series properties
@@ -34,6 +34,20 @@ interface IndicatorRendererProps {
   indicators: IndicatorConfig[];
   formattedCandles: FormattedCandle[];
   onIndicatorUpdated: (updatedIndicator: IndicatorConfig) => void;
+}
+
+// Define interfaces for extended indicators with proper types for series
+interface MACDIndicator extends IndicatorConfig {
+  additionalSeries?: {
+    signalSeries?: ISeriesApi<"Line">;
+    histogramSeries?: ISeriesApi<"Histogram"> | ISeriesApi<"Line">;
+  };
+}
+
+interface StochasticIndicator extends IndicatorConfig {
+  additionalSeries?: {
+    dSeries?: ISeriesApi<"Line">;
+  };
 }
 
 /**
@@ -385,96 +399,42 @@ export function IndicatorRenderer({ chartInstance, indicators, formattedCandles,
               break;
 
             case "macd":
-              // MACD requires multiple series in the same pane
-              let macdSeries;
-              try {
-                // Try using v5 API first
-                if (typeof chart.addSeries === "function") {
-                  // Use v5 API
-                  macdSeries = chart.addSeries(
-                    LineSeries,
-                    {
-                      color: indicator.parameters.macdColor || "#2962FF",
-                      lineWidth: 2,
-                      lastValueVisible: true,
-                      priceFormat: {
-                        type: "price",
-                        precision: 4,
-                      },
-                      title: "MACD",
-                    },
-                    paneIndex
-                  );
-                } else {
-                  // For v4 API compatibility
-                  if (chartApi.addLineSeries) {
-                    macdSeries = chartApi.addLineSeries({
-                      color: indicator.parameters.macdColor || "#2962FF",
-                      lineWidth: 2,
-                      priceScaleId: "macd",
-                      lastValueVisible: true,
-                      priceFormat: {
-                        type: "price",
-                        precision: 4,
-                      },
-                      title: "MACD",
-                    });
+              // MACD calculation
+              const macdResult = calculateMACD(
+                formattedCandles,
+                indicator.parameters.fastPeriod || 12,
+                indicator.parameters.slowPeriod || 26,
+                indicator.parameters.signalPeriod || 9
+              );
 
-                    // Configure the panel for MACD in v4
-                    macdSeries.priceScale().applyOptions({
-                      scaleMargins: {
-                        top: 0.75,
-                        bottom: 0.05,
-                      },
-                      borderVisible: true,
-                      borderColor: "#2B2B43",
-                      visible: true,
-                    });
-                  } else {
-                    throw new Error("Neither addSeries nor addLineSeries methods are available");
-                  }
-                }
-              } catch (error) {
-                console.error("Error adding MACD series:", error);
-                // Fallback to v4 API with specific cast
-                try {
-                  if (chartApi.addLineSeries) {
-                    macdSeries = chartApi.addLineSeries({
-                      color: indicator.parameters.macdColor || "#2962FF",
-                      lineWidth: 2,
-                      priceScaleId: "macd",
-                      lastValueVisible: true,
-                      priceFormat: {
-                        type: "price",
-                        precision: 4,
-                      },
-                      title: "MACD",
-                    });
-
-                    // Configure the panel for MACD in v4
-                    macdSeries.priceScale().applyOptions({
-                      scaleMargins: {
-                        top: 0.75,
-                        bottom: 0.05,
-                      },
-                      borderVisible: true,
-                      borderColor: "#2B2B43",
-                      visible: true,
-                    });
-                  } else {
-                    throw new Error("Could not add MACD series after fallback");
-                  }
-                } catch (fallbackError) {
-                  console.error("Failed to add MACD series with fallback method:", fallbackError);
-                  return; // Skip this indicator if we can't add a series
-                }
+              // Set data for the main MACD line
+              if (indicator.series) {
+                indicator.series.setData(macdResult.macdLine);
               }
 
-              // Add to the indicator object for future reference
-              indicator.series = macdSeries;
-              indicator.paneIndex = paneIndex;
-              // Notify parent about the updated indicator
-              onIndicatorUpdated({ ...indicator, series: macdSeries, paneIndex });
+              // Check if we have additional series stored (from an extended indicator)
+              const macdIndicator = indicator as MACDIndicator;
+              if (macdIndicator.additionalSeries) {
+                // Set data for signal line
+                if (macdIndicator.additionalSeries.signalSeries && macdResult.signalLine) {
+                  macdIndicator.additionalSeries.signalSeries.setData(macdResult.signalLine);
+                }
+
+                // Set data for histogram
+                if (macdIndicator.additionalSeries.histogramSeries && macdResult.histogram) {
+                  macdIndicator.additionalSeries.histogramSeries.setData(
+                    // Add color property to each point for the histogram
+                    macdResult.histogram.map((point) => ({
+                      time: point.time,
+                      value: point.value,
+                      color:
+                        point.value >= 0
+                          ? indicator.parameters.histogramColorPositive || "#26A69A" // Positive color
+                          : indicator.parameters.histogramColorNegative || "#EF5350", // Negative color
+                    }))
+                  );
+                }
+              }
               break;
 
             case "bollinger":
@@ -602,6 +562,25 @@ export function IndicatorRenderer({ chartInstance, indicators, formattedCandles,
               });
               break;
 
+            case "stochastic":
+              // Stochastic calculation
+              const kPeriod = Number(indicator.parameters.kPeriod) || 14;
+              const dPeriod = Number(indicator.parameters.dPeriod) || 3;
+              const stochResult = calculateStochastic(formattedCandles, kPeriod, dPeriod);
+
+              // Set data for %K line (main series)
+              if (indicator.series) {
+                indicator.series.setData(stochResult.k);
+              }
+
+              // Check if we have additional series stored (from an extended indicator)
+              const stochIndicator = indicator as StochasticIndicator;
+              if (stochIndicator.additionalSeries && stochIndicator.additionalSeries.dSeries) {
+                // Set data for %D line
+                stochIndicator.additionalSeries.dSeries.setData(stochResult.d);
+              }
+              break;
+
             // Additional indicator types would be handled here
           }
         }
@@ -641,10 +620,33 @@ export function IndicatorRenderer({ chartInstance, indicators, formattedCandles,
               );
 
               // Set data for the main MACD line
-              indicator.series.setData(macdResult.macdLine);
+              if (indicator.series) {
+                indicator.series.setData(macdResult.macdLine);
+              }
 
-              // For full MACD, we would also set signal line and histogram
-              // but this would require more series setup and management
+              // Check if we have additional series stored (from an extended indicator)
+              const macdIndicator = indicator as MACDIndicator;
+              if (macdIndicator.additionalSeries) {
+                // Set data for signal line
+                if (macdIndicator.additionalSeries.signalSeries && macdResult.signalLine) {
+                  macdIndicator.additionalSeries.signalSeries.setData(macdResult.signalLine);
+                }
+
+                // Set data for histogram
+                if (macdIndicator.additionalSeries.histogramSeries && macdResult.histogram) {
+                  macdIndicator.additionalSeries.histogramSeries.setData(
+                    // Add color property to each point for the histogram
+                    macdResult.histogram.map((point) => ({
+                      time: point.time,
+                      value: point.value,
+                      color:
+                        point.value >= 0
+                          ? indicator.parameters.histogramColorPositive || "#26A69A" // Positive color
+                          : indicator.parameters.histogramColorNegative || "#EF5350", // Negative color
+                    }))
+                  );
+                }
+              }
               break;
 
             case "bollinger":
@@ -679,6 +681,25 @@ export function IndicatorRenderer({ chartInstance, indicators, formattedCandles,
 
               if (bollingerIndicator.lowerSeries) {
                 bollingerIndicator.lowerSeries.setData(lowerBand);
+              }
+              break;
+
+            case "stochastic":
+              // Stochastic calculation
+              const kPeriod = Number(indicator.parameters.kPeriod) || 14;
+              const dPeriod = Number(indicator.parameters.dPeriod) || 3;
+              const stochResult = calculateStochastic(formattedCandles, kPeriod, dPeriod);
+
+              // Set data for %K line (main series)
+              if (indicator.series) {
+                indicator.series.setData(stochResult.k);
+              }
+
+              // Check if we have additional series stored (from an extended indicator)
+              const stochIndicator = indicator as StochasticIndicator;
+              if (stochIndicator.additionalSeries && stochIndicator.additionalSeries.dSeries) {
+                // Set data for %D line
+                stochIndicator.additionalSeries.dSeries.setData(stochResult.d);
               }
               break;
 
