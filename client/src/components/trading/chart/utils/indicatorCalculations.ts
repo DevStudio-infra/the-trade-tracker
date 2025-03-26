@@ -209,3 +209,55 @@ export function calculateBollingerBands(candles: FormattedCandle[], period: numb
 
   return result;
 }
+
+/**
+ * Calculates Average True Range (ATR) for the provided candles
+ */
+export function calculateATR(candles: FormattedCandle[], period: number = 14) {
+  if (candles.length < period + 1) {
+    return []; // Not enough data
+  }
+
+  const result = [];
+  const trValues = []; // True Range values
+
+  // Calculate True Range values
+  for (let i = 1; i < candles.length; i++) {
+    const high = candles[i].high;
+    const low = candles[i].low;
+    const prevClose = candles[i - 1].close;
+
+    // True Range is the greatest of:
+    // 1. Current High - Current Low
+    // 2. |Current High - Previous Close|
+    // 3. |Current Low - Previous Close|
+    const tr = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
+
+    trValues.push(tr);
+
+    if (i >= period) {
+      let atr: number;
+
+      if (i === period) {
+        // First ATR is simple average of TR values
+        let sum = 0;
+        for (let j = 0; j < period; j++) {
+          sum += trValues[j];
+        }
+        atr = sum / period;
+      } else {
+        // Subsequent ATRs use smoothed calculation
+        // ATR = [(Previous ATR * (period-1)) + Current TR] / period
+        const prevATR: number = result[result.length - 1].value;
+        atr = (prevATR * (period - 1) + trValues[trValues.length - 1]) / period;
+      }
+
+      result.push({
+        time: candles[i].time,
+        value: atr,
+      });
+    }
+  }
+
+  return result;
+}

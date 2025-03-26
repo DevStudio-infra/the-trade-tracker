@@ -17,6 +17,7 @@ interface ChartContainerProps {
   onChartCreated: (chartInstance: ChartInstanceRef) => void;
   className?: string;
   height?: number;
+  indicatorCount?: number; // Add indicator count to adjust height
 }
 
 /**
@@ -26,7 +27,7 @@ interface ChartContainerProps {
  * - Managing theme changes
  * - Clean up on unmount
  */
-export function ChartContainer({ onChartCreated, className = "", height = 500 }: ChartContainerProps) {
+export function ChartContainer({ onChartCreated, className = "", height = 500, indicatorCount = 0 }: ChartContainerProps) {
   const { resolvedTheme } = useTheme();
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartInstanceRef = useRef<ChartInstanceRef>({
@@ -34,6 +35,9 @@ export function ChartContainer({ onChartCreated, className = "", height = 500 }:
     candlestickSeries: null,
     volumeSeries: null,
   });
+
+  // Calculate dynamic chart height based on indicator count
+  const calculatedHeight = Math.max(height, 500 + Math.max(0, indicatorCount) * 200);
 
   // Initialize chart
   useEffect(() => {
@@ -59,8 +63,8 @@ export function ChartContainer({ onChartCreated, className = "", height = 500 }:
     // Get colors based on current theme
     const colors = getChartColors(resolvedTheme || "light");
 
-    // Create chart instance
-    const baseOptions = createChartOptions(colors, chartContainer.clientWidth, height);
+    // Create chart instance with dynamic height
+    const baseOptions = createChartOptions(colors, chartContainer.clientWidth, calculatedHeight);
     const chartOptions = {
       ...baseOptions,
       layout: {
@@ -75,6 +79,7 @@ export function ChartContainer({ onChartCreated, className = "", height = 500 }:
           enableResize: true,
         },
       },
+      height: calculatedHeight, // explicitly set height
     };
 
     // Create chart

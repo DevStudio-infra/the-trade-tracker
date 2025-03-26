@@ -41,10 +41,17 @@ export interface IndicatorParameters {
   upColor?: string;
   downColor?: string;
   paneIndex?: number; // Add pane index for indicators in separate panes
+  // Additional series for complex indicators that require multiple series
+  additionalSeries?: {
+    signalSeries?: ISeriesApi<SeriesType> | null; // Reference to signal line series for MACD
+    histogramSeries?: ISeriesApi<SeriesType> | null; // Reference to histogram series for MACD
+    upperSeries?: ISeriesApi<SeriesType> | null; // Reference to upper band series for Bollinger Bands
+    lowerSeries?: ISeriesApi<SeriesType> | null; // Reference to lower band series for Bollinger Bands
+  };
 }
 
 // Define top indicators
-export type IndicatorType = "sma" | "ema" | "rsi" | "macd" | "bollinger" | "volume" | "stochastic";
+export type IndicatorType = "sma" | "ema" | "rsi" | "macd" | "bollinger" | "volume" | "stochastic" | "atr" | "ichimoku";
 
 // Indicator configuration type
 export interface IndicatorConfig {
@@ -96,9 +103,10 @@ export const indicatorDefaults: Record<IndicatorType, IndicatorDefault> = {
       signalColor: "#FF6D00",
       histogramColorPositive: "#26A69A",
       histogramColorNegative: "#EF5350",
+      paneIndex: 2, // Force MACD to always use pane 2
     },
     description: "Trend-following momentum indicator showing relationship between two moving averages",
-    defaultPane: 2, // Separate pane for oscillators
+    defaultPane: 2, // Separate pane for oscillators (same as RSI)
   },
   bollinger: {
     name: "Bollinger Bands",
@@ -120,6 +128,24 @@ export const indicatorDefaults: Record<IndicatorType, IndicatorDefault> = {
     },
     description: "Trading volume indicator showing market activity",
     defaultPane: 1, // Volume pane
+  },
+  atr: {
+    name: "Average True Range",
+    parameters: { period: 14, color: "#9C27B0" },
+    description: "Indicator measuring market volatility",
+    defaultPane: 2, // Separate pane
+  },
+  ichimoku: {
+    name: "Ichimoku Cloud",
+    parameters: {
+      conversionPeriod: 9,
+      basePeriod: 26,
+      spanPeriod: 52,
+      displacement: 26,
+      color: "#5D69B1",
+    },
+    description: "Japanese charting method showing support and resistance levels",
+    defaultPane: 0, // Main price pane
   },
 };
 

@@ -5,7 +5,7 @@ import { useApi, Candle } from "@/lib/api";
 import { useTradingStore } from "@/stores/trading-store";
 import { toast } from "sonner";
 import { useSettings } from "@/hooks/useSettings";
-import { TradingChartProps, IndicatorConfig, IndicatorType, ChartInstanceRef, FormattedCandle } from "./utils/chartTypes";
+import { TradingChartProps, IndicatorConfig, IndicatorType, ChartInstanceRef, FormattedCandle, Time } from "./utils/chartTypes";
 
 // Import components
 import { ChartContainer } from "./ChartContainer";
@@ -61,17 +61,19 @@ export function TradingChart({ pair }: TradingChartProps) {
 
     // Format candle data for the chart
     const formatted = candles.map((candle) => {
-      const time = (candle.timestamp / 1000) as number; // Convert timestamp to seconds as number type
+      // Use Time type directly instead of casting number
+      const time = candle.timestamp / 1000;
 
       return {
-        time,
+        // Time is properly typed to match FormattedCandle
+        time: time as Time,
         open: candle.open,
         high: candle.high,
         low: candle.low,
         close: candle.close,
         value: candle.close, // Using close as value for indicators
         volume: candle.volume, // Explicitly map volume for volume series
-      } as FormattedCandle;
+      };
     });
 
     setFormattedCandles(formatted);
@@ -271,6 +273,9 @@ export function TradingChart({ pair }: TradingChartProps) {
     setIndicators((prev) => prev.filter((indicator) => indicator.id !== id));
   };
 
+  // Count oscillator indicators to adjust chart height
+  const oscillatorCount = indicators.filter((ind) => ind.type === "rsi" || ind.type === "macd" || ind.type === "stochastic").length;
+
   if (!pair) {
     return (
       <div className="p-4 flex items-center justify-center h-full">
@@ -295,14 +300,15 @@ export function TradingChart({ pair }: TradingChartProps) {
       />
 
       {/* Chart Container */}
-      <div className="aspect-[16/9] w-full bg-slate-100 dark:bg-slate-800 rounded-lg flex items-center justify-center">
+      <div className="w-full h-full flex-grow bg-slate-100 dark:bg-slate-800 rounded-lg flex items-center justify-center">
         {isLoading ? (
           <ChartLoadingState timeframe={selectedTimeframe} isRetrying={isRetrying} retryCount={retryCount} />
         ) : error ? (
           <ChartErrorState error={error} onRetry={handleRetry} />
         ) : candles && candles.length > 0 ? (
           <>
-            <ChartContainer onChartCreated={handleChartCreated} />
+            {/* Pass oscillator count to chart container */}
+            <ChartContainer onChartCreated={handleChartCreated} indicatorCount={oscillatorCount} height={600 + oscillatorCount * 100} className="w-full h-full" />
 
             {/* Render candles if chart instance is available */}
             {chartInstance && <CandlestickRenderer chartInstance={chartInstance} candles={candles} chartContainerRef={chartContainerRef} precision={precision} />}

@@ -107,6 +107,10 @@ export function TradingChart({ pair }: TradingChartProps) {
   });
   const prevIndicatorsRef = useRef<Record<string, IndicatorConfig>>({});
 
+  // References for tracking oscillator panes
+  const oscillatorPanesRef = useRef<Record<string, number>>({});
+  const panesRef = useRef<Record<number, boolean>>({ 0: true, 1: true }); // 0: main, 1: volume
+
   // Hooks
   const api = useApi();
   const { selectedBroker } = useTradingStore();
@@ -418,39 +422,45 @@ export function TradingChart({ pair }: TradingChartProps) {
                   case "sma":
                   case "ema":
                     // Create a line series for moving averages
-                    const lineSeries = chartInstanceRef.current.chart.addSeries(LineSeries, {
-                      color: indicator.color,
-                      lineWidth: 2,
-                      priceLineVisible: false,
-                      lastValueVisible: true,
-                      crosshairMarkerVisible: true,
-                      title: `${indicator.type.toUpperCase()} (${indicator.parameters.period})`,
-                    });
+                    const chartInstance = chartInstanceRef.current.chart;
+                    if (chartInstance) {
+                      // Add null check
+                      const lineSeries = chartInstance.addSeries(LineSeries, {
+                        color: indicator.color,
+                        lineWidth: 2,
+                        priceLineVisible: false,
+                        lastValueVisible: true,
+                        crosshairMarkerVisible: true,
+                        title: `${indicator.type.toUpperCase()} (${indicator.parameters.period})`,
+                      });
 
-                    // Add to the indicator object for future reference
-                    indicator.series = lineSeries;
+                      // Add to the indicator object for future reference
+                      indicator.series = lineSeries;
+                    }
                     break;
-                  case "rsi":
-                    // Create RSI in a separate pane (pane index 1)
-                    // Cast chart to enhanced type with panes support
+                  case "rsi": {
+                    // Get the dedicated pane index for this RSI instance
+                    const indicatorKey = `rsi-${indicator.id}`;
+                    let rsiPaneIndex = oscillatorPanesRef.current[indicatorKey];
+
+                    if (!rsiPaneIndex) {
+                      // Assign a new pane if needed
+                      rsiPaneIndex = getNextAvailablePaneIndex();
+                      oscillatorPanesRef.current[indicatorKey] = rsiPaneIndex;
+                      indicator.parameters.paneIndex = rsiPaneIndex;
+                      console.log(`CHART DEBUG: Assigning new pane ${rsiPaneIndex} to RSI ${indicator.id}`);
+                    }
+
+                    // Ensure the pane exists
+                    ensurePaneExists(rsiPaneIndex);
+
+                    console.log(`CHART DEBUG: Creating RSI in pane ${rsiPaneIndex}`);
+
+                    // Use the chart instance
                     const chartWithPanesForRSI = chartInstanceRef.current.chart as ChartApiWithPanes;
 
-                    // Check if we have at least 2 panes (main pane + RSI pane)
-                    const rsiPaneIndex = 1; // Default to pane index 1
-
-                    try {
-                      if (typeof chartWithPanesForRSI.panes === "function") {
-                        const panes = chartWithPanesForRSI.panes();
-                        if (panes.length < 2) {
-                          // If we don't have a second pane yet, create it
-                          if (typeof chartWithPanesForRSI.createPane === "function") {
-                            chartWithPanesForRSI.createPane({ height: 150 });
-                          }
-                        }
-                      }
-                    } catch (err) {
-                      console.error("Error accessing panes:", err);
-                    }
+                    // No need to create a pane here, as we've already done that above
+                    // (removing previous pane creation code)
 
                     const rsiSeries = chartWithPanesForRSI.addSeries(
                       LineSeries,
@@ -476,7 +486,10 @@ export function TradingChart({ pair }: TradingChartProps) {
                           : {}),
                       },
                       rsiPaneIndex
-                    ); // Add to pane index 1 (a separate pane below the main chart)
+                    );
+
+                    // Store pane index with the indicator for future reference
+                    indicator.paneIndex = rsiPaneIndex;
 
                     // Configure RSI price scale with fixed range for better visualization
                     rsiSeries.priceScale().applyOptions({
@@ -554,6 +567,7 @@ export function TradingChart({ pair }: TradingChartProps) {
                     // Add to the indicator object for future reference
                     indicator.series = rsiSeries;
                     break;
+                  }
                   // Additional indicator types would be handled here
                 }
               }
@@ -977,6 +991,472 @@ export function TradingChart({ pair }: TradingChartProps) {
     setIndicators((prevIndicators) => prevIndicators.filter((indicator) => indicator.id !== id));
     toast.success("Indicator removed from chart");
   };
+
+  // Helper to get the next available pane index for oscillators
+  const getNextAvailablePaneIndex = () => {
+    // Start from pane 2 (after main and volume panes)
+    let nextPaneIndex = 2;
+    const usedPanes = new Set<number>();
+
+    // Add all currently tracked oscillator panes
+    Object.values(oscillatorPanesRef.current).forEach((paneIndex) => {
+      usedPanes.add(paneIndex);
+    });
+
+    // Find the next unused pane index
+    while (usedPanes.has(nextPaneIndex)) {
+      nextPaneIndex++;
+    }
+
+    console.log(`CHART DEBUG: Getting next available pane: ${nextPaneIndex}`);
+    return nextPaneIndex;
+  };
+
+  // Create or ensure a pane exists
+  const ensurePaneExists = (paneIndex: number) => {
+    if (!chartInstanceRef.current.chart) return false;
+
+    // If we already have this pane tracked, it exists
+    if (panesRef.current[paneIndex]) {
+      return true;
+    }
+
+    try {
+      // Cast to access panes API
+      const chartWithPanes = chartInstanceRef.current.chart as ChartApiWithPanes;
+
+      if (chartWithPanes.panes && typeof chartWithPanes.panes === "function") {
+        const currentPanes = chartWithPanes.panes();
+
+        // If we need to create new panes
+        if (paneIndex >= currentPanes.length && chartWithPanes.createPane) {
+          for (let i = currentPanes.length; i <= paneIndex; i++) {
+            console.log(`CHART DEBUG: Creating pane ${i}`);
+            chartWithPanes.createPane({
+              height: i === 1 ? 100 : 200, // Volume pane smaller, others larger
+            });
+            panesRef.current[i] = true;
+          }
+          return true;
+        } else if (paneIndex < currentPanes.length) {
+          // Pane exists but we weren't tracking it
+          panesRef.current[paneIndex] = true;
+          return true;
+        }
+      }
+    } catch (error) {
+      console.error("Error ensuring pane exists:", error);
+    }
+
+    return false;
+  };
+
+  // Apply indicators when they change
+  useEffect(() => {
+    if (!chartInstanceRef.current.chart || !candles || candles.length === 0) return;
+
+    // Get a local reference to candles data for use in calculations
+    const formattedCandles = candles.map((candle) => {
+      const time = (candle.timestamp / 1000) as Time;
+      return {
+        time,
+        open: candle.open,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close,
+        value: candle.close,
+      } as FormattedCandle;
+    });
+
+    console.log("Applying indicators:", indicators);
+
+    // First pass: determine and create panes for all oscillators
+    indicators.forEach((indicator) => {
+      // Special handling for oscillator indicators (RSI, MACD)
+      if (indicator.type === "rsi" || indicator.type === "macd") {
+        // Generate a unique key for this specific indicator instance
+        const indicatorKey = `${indicator.type}-${indicator.id}`;
+
+        // If we don't have a pane assigned yet
+        if (!oscillatorPanesRef.current[indicatorKey]) {
+          const nextPaneIndex = getNextAvailablePaneIndex();
+          oscillatorPanesRef.current[indicatorKey] = nextPaneIndex;
+
+          // Store the pane index in the indicator params
+          indicator.parameters.paneIndex = nextPaneIndex;
+          console.log(`CHART DEBUG: Assigned pane ${nextPaneIndex} to ${indicatorKey}`);
+
+          // Make sure the pane exists
+          ensurePaneExists(nextPaneIndex);
+        } else {
+          // Just ensure the pane exists if already assigned
+          ensurePaneExists(oscillatorPanesRef.current[indicatorKey]);
+        }
+      }
+    });
+
+    // After the cleanup logic and before applying new indicators, reset the chart
+    if (indicators.length > 0 && chartInstanceRef.current.chart) {
+      try {
+        // Delay to ensure the DOM is ready
+        setTimeout(() => {
+          try {
+            // Process each indicator
+            indicators.forEach((indicator) => {
+              console.log(`Processing indicator: ${indicator.type}-${indicator.id}`);
+
+              // Skip if already processed
+              if (indicator.series) {
+                console.log(`Indicator ${indicator.type}-${indicator.id} already has a series, skipping creation`);
+                return;
+              }
+
+              try {
+                // Create appropriate indicator series based on type
+                switch (indicator.type) {
+                  case "sma":
+                  case "ema":
+                    // Create a line series for moving averages
+                    const chartInstance = chartInstanceRef.current.chart;
+                    if (chartInstance) {
+                      // Add null check
+                      const lineSeries = chartInstance.addSeries(LineSeries, {
+                        color: indicator.color,
+                        lineWidth: 2,
+                        priceLineVisible: false,
+                        lastValueVisible: true,
+                        crosshairMarkerVisible: true,
+                        title: `${indicator.type.toUpperCase()} (${indicator.parameters.period})`,
+                      });
+
+                      // Add to the indicator object for future reference
+                      indicator.series = lineSeries;
+                    }
+                    break;
+
+                  case "rsi":
+                    // Use existing RSI code (no changes needed)
+                    break;
+
+                  case "macd":
+                    // Use our dedicated MACD creation function
+                    createMACDIndicator(indicator);
+                    break;
+                }
+              } catch (error) {
+                console.error("Error creating indicator:", error);
+              }
+
+              // If we have a series attached to this indicator, update its data
+              if (indicator.series && formattedCandles.length > 0) {
+                // Calculate the indicator values based on type
+                switch (indicator.type) {
+                  case "sma":
+                    // Simple Moving Average calculation
+                    const period = Number(indicator.parameters.period) || 20;
+                    const smaData = calculateSMA(formattedCandles, period);
+                    indicator.series.setData(smaData);
+                    break;
+                  case "ema":
+                    // Exponential Moving Average calculation
+                    const emaPeriod = Number(indicator.parameters.period) || 20;
+                    const emaData = calculateEMA(formattedCandles, emaPeriod);
+                    indicator.series.setData(emaData);
+                    break;
+                  case "rsi":
+                    // Relative Strength Index calculation
+                    const rsiPeriod = Number(indicator.parameters.period) || 14;
+                    const rsiData = calculateRSI(formattedCandles, rsiPeriod);
+                    indicator.series.setData(rsiData);
+                    break;
+                  case "macd":
+                    // MACD data is handled within the createMACDIndicator function
+                    // or we can manually update it here
+                    updateMACDData(indicator, formattedCandles);
+                    break;
+                }
+              }
+            });
+
+            // Store current indicators in ref for cleanup
+            indicators.forEach((indicator) => {
+              prevIndicatorsRef.current[indicator.id] = indicator;
+            });
+          } catch (error) {
+            console.error("Error processing indicators:", error);
+          }
+        }, 0);
+      } catch (error) {
+        console.error("Error resetting chart:", error);
+      }
+    }
+  }, [candles, resolvedTheme, indicators]); // Add indicators to dependencies
+
+  // Create MACD indicator
+  const createMACDIndicator = (indicator: IndicatorConfig) => {
+    // Get the dedicated pane index for this MACD instance
+    const indicatorKey = `macd-${indicator.id}`;
+    let macdPaneIndex = oscillatorPanesRef.current[indicatorKey];
+
+    if (!macdPaneIndex) {
+      // Assign a new pane if needed
+      macdPaneIndex = getNextAvailablePaneIndex();
+      oscillatorPanesRef.current[indicatorKey] = macdPaneIndex;
+      indicator.parameters.paneIndex = macdPaneIndex;
+      console.log(`CHART DEBUG: Assigning new pane ${macdPaneIndex} to MACD ${indicator.id}`);
+    }
+
+    // Ensure the pane exists
+    ensurePaneExists(macdPaneIndex);
+
+    console.log(`CHART DEBUG: Creating MACD in pane ${macdPaneIndex}`);
+
+    // Use the chart instance
+    const chartWithPanesForMACD = chartInstanceRef.current.chart as ChartApiWithPanes;
+
+    try {
+      // Get colors from parameters or use defaults
+      const macdColor = indicator.parameters.macdColor || "#2962FF";
+      const signalColor = indicator.parameters.signalColor || "#FF6D00";
+      const histogramPositiveColor = indicator.parameters.histogramColorPositive || "#26A69A";
+
+      // Create MACD line series
+      const macdSeries = chartWithPanesForMACD.addSeries(
+        LineSeries,
+        {
+          color: macdColor,
+          lineWidth: 2,
+          lastValueVisible: true,
+          priceFormat: {
+            type: "price",
+            precision: 4,
+            minMove: 0.0001,
+          },
+          title: `MACD (${indicator.parameters.fastPeriod || 12},${indicator.parameters.slowPeriod || 26},${indicator.parameters.signalPeriod || 9})`,
+        },
+        macdPaneIndex
+      );
+
+      // Create signal line series
+      const signalSeries = chartWithPanesForMACD.addSeries(
+        LineSeries,
+        {
+          color: signalColor,
+          lineWidth: 2,
+          lastValueVisible: true,
+          priceFormat: {
+            type: "price",
+            precision: 4,
+            minMove: 0.0001,
+          },
+          title: "Signal",
+        },
+        macdPaneIndex
+      );
+
+      // Create histogram series
+      const histogramSeries = chartWithPanesForMACD.addSeries(
+        HistogramSeries,
+        {
+          color: histogramPositiveColor,
+          lastValueVisible: false,
+          priceFormat: {
+            type: "price",
+            precision: 4,
+            minMove: 0.0001,
+          },
+          title: "Histogram",
+        },
+        macdPaneIndex
+      );
+
+      // Configure scale for MACD
+      macdSeries.priceScale().applyOptions({
+        scaleMargins: {
+          top: 0.2,
+          bottom: 0.2,
+        },
+        autoScale: true,
+        visible: true,
+      });
+
+      // Store pane index with the indicator
+      indicator.paneIndex = macdPaneIndex;
+
+      // Store the main series in the indicator
+      indicator.series = macdSeries;
+
+      // Store additional series in the parameters
+      indicator.parameters.additionalSeries = {
+        signalSeries,
+        histogramSeries,
+      };
+
+      console.log(`CHART DEBUG: Successfully created MACD indicator in pane ${macdPaneIndex}`);
+
+      // Calculate and set initial MACD data
+      if (candles && candles.length > 0) {
+        const formattedCandles = candles.map((candle) => {
+          return {
+            time: (candle.timestamp / 1000) as Time,
+            open: candle.open,
+            high: candle.high,
+            low: candle.low,
+            close: candle.close,
+            value: candle.close,
+          } as FormattedCandle;
+        });
+
+        updateMACDData(indicator, formattedCandles);
+      }
+    } catch (error) {
+      console.error("CHART DEBUG: Error creating MACD indicator:", error);
+    }
+  };
+
+  // Calculate and update MACD data
+  const updateMACDData = (indicator: IndicatorConfig, formattedCandles: FormattedCandle[]) => {
+    try {
+      const fastPeriod = indicator.parameters.fastPeriod || 12;
+      const slowPeriod = indicator.parameters.slowPeriod || 26;
+      const signalPeriod = indicator.parameters.signalPeriod || 9;
+
+      const macdData = calculateMACD(formattedCandles, fastPeriod, slowPeriod, signalPeriod);
+
+      // Get the series from the indicator
+      const macdSeries = indicator.series;
+      const signalSeries = indicator.parameters.additionalSeries?.signalSeries;
+      const histogramSeries = indicator.parameters.additionalSeries?.histogramSeries;
+
+      // Set data for MACD line
+      if (macdSeries && macdData.macdLine.length > 0) {
+        macdSeries.setData(macdData.macdLine);
+      }
+
+      // Set data for Signal line
+      if (signalSeries && macdData.signalLine.length > 0) {
+        signalSeries.setData(macdData.signalLine);
+      }
+
+      // Set data for Histogram with colors
+      if (histogramSeries && macdData.histogram.length > 0) {
+        const histogramPositiveColor = indicator.parameters.histogramColorPositive || "#26A69A";
+        const histogramNegativeColor = indicator.parameters.histogramColorNegative || "#EF5350";
+
+        const coloredHistogram = macdData.histogram.map((item) => ({
+          time: item.time,
+          value: item.value,
+          color: item.value >= 0 ? histogramPositiveColor : histogramNegativeColor,
+        }));
+
+        histogramSeries.setData(coloredHistogram);
+      }
+    } catch (error) {
+      console.error("CHART DEBUG: Error updating MACD data:", error);
+    }
+  };
+
+  // Calculate MACD - Moving Average Convergence Divergence
+  function calculateMACD(candles: FormattedCandle[], fastPeriod: number, slowPeriod: number, signalPeriod: number) {
+    // Calculate the EMAs
+    const fastEMA = calculateEMA(candles, fastPeriod);
+    const slowEMA = calculateEMA(candles, slowPeriod);
+
+    // Calculate MACD line (fast EMA - slow EMA)
+    const macdLine: { time: Time; value: number }[] = [];
+
+    // Need to align the EMAs by time
+    const emaMap = new Map<string, { fast?: number; slow?: number }>();
+
+    // Populate the map with slow EMA values
+    slowEMA.forEach((point) => {
+      const timeKey = typeof point.time === "number" ? point.time.toString() : point.time.toString();
+      emaMap.set(timeKey, { slow: point.value });
+    });
+
+    // Add fast EMA values and calculate MACD line
+    fastEMA.forEach((point) => {
+      const timeKey = typeof point.time === "number" ? point.time.toString() : point.time.toString();
+
+      const entry = emaMap.get(timeKey) || {};
+      entry.fast = point.value;
+      emaMap.set(timeKey, entry);
+
+      if (entry.slow !== undefined && entry.fast !== undefined) {
+        macdLine.push({
+          time: point.time,
+          value: entry.fast - entry.slow,
+        });
+      }
+    });
+
+    // Calculate signal line (EMA of MACD line)
+    const signalLine = calculateEMAFromPoints(macdLine, signalPeriod);
+
+    // Calculate histogram (MACD line - signal line)
+    const histogram: { time: Time; value: number }[] = [];
+
+    // Align MACD and signal by time
+    const lineMap = new Map<string, { macd?: number; signal?: number }>();
+
+    // Populate with MACD values
+    macdLine.forEach((point) => {
+      const timeKey = typeof point.time === "number" ? point.time.toString() : point.time.toString();
+      lineMap.set(timeKey, { macd: point.value });
+    });
+
+    // Add signal values and calculate histogram
+    signalLine.forEach((point) => {
+      const timeKey = typeof point.time === "number" ? point.time.toString() : point.time.toString();
+
+      const entry = lineMap.get(timeKey) || {};
+      entry.signal = point.value;
+      lineMap.set(timeKey, entry);
+
+      if (entry.macd !== undefined && entry.signal !== undefined) {
+        histogram.push({
+          time: point.time,
+          value: entry.macd - entry.signal,
+        });
+      }
+    });
+
+    return { macdLine, signalLine, histogram };
+  }
+
+  // Helper to calculate EMA from an array of points
+  function calculateEMAFromPoints(points: { time: Time; value: number }[], period: number) {
+    if (points.length < period) {
+      return [];
+    }
+
+    const k = 2 / (period + 1);
+    const result: { time: Time; value: number }[] = [];
+
+    // Initial SMA
+    let sum = 0;
+    for (let i = 0; i < period; i++) {
+      sum += points[i].value;
+    }
+    let ema = sum / period;
+
+    // First EMA uses SMA as previous
+    result.push({
+      time: points[period - 1].time,
+      value: ema,
+    });
+
+    // Calculate remaining EMAs
+    for (let i = period; i < points.length; i++) {
+      ema = (points[i].value - ema) * k + ema;
+      result.push({
+        time: points[i].time,
+        value: ema,
+      });
+    }
+
+    return result;
+  }
 
   if (!pair) {
     return (
