@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { IndicatorType, IndicatorParameters, indicatorDefaults } from "../utils/chartTypes";
 import { HexColorPicker } from "react-colorful";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { XIcon, Info, Check, ArrowRightIcon, ChevronUp, ChevronDown } from "lucide-react";
+import { XIcon, Info, ArrowRightIcon, ChevronUp, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 
 interface IndicatorDialogProps {
@@ -216,6 +216,8 @@ export function IndicatorDialog({ open, onOpenChange, selectedIndicatorType, onA
     const paramsWithColor = {
       ...indicatorParams,
       color: selectedColor,
+      // Use the default pane index from indicatorDefaults if not explicitly set
+      paneIndex: indicatorParams.paneIndex !== undefined ? indicatorParams.paneIndex : indicatorDefaults[selectedIndicatorType].defaultPane,
     };
 
     // Generate indicator name based on type and parameters
@@ -568,36 +570,47 @@ export function IndicatorDialog({ open, onOpenChange, selectedIndicatorType, onA
               </div>
             </div>
 
-            {/* Color Picker */}
-            <div className="flex items-center gap-4">
-              <Label className="font-medium text-gray-700 dark:text-slate-300 min-w-16">Color</Label>
-              <div className="flex-1">
-                <Popover open={showColorPicker} onOpenChange={setShowColorPicker}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className="w-full justify-start flex items-center gap-3 h-11 px-4 bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-900 hover:text-gray-800 dark:text-white">
-                      <div className="w-5 h-5 rounded-full" style={{ backgroundColor: selectedColor }} />
-                      <span className="font-medium">{selectedColor}</span>
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-3 bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 shadow-xl">
-                    <HexColorPicker color={selectedColor} onChange={setSelectedColor} />
-                    <div className="p-2 pt-4 flex justify-between items-center">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="bg-white dark:bg-slate-700 hover:bg-gray-200 dark:hover:bg-slate-600 border-gray-300 dark:border-slate-600 text-gray-900 hover:text-gray-900 dark:text-white"
-                        onClick={() => setShowColorPicker(false)}>
-                        Cancel
+            {/* Common Controls */}
+            <div className="space-y-4 mt-4">
+              {/* Color picker */}
+              <div className="grid grid-cols-5 items-center gap-3">
+                <Label className="text-right col-span-1 font-medium text-gray-700 dark:text-slate-300">Color</Label>
+                <div className="col-span-4">
+                  <Popover open={showColorPicker} onOpenChange={setShowColorPicker}>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className="w-full h-11 flex items-center justify-start border border-gray-300 dark:border-slate-700 focus:outline-none">
+                        <div className="w-6 h-6 rounded-sm mr-3" style={{ backgroundColor: selectedColor }} />
+                        <span>{selectedColor}</span>
                       </Button>
-                      <Button size="sm" className="flex gap-1 items-center bg-blue-600 hover:bg-blue-500 text-white" onClick={() => setShowColorPicker(false)}>
-                        <Check size={14} />
-                        <span>Select</span>
-                      </Button>
-                    </div>
-                  </PopoverContent>
-                </Popover>
+                    </PopoverTrigger>
+                    <PopoverContent className="p-3 w-[225px]">
+                      <HexColorPicker color={selectedColor} onChange={setSelectedColor} />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              </div>
+
+              {/* Pane selection */}
+              <div className="grid grid-cols-5 items-center gap-3">
+                <Label className="text-right col-span-1 font-medium text-gray-700 dark:text-slate-300">Pane</Label>
+                <div className="col-span-4">
+                  <select
+                    className="w-full p-2.5 border border-gray-300 dark:border-slate-700 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={indicatorParams.paneIndex !== undefined ? indicatorParams.paneIndex : indicatorDefaults[selectedIndicatorType!]?.defaultPane || 0}
+                    onChange={(e) => {
+                      // Update the pane index in parameters
+                      setIndicatorParams((prev) => ({
+                        ...prev,
+                        paneIndex: parseInt(e.target.value),
+                      }));
+                    }}>
+                    <option value={0}>Main Price Chart</option>
+                    <option value={1}>Volume</option>
+                    <option value={2}>New Oscillator Pane</option>
+                    <option value={3}>Additional Pane 3</option>
+                    <option value={4}>Additional Pane 4</option>
+                  </select>
+                </div>
               </div>
             </div>
 

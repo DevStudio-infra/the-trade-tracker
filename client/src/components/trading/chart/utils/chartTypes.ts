@@ -1,11 +1,21 @@
 // Type definitions for the Trading Chart components
-import type { IChartApi, ISeriesApi, Time } from "lightweight-charts";
+import type { IChartApi, ISeriesApi, Time, SeriesType, CandlestickData, HistogramData, LineData, IPriceScaleApi, UTCTimestamp } from "lightweight-charts";
 
 // Re-export Time type from lightweight-charts
-export type { Time } from "lightweight-charts";
+export type { Time, UTCTimestamp } from "lightweight-charts";
 
 // Define timeframes
 export const timeframes = ["1m", "5m", "15m", "1h", "4h", "1d", "1w"];
+
+// Define a type for candle data to address 'any' type warnings
+export interface FormattedCandle {
+  time: Time;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  value: number;
+}
 
 // Define types for indicator parameters
 export interface IndicatorParameters {
@@ -30,10 +40,11 @@ export interface IndicatorParameters {
   levels?: number[];
   upColor?: string;
   downColor?: string;
+  paneIndex?: number; // Add pane index for indicators in separate panes
 }
 
 // Define top indicators
-export type IndicatorType = "sma" | "ema" | "rsi" | "macd" | "bollinger" | "stochastic" | "atr" | "ichimoku" | "fibonacci" | "volume";
+export type IndicatorType = "sma" | "ema" | "rsi" | "macd" | "bollinger" | "volume" | "stochastic";
 
 // Indicator configuration type
 export interface IndicatorConfig {
@@ -43,7 +54,8 @@ export interface IndicatorConfig {
   color: string;
   visible: boolean;
   parameters: IndicatorParameters;
-  series?: ISeriesApi<"Line" | "Histogram" | "Area"> | null;
+  series?: ISeriesApi<SeriesType> | null;
+  paneIndex?: number; // Add pane index for indicator placement
 }
 
 // Updated indicator defaults interface with description
@@ -51,6 +63,7 @@ interface IndicatorDefault {
   name: string;
   parameters: IndicatorParameters;
   description: string;
+  defaultPane?: number; // Default pane index for the indicator
 }
 
 // Common indicator default parameters
@@ -59,16 +72,19 @@ export const indicatorDefaults: Record<IndicatorType, IndicatorDefault> = {
     name: "Simple Moving Average",
     parameters: { period: 20, color: "#2962FF" },
     description: "Simple average of prices over a period",
+    defaultPane: 0, // Main price pane
   },
   ema: {
     name: "Exponential Moving Average",
     parameters: { period: 20, color: "#FF6D00" },
     description: "Weighted average giving more importance to recent prices",
+    defaultPane: 0, // Main price pane
   },
   rsi: {
     name: "Relative Strength Index",
     parameters: { period: 14, color: "#F44336", overbought: 70, oversold: 30 },
     description: "Momentum oscillator measuring speed of price movements",
+    defaultPane: 2, // Separate pane for oscillators
   },
   macd: {
     name: "MACD",
@@ -82,36 +98,19 @@ export const indicatorDefaults: Record<IndicatorType, IndicatorDefault> = {
       histogramColorNegative: "#EF5350",
     },
     description: "Trend-following momentum indicator showing relationship between two moving averages",
+    defaultPane: 2, // Separate pane for oscillators
   },
   bollinger: {
     name: "Bollinger Bands",
     parameters: { period: 20, stdDev: 2, color: "#7B1FA2" },
     description: "Volatility bands placed above and below a moving average",
+    defaultPane: 0, // Main price pane
   },
   stochastic: {
     name: "Stochastic Oscillator",
     parameters: { kPeriod: 14, dPeriod: 3, color: "#43A047" },
     description: "Momentum indicator comparing closing price to price range over time",
-  },
-  atr: {
-    name: "Average True Range",
-    parameters: { period: 14, color: "#FFB300" },
-    description: "Volatility indicator measuring market volatility",
-  },
-  ichimoku: {
-    name: "Ichimoku Cloud",
-    parameters: {
-      conversionPeriod: 9,
-      basePeriod: 26,
-      spanPeriod: 52,
-      displacement: 26,
-    },
-    description: "Technical indicator showing support and resistance levels and trend direction",
-  },
-  fibonacci: {
-    name: "Fibonacci Retracement",
-    parameters: { levels: [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1] },
-    description: "Potential support and resistance levels based on Fibonacci ratios",
+    defaultPane: 2, // Separate pane for oscillators
   },
   volume: {
     name: "Volume",
@@ -120,24 +119,15 @@ export const indicatorDefaults: Record<IndicatorType, IndicatorDefault> = {
       downColor: "rgba(255, 82, 82, 0.5)",
     },
     description: "Trading volume indicator showing market activity",
+    defaultPane: 1, // Volume pane
   },
 };
-
-// Define a type for candle data to address 'any' type warnings
-export interface FormattedCandle {
-  time: Time;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  value: number;
-}
 
 // Chart instance reference type
 export interface ChartInstanceRef {
   chart: IChartApi | null;
-  candlestickSeries: ISeriesApi<"Candlestick"> | null;
-  volumeSeries: ISeriesApi<"Histogram"> | null;
+  candlestickSeries: ISeriesApi<any> | null;
+  volumeSeries: ISeriesApi<any> | null;
 }
 
 // Trading chart props

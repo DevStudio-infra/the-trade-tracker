@@ -2,9 +2,16 @@
 
 import { useEffect, useRef } from "react";
 import { useTheme } from "next-themes";
-import { createChart } from "lightweight-charts";
+import { createChart, ColorType, CandlestickSeries, HistogramSeries } from "lightweight-charts";
+import type { IChartApi, IPaneApi, Time } from "lightweight-charts";
 import { ChartInstanceRef } from "./utils/chartTypes";
 import { getChartColors, createChartOptions, forceChartReflow } from "./utils/chartUtils";
+
+// Add a type definition for chart API with panes support
+interface ChartApiWithPanes extends IChartApi {
+  createPane: (options: { height: number }) => IPaneApi<Time>;
+  panes: () => IPaneApi<Time>[];
+}
 
 interface ChartContainerProps {
   onChartCreated: (chartInstance: ChartInstanceRef) => void;
@@ -53,10 +60,43 @@ export function ChartContainer({ onChartCreated, className = "", height = 500 }:
     const colors = getChartColors(resolvedTheme || "light");
 
     // Create chart instance
-    const chart = createChart(chartContainer, createChartOptions(colors, chartContainer.clientWidth, height));
+    const baseOptions = createChartOptions(colors, chartContainer.clientWidth, height);
+    const chartOptions = {
+      ...baseOptions,
+      layout: {
+        ...baseOptions.layout,
+        background: { type: ColorType.Solid, color: colors.background },
+        textColor: colors.text,
+        fontSize: 12,
+        // Configure panes with separators and allow resizing
+        panes: {
+          separatorColor: colors.borderColor,
+          separatorHoverColor: resolvedTheme === "dark" ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.1)",
+          enableResize: true,
+        },
+      },
+    };
 
-    // Add candlestick series
-    const candlestickSeries = chart.addCandlestickSeries({
+    // Create chart
+    const chart = createChart(chartContainer, chartOptions);
+
+    // Cast to enhanced chart API with pane support
+    const chartWithPanes = chart as ChartApiWithPanes;
+
+    // Create an additional pane for indicators like RSI
+    try {
+      if (typeof chartWithPanes.createPane === "function") {
+        // Create a pane for oscillators (RSI, MACD, etc.)
+        chartWithPanes.createPane({
+          height: 150, // Smaller height for the indicator pane
+        });
+      }
+    } catch (err) {
+      console.error("Error creating additional panes:", err);
+    }
+
+    // Add candlestick series to the main pane
+    const candlestickSeries = chartWithPanes.addSeries(CandlestickSeries, {
       upColor: colors.upColor,
       downColor: colors.downColor,
       borderVisible: false,
@@ -64,75 +104,71 @@ export function ChartContainer({ onChartCreated, className = "", height = 500 }:
       wickDownColor: colors.wickDownColor,
       priceFormat: {
         type: "price",
-        precision: 5, // Default precision
+        precision: 5,
         minMove: Math.pow(10, -5),
       },
-    });
-
-    // Add volume series with separate panel configuration
-    const volumeSeries = chart.addHistogramSeries({
-      priceFormat: {
-        type: "volume",
-      },
-      // Configure as a separate panel with its own price scale
-      priceScaleId: "volume", // Unique ID for the volume price scale
-      color: colors.volumeUp,
-    });
-
-    // Configure the volume panel to be at the bottom with smaller height
-    volumeSeries.priceScale().applyOptions({
-      scaleMargins: {
-        top: 0.85, // Start at 85% from the top (smaller panel at the bottom)
-        bottom: 0.05, // Add a small margin at the bottom
-      },
-      // Hide the scale values for cleaner appearance
-      borderVisible: true,
-      borderColor: colors.borderColor,
-      // Show scale values (optional)
-      visible: true,
     });
 
     // Configure the main price scale for candlesticks
     candlestickSeries.priceScale().applyOptions({
       scaleMargins: {
-        top: 0.05, // Small margin at top
-        bottom: 0.25, // Leave 25% space at bottom for volume panel
+        top: 0.1,
+        bottom: 0.4, // Leave space for volume
       },
+      borderVisible: true,
+      borderColor: colors.borderColor,
+    });
+
+    // Add volume series with a separate price scale
+    const volumeSeries = chartWithPanes.addSeries(HistogramSeries, {
+      color: colors.volumeUp,
+      priceFormat: {
+        type: "volume",
+      },
+      priceScaleId: "volume", // Use a separate price scale
+    });
+
+    // Configure volume price scale
+    volumeSeries.priceScale().applyOptions({
+      scaleMargins: {
+        top: 0.8, // Position at the bottom of the chart
+        bottom: 0.0,
+      },
+      borderVisible: true,
+      borderColor: colors.borderColor,
+      visible: true,
     });
 
     // Store references
     chartInstanceRef.current = {
-      chart,
+      chart: chartWithPanes,
       candlestickSeries,
       volumeSeries,
     };
 
-    // Notify parent that chart is created
+    // Notify parent
     onChartCreated(chartInstanceRef.current);
 
-    // Better resize handling with ResizeObserver
+    // Set up resize observer
     const resizeObserver = new ResizeObserver((entries) => {
       const { width } = entries[0].contentRect;
       if (chartInstanceRef.current.chart && width > 0) {
         chartInstanceRef.current.chart.applyOptions({
           width: width,
         });
-
-        // Ensure chart content remains visible after resize
         chartInstanceRef.current.chart.timeScale().fitContent();
       }
     });
 
-    // Start observing the chart container
     resizeObserver.observe(chartContainer);
 
-    // Force an initial size adjustment
+    // Force initial resize
     setTimeout(() => {
       if (chartInstanceRef.current.chart) {
         chartInstanceRef.current.chart.applyOptions({
           width: chartContainer.clientWidth,
         });
-        // Force reflow to ensure everything is rendered properly
+        chartInstanceRef.current.chart.timeScale().fitContent();
         forceChartReflow(chartInstanceRef.current, chartContainerRef);
       }
     }, 50);
@@ -142,21 +178,16 @@ export function ChartContainer({ onChartCreated, className = "", height = 500 }:
       resizeObserver.unobserve(chartContainer);
       resizeObserver.disconnect();
 
-      try {
-        // Only remove if chart still exists
-        if (chartInstanceRef.current.chart) {
-          chart.remove();
-          chartInstanceRef.current = {
-            chart: null,
-            candlestickSeries: null,
-            volumeSeries: null,
-          };
-        }
-      } catch (err) {
-        console.error("Error cleaning up chart:", err);
+      if (chartInstanceRef.current.chart) {
+        chartInstanceRef.current.chart.remove();
+        chartInstanceRef.current = {
+          chart: null,
+          candlestickSeries: null,
+          volumeSeries: null,
+        };
       }
     };
-  }, [resolvedTheme, height, onChartCreated]); // Recreate chart when theme or height changes
+  }, [resolvedTheme, height, onChartCreated]);
 
   return <div ref={chartContainerRef} className={`w-full h-full ${className}`} data-testid="chart-container" />;
 }

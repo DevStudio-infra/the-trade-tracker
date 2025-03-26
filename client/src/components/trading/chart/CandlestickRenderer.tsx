@@ -2,8 +2,7 @@
 
 import { useEffect } from "react";
 import type { Time, CandlestickData, HistogramData } from "lightweight-charts";
-import { ChartInstanceRef, FormattedCandle } from "./utils/chartTypes";
-import { forceChartReflow } from "./utils/chartUtils";
+import { ChartInstanceRef } from "./utils/chartTypes";
 import { Candle } from "@/lib/api";
 
 interface CandlestickRendererProps {
@@ -19,22 +18,18 @@ interface CandlestickRendererProps {
 export function CandlestickRenderer({ chartInstance, candles, chartContainerRef, precision }: CandlestickRendererProps) {
   // Update candlestick series when data changes
   useEffect(() => {
-    if (!candles || !chartInstance?.candlestickSeries || !chartInstance?.volumeSeries) return;
+    if (!candles || !chartInstance?.candlestickSeries || !chartInstance?.chart) return;
 
     try {
       // Format candle data for the chart
-      const formattedCandles = candles.map((candle) => {
-        // LightweightCharts requires time to be a specific type (UTCTimestamp)
-        const time = (candle.timestamp / 1000) as Time; // Convert to seconds and cast as Time type
-
+      const formattedCandles: CandlestickData<Time>[] = candles.map((candle) => {
         return {
-          time,
+          time: (candle.timestamp / 1000) as Time, // Convert to seconds and cast as Time
           open: candle.open,
           high: candle.high,
           low: candle.low,
           close: candle.close,
-          value: candle.volume,
-        } as FormattedCandle;
+        };
       });
 
       console.log(`Setting chart data: ${formattedCandles.length} candles with precision ${precision}`);
@@ -51,35 +46,28 @@ export function CandlestickRenderer({ chartInstance, candles, chartContainerRef,
       }
 
       // Update candlestick series
-      chartInstance.candlestickSeries.setData(
-        formattedCandles.map(
-          ({ time, open, high, low, close }) =>
-            ({
-              time,
-              open,
-              high,
-              low,
-              close,
-            } as CandlestickData<Time>)
-        )
-      );
+      chartInstance.candlestickSeries.setData(formattedCandles);
 
       // Update volume series with color based on candle direction
-      chartInstance.volumeSeries.setData(
-        formattedCandles.map(({ time, value, open, close }) => {
-          // Get theme-based colors
+      if (chartInstance.volumeSeries) {
+        // Format volume data with colors
+        const volumeData: HistogramData<Time>[] = candles.map((candle) => {
+          // Get volume color based on candle direction (up/down)
           const volumeColor =
-            open <= close
-              ? "rgba(76, 175, 80, 0.3)" // Up volume color (green)
-              : "rgba(255, 82, 82, 0.3)"; // Down volume color (red)
+            candle.open <= candle.close
+              ? "rgba(76, 175, 80, 0.5)" // Up volume color (green)
+              : "rgba(255, 82, 82, 0.5)"; // Down volume color (red)
 
           return {
-            time,
-            value,
+            time: (candle.timestamp / 1000) as Time,
+            value: candle.volume,
             color: volumeColor,
-          } as HistogramData<Time>;
-        })
-      );
+          };
+        });
+
+        // Set volume data
+        chartInstance.volumeSeries.setData(volumeData);
+      }
 
       // Fit content to show all candles
       if (chartInstance.chart) {
@@ -101,9 +89,6 @@ export function CandlestickRenderer({ chartInstance, candles, chartContainerRef,
 
             // Fit content again to ensure all data is visible
             chartInstance.chart.timeScale().fitContent();
-
-            // Use our helper function to force reflow as a last resort
-            setTimeout(() => forceChartReflow(chartInstance, chartContainerRef), 100);
           }
         }, 50);
       }

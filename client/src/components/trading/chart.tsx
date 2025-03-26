@@ -12,8 +12,8 @@ import { Loader2, AlertCircle } from "lucide-react";
 // import { Input } from "@/components/ui/input";
 // import { Label } from "@/components/ui/label";
 import { useTheme } from "next-themes";
-import { createChart, ColorType } from "lightweight-charts";
-import type { IChartApi, ISeriesApi, Time, CandlestickData, HistogramData } from "lightweight-charts";
+import { createChart, ColorType, CandlestickSeries, HistogramSeries, LineSeries } from "lightweight-charts";
+import type { IChartApi, ISeriesApi, Time, CandlestickData, HistogramData, IPaneApi } from "lightweight-charts";
 // import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 // import { Badge } from "@/components/ui/badge";
 import { useSettings } from "@/hooks/useSettings";
@@ -65,6 +65,12 @@ interface FormattedCandle {
   low: number;
   close: number;
   value: number;
+}
+
+// Add a type definition for the enhanced chart API with pane support
+interface ChartApiWithPanes extends IChartApi {
+  createPane: (options: { height: number }) => IPaneApi<Time>;
+  panes: () => IPaneApi<Time>[];
 }
 
 export function TradingChart({ pair }: TradingChartProps) {
@@ -166,6 +172,12 @@ export function TradingChart({ pair }: TradingChartProps) {
         background: { type: ColorType.Solid, color: colors.background },
         textColor: colors.text,
         fontSize: 12,
+        // Configure panes with separators and allow resizing
+        panes: {
+          separatorColor: colors.borderColor,
+          separatorHoverColor: resolvedTheme === "dark" ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.1)",
+          enableResize: true,
+        },
       },
       grid: {
         vertLines: { color: colors.grid },
@@ -188,8 +200,21 @@ export function TradingChart({ pair }: TradingChartProps) {
       height: 500,
     });
 
+    // Cast to enhanced chart API with pane support
+    const chartWithPanes = chart as ChartApiWithPanes;
+
+    // Create the initial panes setup - main pane (index 0) for price and volume,
+    // and a secondary pane (index 1) for indicators like RSI
+    // The main pane is created by default, but we need to create the secondary pane
+    if (typeof chartWithPanes.createPane === "function") {
+      // Create an additional pane for oscillators like RSI
+      chartWithPanes.createPane({
+        height: 150, // Smaller height for the indicator pane
+      });
+    }
+
     // Add candlestick series
-    const candlestickSeries = chart.addCandlestickSeries({
+    const candlestickSeries = chartWithPanes.addSeries(CandlestickSeries, {
       upColor: colors.upColor,
       downColor: colors.downColor,
       borderVisible: false,
@@ -202,35 +227,34 @@ export function TradingChart({ pair }: TradingChartProps) {
       },
     });
 
-    // Add volume series with separate panel configuration
-    const volumeSeries = chart.addHistogramSeries({
-      priceFormat: {
-        type: "volume",
-      },
-      // Configure as a separate panel with its own price scale
-      priceScaleId: "volume", // Unique ID for the volume price scale
-      color: colors.volumeUp,
-    });
-
-    // Configure the volume panel to be at the bottom with smaller height
-    volumeSeries.priceScale().applyOptions({
-      scaleMargins: {
-        top: 0.85, // Start at 85% from the top (smaller panel at the bottom)
-        bottom: 0.05, // Add a small margin at the bottom
-      },
-      // Hide the scale values for cleaner appearance
-      borderVisible: true,
-      borderColor: colors.borderColor,
-      // Show scale values (optional)
-      visible: true,
-    });
-
     // Configure the main price scale for candlesticks
     candlestickSeries.priceScale().applyOptions({
       scaleMargins: {
-        top: 0.05, // Small margin at top
-        bottom: 0.25, // Leave 25% space at bottom for volume panel
+        top: 0.1,
+        bottom: 0.4, // Leave space for volume
       },
+      borderVisible: true,
+      borderColor: colors.borderColor,
+    });
+
+    // Add volume series with separate price scale
+    const volumeSeries = chartWithPanes.addSeries(HistogramSeries, {
+      color: colors.volumeUp,
+      priceFormat: {
+        type: "volume",
+      },
+      priceScaleId: "volume", // Separate price scale ID
+    });
+
+    // Configure volume price scale
+    volumeSeries.priceScale().applyOptions({
+      scaleMargins: {
+        top: 0.8, // Position at the bottom of the chart
+        bottom: 0.0,
+      },
+      borderVisible: true,
+      borderColor: colors.borderColor,
+      visible: true,
     });
 
     // Store references
@@ -394,7 +418,7 @@ export function TradingChart({ pair }: TradingChartProps) {
                   case "sma":
                   case "ema":
                     // Create a line series for moving averages
-                    const lineSeries = chartInstanceRef.current.chart.addLineSeries({
+                    const lineSeries = chartInstanceRef.current.chart.addSeries(LineSeries, {
                       color: indicator.color,
                       lineWidth: 2,
                       priceLineVisible: false,
@@ -407,30 +431,125 @@ export function TradingChart({ pair }: TradingChartProps) {
                     indicator.series = lineSeries;
                     break;
                   case "rsi":
-                    // RSI typically appears in a separate panel
-                    const rsiSeries = chartInstanceRef.current.chart.addLineSeries({
-                      color: indicator.color,
-                      lineWidth: 2,
-                      priceScaleId: "rsi",
-                      lastValueVisible: true,
-                      priceFormat: {
-                        type: "price",
-                        precision: 2,
-                        minMove: 0.01,
-                      },
-                      title: `RSI (${indicator.parameters.period})`,
-                    });
+                    // Create RSI in a separate pane (pane index 1)
+                    // Cast chart to enhanced type with panes support
+                    const chartWithPanesForRSI = chartInstanceRef.current.chart as ChartApiWithPanes;
 
-                    // Configure the panel for RSI
+                    // Check if we have at least 2 panes (main pane + RSI pane)
+                    const rsiPaneIndex = 1; // Default to pane index 1
+
+                    try {
+                      if (typeof chartWithPanesForRSI.panes === "function") {
+                        const panes = chartWithPanesForRSI.panes();
+                        if (panes.length < 2) {
+                          // If we don't have a second pane yet, create it
+                          if (typeof chartWithPanesForRSI.createPane === "function") {
+                            chartWithPanesForRSI.createPane({ height: 150 });
+                          }
+                        }
+                      }
+                    } catch (err) {
+                      console.error("Error accessing panes:", err);
+                    }
+
+                    const rsiSeries = chartWithPanesForRSI.addSeries(
+                      LineSeries,
+                      {
+                        color: indicator.color,
+                        lineWidth: 2,
+                        priceFormat: {
+                          type: "price",
+                          precision: 2,
+                          minMove: 0.01,
+                        },
+                        title: `RSI (${indicator.parameters.period})`,
+                        // Set overbought/oversold levels if provided
+                        ...(indicator.parameters.overbought
+                          ? {
+                              autoscaleInfoProvider: () => ({
+                                priceRange: {
+                                  minValue: 0,
+                                  maxValue: 100,
+                                },
+                              }),
+                            }
+                          : {}),
+                      },
+                      rsiPaneIndex
+                    ); // Add to pane index 1 (a separate pane below the main chart)
+
+                    // Configure RSI price scale with fixed range for better visualization
                     rsiSeries.priceScale().applyOptions({
                       scaleMargins: {
-                        top: 0.85, // Small panel at bottom of chart, below price and volume
-                        bottom: 0.0,
+                        top: 0.1,
+                        bottom: 0.1,
                       },
                       borderVisible: true,
-                      borderColor: getChartColors().borderColor,
+                      borderColor: colors.borderColor,
                       visible: true,
+                      // Fixed range for RSI
+                      autoScale: false,
+                      // Use mode: 'entire' instead of explicit min/max values
+                      mode: 2, // Entire mode (shows all data)
                     });
+
+                    // Draw overbought/oversold lines if parameters are provided
+                    if (indicator.parameters.overbought && indicator.parameters.oversold) {
+                      try {
+                        const overbought = Number(indicator.parameters.overbought) || 70;
+                        const oversold = Number(indicator.parameters.oversold) || 30;
+
+                        // Add horizontal lines for overbought level
+                        const overboughtSeries = chartWithPanesForRSI.addSeries(
+                          LineSeries,
+                          {
+                            color: "rgba(255, 0, 0, 0.3)", // Light red
+                            lineWidth: 1,
+                            lineStyle: 1, // Dotted line
+                            lastValueVisible: false,
+                            priceLineVisible: false,
+                            crosshairMarkerVisible: false,
+                          },
+                          rsiPaneIndex
+                        );
+
+                        // Add data for the overbought line
+                        if (candles && candles.length > 0) {
+                          const firstTime = (candles[0].timestamp / 1000) as Time;
+                          const lastTime = (candles[candles.length - 1].timestamp / 1000) as Time;
+                          overboughtSeries.setData([
+                            { time: firstTime, value: overbought },
+                            { time: lastTime, value: overbought },
+                          ]);
+                        }
+
+                        // Add horizontal lines for oversold level
+                        const oversoldSeries = chartWithPanesForRSI.addSeries(
+                          LineSeries,
+                          {
+                            color: "rgba(0, 255, 0, 0.3)", // Light green
+                            lineWidth: 1,
+                            lineStyle: 1, // Dotted line
+                            lastValueVisible: false,
+                            priceLineVisible: false,
+                            crosshairMarkerVisible: false,
+                          },
+                          rsiPaneIndex
+                        );
+
+                        // Add data for the oversold line
+                        if (candles && candles.length > 0) {
+                          const firstTime = (candles[0].timestamp / 1000) as Time;
+                          const lastTime = (candles[candles.length - 1].timestamp / 1000) as Time;
+                          oversoldSeries.setData([
+                            { time: firstTime, value: oversold },
+                            { time: lastTime, value: oversold },
+                          ]);
+                        }
+                      } catch (err) {
+                        console.error("Error adding overbought/oversold lines:", err);
+                      }
+                    }
 
                     // Add to the indicator object for future reference
                     indicator.series = rsiSeries;

@@ -69,7 +69,8 @@ export function TradingChart({ pair }: TradingChartProps) {
         high: candle.high,
         low: candle.low,
         close: candle.close,
-        value: candle.volume,
+        value: candle.close, // Using close as value for indicators
+        volume: candle.volume, // Explicitly map volume for volume series
       } as FormattedCandle;
     });
 
@@ -265,6 +266,11 @@ export function TradingChart({ pair }: TradingChartProps) {
     setIndicators((prev) => prev.map((indicator) => (indicator.id === updatedIndicator.id ? updatedIndicator : indicator)));
   };
 
+  // Handle remove indicator
+  const handleRemoveIndicator = (id: string) => {
+    setIndicators((prev) => prev.filter((indicator) => indicator.id !== id));
+  };
+
   if (!pair) {
     return (
       <div className="p-4 flex items-center justify-center h-full">
@@ -274,15 +280,18 @@ export function TradingChart({ pair }: TradingChartProps) {
   }
 
   return (
-    <div className="p-4 space-y-4">
-      {/* Chart Header */}
+    <div className="flex flex-col h-full">
+      {/* Chart Header with controls */}
       <ChartHeader
-        pair={pair}
         selectedTimeframe={selectedTimeframe}
         onTimeframeChange={handleTimeframeChange}
-        onAddIndicator={openIndicatorDialog}
-        isLoading={isLoading}
-        indicatorCount={indicators.length}
+        openIndicatorDialog={openIndicatorDialog}
+        activeIndicators={indicators.map((ind) => ({
+          id: ind.id,
+          name: ind.name,
+          type: ind.type,
+        }))}
+        onRemoveIndicator={handleRemoveIndicator}
       />
 
       {/* Chart Container */}
