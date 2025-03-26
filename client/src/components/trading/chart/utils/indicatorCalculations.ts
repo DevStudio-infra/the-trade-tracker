@@ -109,111 +109,59 @@ export function calculateRSI(candles: FormattedCandle[], period: number) {
 }
 
 /**
- * The result returned by the MACD calculation
+ * Calculates Moving Average Convergence Divergence (MACD) for the provided candles
  */
-export interface MACDResult {
-  macdLine: { time: Time; value: number }[];
-  signalLine: { time: Time; value: number }[];
-  histogram: { time: Time; value: number }[];
-}
-
-/**
- * Calculate the MACD (Moving Average Convergence Divergence) indicator
- *
- * @param candles - Array of candle data
- * @param fastPeriod - The period of the fast EMA (default: 12)
- * @param slowPeriod - The period of the slow EMA (default: 26)
- * @param signalPeriod - The period of the signal line (default: 9)
- * @returns Object containing the MACD line, signal line, and histogram data
- */
-export function calculateMACD(candles: FormattedCandle[], fastPeriod = 12, slowPeriod = 26, signalPeriod = 9): MACDResult {
-  if (!candles || candles.length === 0) {
-    return { macdLine: [], signalLine: [], histogram: [] };
-  }
-
-  // Calculate the fast EMA
+export function calculateMACD(candles: FormattedCandle[], fastPeriod: number = 12, slowPeriod: number = 26, signalPeriod: number = 9) {
+  // Step 1: Calculate fast and slow EMAs
   const fastEMA = calculateEMA(candles, fastPeriod);
-  // Calculate the slow EMA
   const slowEMA = calculateEMA(candles, slowPeriod);
 
-  // Create MACD line (fast EMA - slow EMA)
-  const macdLine: { time: Time; value: number }[] = [];
+  // Create a map for easier lookup of EMA values by time
+  const fastEMAMap = new Map(fastEMA.map((point) => [point.time, point.value]));
 
-  // We need at least the slow period of data to start calculating
-  const startingIndex = Math.max(fastPeriod, slowPeriod) - 1;
+  // Step 2: Calculate MACD line (fast EMA - slow EMA)
+  const macdLine = slowEMA
+    .filter((point) => fastEMAMap.has(point.time))
+    .map((point) => ({
+      time: point.time,
+      value: fastEMAMap.get(point.time)! - point.value,
+    }));
 
-  // Calculate MACD Line values
-  for (let i = startingIndex; i < candles.length; i++) {
-    const time = candles[i].time;
+  // Step 3: Calculate the signal line (EMA of MACD line)
+  // First, convert MACD line to a format similar to candles for the EMA function
+  const macdForEMA = macdLine.map((point) => ({
+    time: point.time as Time,
+    open: point.value,
+    high: point.value,
+    low: point.value,
+    close: point.value,
+    value: 0,
+  }));
 
-    // Find corresponding EMA values
-    const fastValue = fastEMA.find((item) => item.time === time)?.value;
-    const slowValue = slowEMA.find((item) => item.time === time)?.value;
+  let signalLine: { time: Time; value: number }[] = [];
 
-    if (fastValue !== undefined && slowValue !== undefined) {
-      macdLine.push({
-        time,
-        value: fastValue - slowValue,
-      });
-    }
+  // Only calculate signal line if we have enough MACD points
+  if (macdForEMA.length >= signalPeriod) {
+    signalLine = calculateEMA(macdForEMA, signalPeriod);
   }
 
-  // Calculate Signal Line (EMA of MACD Line)
-  const signalLine: { time: Time; value: number }[] = [];
+  // Create a map for easier lookup of signal values by time
+  const signalMap = new Map(signalLine.map((point) => [point.time, point.value]));
 
-  // Need at least signalPeriod data points to calculate the signal line
-  if (macdLine.length >= signalPeriod) {
-    // Calculate EMA of MACD values
-    let signalSum = 0;
+  // Step 4: Calculate histogram (MACD line - signal line)
+  const histogram = macdLine
+    .filter((point) => signalMap.has(point.time))
+    .map((point) => ({
+      time: point.time,
+      value: point.value - signalMap.get(point.time)!,
+      color: point.value >= signalMap.get(point.time)! ? "green" : "red",
+    }));
 
-    // Calculate first SMA for the signal line
-    for (let i = 0; i < signalPeriod; i++) {
-      signalSum += macdLine[i].value;
-    }
-
-    let prevSignal = signalSum / signalPeriod;
-
-    // Add first signal point
-    signalLine.push({
-      time: macdLine[signalPeriod - 1].time,
-      value: prevSignal,
-    });
-
-    // Calculate rest of signal line using EMA formula
-    const multiplier = 2 / (signalPeriod + 1);
-
-    for (let i = signalPeriod; i < macdLine.length; i++) {
-      const currValue = macdLine[i].value;
-      const newSignal = (currValue - prevSignal) * multiplier + prevSignal;
-
-      signalLine.push({
-        time: macdLine[i].time,
-        value: newSignal,
-      });
-
-      prevSignal = newSignal;
-    }
-  }
-
-  // Calculate Histogram (MACD Line - Signal Line)
-  const histogram: { time: Time; value: number }[] = [];
-
-  if (signalLine.length > 0) {
-    for (let i = 0; i < signalLine.length; i++) {
-      const time = signalLine[i].time;
-      const macdValue = macdLine.find((item) => item.time === time)?.value;
-      const signalValue = signalLine[i].value;
-
-      if (macdValue !== undefined) {
-        histogram.push({
-          time,
-          value: macdValue - signalValue,
-        });
-      }
-    }
-  }
-
-  return { macdLine, signalLine, histogram };
+  return {
+    macdLine,
+    signalLine,
+    histogram,
+  };
 }
 
 /**
@@ -257,62 +205,6 @@ export function calculateBollingerBands(candles: FormattedCandle[], period: numb
       upper,
       lower,
     });
-  }
-
-  return result;
-}
-
-/**
- * Calculates Stochastic Oscillator for the provided candles
- */
-export function calculateStochastic(candles: FormattedCandle[], kPeriod: number = 14, dPeriod: number = 3) {
-  const result = {
-    k: [] as { time: Time; value: number }[],
-    d: [] as { time: Time; value: number }[],
-  };
-
-  // Need at least kPeriod candles
-  if (candles.length < kPeriod) return result;
-
-  // Calculate %K
-  for (let i = kPeriod - 1; i < candles.length; i++) {
-    let highestHigh = -Infinity;
-    let lowestLow = Infinity;
-
-    // Find highest high and lowest low over the lookback period
-    for (let j = 0; j < kPeriod; j++) {
-      const candle = candles[i - j];
-      highestHigh = Math.max(highestHigh, candle.high);
-      lowestLow = Math.min(lowestLow, candle.low);
-    }
-
-    // Calculate %K: ((close - lowestLow) / (highestHigh - lowestLow)) * 100
-    const range = highestHigh - lowestLow;
-    let kValue = 50; // Default to 50 if range is 0
-
-    if (range > 0) {
-      kValue = ((candles[i].close - lowestLow) / range) * 100;
-    }
-
-    result.k.push({
-      time: candles[i].time,
-      value: kValue,
-    });
-  }
-
-  // Calculate %D (which is a dPeriod-SMA of %K)
-  if (result.k.length >= dPeriod) {
-    for (let i = dPeriod - 1; i < result.k.length; i++) {
-      let sum = 0;
-      for (let j = 0; j < dPeriod; j++) {
-        sum += result.k[i - j].value;
-      }
-
-      result.d.push({
-        time: result.k[i].time,
-        value: sum / dPeriod,
-      });
-    }
   }
 
   return result;

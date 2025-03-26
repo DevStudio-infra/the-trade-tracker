@@ -1,11 +1,8 @@
 // Type definitions for the Trading Chart components
-import type { IChartApi, ISeriesApi, Time, SeriesType, CandlestickData, HistogramData, LineData, IPriceScaleApi, UTCTimestamp } from "lightweight-charts";
+import type { IChartApi, ISeriesApi, Time, SeriesType } from "lightweight-charts";
 
 // Re-export Time type from lightweight-charts
-export type { Time, UTCTimestamp } from "lightweight-charts";
-
-// Define timeframes
-export const timeframes = ["1m", "5m", "15m", "1h", "4h", "1d", "1w"];
+export type { Time } from "lightweight-charts";
 
 // Define a type for candle data to address 'any' type warnings
 export interface FormattedCandle {
@@ -14,8 +11,11 @@ export interface FormattedCandle {
   high: number;
   low: number;
   close: number;
-  value: number;
+  value: number; // Usually volume
 }
+
+// Define timeframes
+export const timeframes = ["1m", "5m", "15m", "1h", "4h", "1d", "1w"];
 
 // Define types for indicator parameters
 export interface IndicatorParameters {
@@ -126,8 +126,8 @@ export const indicatorDefaults: Record<IndicatorType, IndicatorDefault> = {
 // Chart instance reference type
 export interface ChartInstanceRef {
   chart: IChartApi | null;
-  candlestickSeries: ISeriesApi<any> | null;
-  volumeSeries: ISeriesApi<any> | null;
+  candlestickSeries: ISeriesApi<"Candlestick"> | null;
+  volumeSeries: ISeriesApi<"Histogram"> | null;
 }
 
 // Trading chart props
