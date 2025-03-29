@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { IndicatorType } from "./utils/chartTypes";
+import { IndicatorType } from "./core/ChartTypes";
 import { BarChart4 } from "lucide-react";
 
 interface ChartHeaderProps {
@@ -25,9 +25,9 @@ export function ChartHeader({ selectedTimeframe, onTimeframeChange, openIndicato
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Handle indicator selection
-  const handleSelectIndicator = (type: IndicatorType) => {
+  const handleSelectIndicator = (type: string) => {
     console.log("ChartHeader - Selecting indicator type:", type);
-    openIndicatorDialog(type);
+    openIndicatorDialog(type as IndicatorType);
     setIndicatorMenuOpen(false);
   };
 
@@ -81,12 +81,12 @@ export function ChartHeader({ selectedTimeframe, onTimeframeChange, openIndicato
                 <div className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400">Moving Averages</div>
                 <button
                   className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
-                  onClick={() => handleSelectIndicator("sma")}>
+                  onClick={() => handleSelectIndicator("SMA")}>
                   Simple Moving Average (SMA)
                 </button>
                 <button
                   className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
-                  onClick={() => handleSelectIndicator("ema")}>
+                  onClick={() => handleSelectIndicator("EMA")}>
                   Exponential Moving Average (EMA)
                 </button>
 
@@ -94,17 +94,17 @@ export function ChartHeader({ selectedTimeframe, onTimeframeChange, openIndicato
                 <div className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400">Oscillators</div>
                 <button
                   className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
-                  onClick={() => handleSelectIndicator("rsi")}>
+                  onClick={() => handleSelectIndicator("RSI")}>
                   Relative Strength Index (RSI)
                 </button>
                 <button
                   className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
-                  onClick={() => handleSelectIndicator("macd")}>
+                  onClick={() => handleSelectIndicator("MACD")}>
                   MACD
                 </button>
                 <button
                   className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
-                  onClick={() => handleSelectIndicator("stochastic")}>
+                  onClick={() => handleSelectIndicator("Stochastic")}>
                   Stochastic Oscillator
                 </button>
 
@@ -112,7 +112,7 @@ export function ChartHeader({ selectedTimeframe, onTimeframeChange, openIndicato
                 <div className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400">Bands & Channels</div>
                 <button
                   className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
-                  onClick={() => handleSelectIndicator("bollinger")}>
+                  onClick={() => handleSelectIndicator("BollingerBands")}>
                   Bollinger Bands
                 </button>
 
@@ -120,12 +120,12 @@ export function ChartHeader({ selectedTimeframe, onTimeframeChange, openIndicato
                 <div className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400">Others</div>
                 <button
                   className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
-                  onClick={() => handleSelectIndicator("atr")}>
+                  onClick={() => handleSelectIndicator("ATR")}>
                   Average True Range (ATR)
                 </button>
                 <button
                   className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
-                  onClick={() => handleSelectIndicator("ichimoku")}>
+                  onClick={() => handleSelectIndicator("Ichimoku")}>
                   Ichimoku Cloud
                 </button>
               </div>

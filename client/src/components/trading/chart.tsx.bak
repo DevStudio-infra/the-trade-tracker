@@ -1,22 +1,29 @@
 "use client";
 
+// import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+// import { cn } from "@/lib/utils";
 import { useState, useEffect, useRef } from "react";
 import { useApi, Candle } from "@/lib/api";
 import { useTradingStore } from "@/stores/trading-store";
 import { toast } from "sonner";
 import { Loader2, AlertCircle } from "lucide-react";
+// import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+// import { Input } from "@/components/ui/input";
+// import { Label } from "@/components/ui/label";
 import { useTheme } from "next-themes";
-import { createChart, ColorType, HistogramSeries, LineSeries, CandlestickSeries } from "lightweight-charts";
-import type { IChartApi, ISeriesApi, Time, CandlestickData, HistogramData } from "lightweight-charts";
+import { createChart, ColorType, CandlestickSeries, HistogramSeries, LineSeries } from "lightweight-charts";
+import type { IChartApi, ISeriesApi, Time, CandlestickData, HistogramData, IPaneApi } from "lightweight-charts";
+// import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+// import { Badge } from "@/components/ui/badge";
 import { useSettings } from "@/hooks/useSettings";
 
 // Import refactored indicator components
 import { IndicatorManager } from "@/components/trading/chart/indicators";
-import { IndicatorType, IndicatorConfig, ChartApiWithPanes } from "./chart/core/ChartTypes";
+import { IndicatorType, IndicatorConfig } from "./chart/utils/chartTypes";
 import { ChartHeader } from "./chart/ChartHeader";
 
-// Timeframes are now imported from ChartTypes.ts
+// Timeframes are now imported from chartTypes.ts
 
 // Chart colors for light/dark themes
 const chartColors = {
@@ -58,6 +65,12 @@ interface FormattedCandle {
   low: number;
   close: number;
   value: number;
+}
+
+// Add a type definition for the enhanced chart API with pane support
+interface ChartApiWithPanes extends IChartApi {
+  createPane: (options: { height: number }) => IPaneApi<Time>;
+  panes: () => IPaneApi<Time>[];
 }
 
 export function TradingChart({ pair }: TradingChartProps) {
@@ -204,7 +217,7 @@ export function TradingChart({ pair }: TradingChartProps) {
       });
     }
 
-    // Add candlestick series with the new v5 syntax and proper typing
+    // Add candlestick series
     const candlestickSeries = chartWithPanes.addSeries(CandlestickSeries, {
       upColor: colors.upColor,
       downColor: colors.downColor,
@@ -216,7 +229,7 @@ export function TradingChart({ pair }: TradingChartProps) {
         precision: precision,
         minMove: Math.pow(10, -precision),
       },
-    }) as ISeriesApi<"Candlestick">; // Cast to the correct type
+    });
 
     // Configure the main price scale for candlesticks
     candlestickSeries.priceScale().applyOptions({
@@ -228,14 +241,14 @@ export function TradingChart({ pair }: TradingChartProps) {
       borderColor: colors.borderColor,
     });
 
-    // Add volume series with separate price scale and proper typing
+    // Add volume series with separate price scale
     const volumeSeries = chartWithPanes.addSeries(HistogramSeries, {
       color: colors.volumeUp,
       priceFormat: {
         type: "volume",
       },
       priceScaleId: "volume", // Separate price scale ID
-    }) as ISeriesApi<"Histogram">; // Cast to the correct type
+    });
 
     // Configure volume price scale
     volumeSeries.priceScale().applyOptions({
@@ -406,8 +419,8 @@ export function TradingChart({ pair }: TradingChartProps) {
               if (!indicator.series) {
                 // Create different types of series based on indicator type
                 switch (indicator.type) {
-                  case "SMA":
-                  case "EMA":
+                  case "sma":
+                  case "ema":
                     // Create a line series for moving averages
                     const chartInstance = chartInstanceRef.current.chart;
                     if (chartInstance) {
@@ -418,16 +431,16 @@ export function TradingChart({ pair }: TradingChartProps) {
                         priceLineVisible: false,
                         lastValueVisible: true,
                         crosshairMarkerVisible: true,
-                        title: `${indicator.type} (${indicator.parameters.period})`,
+                        title: `${indicator.type.toUpperCase()} (${indicator.parameters.period})`,
                       });
 
                       // Add to the indicator object for future reference
                       indicator.series = lineSeries;
                     }
                     break;
-                  case "RSI": {
+                  case "rsi": {
                     // Get the dedicated pane index for this RSI instance
-                    const indicatorKey = `RSI-${indicator.id}`;
+                    const indicatorKey = `rsi-${indicator.id}`;
                     let rsiPaneIndex = oscillatorPanesRef.current[indicatorKey];
 
                     if (!rsiPaneIndex) {
@@ -555,10 +568,6 @@ export function TradingChart({ pair }: TradingChartProps) {
                     indicator.series = rsiSeries;
                     break;
                   }
-                  case "MACD":
-                    // Use our dedicated MACD creation function
-                    createMACDIndicator(indicator);
-                    break;
                   // Additional indicator types would be handled here
                 }
               }
@@ -567,28 +576,23 @@ export function TradingChart({ pair }: TradingChartProps) {
               if (indicator.series && formattedCandlesRef.length > 0) {
                 // Calculate the indicator values based on type
                 switch (indicator.type) {
-                  case "SMA":
+                  case "sma":
                     // Simple Moving Average calculation
                     const period = Number(indicator.parameters.period) || 20;
                     const smaData = calculateSMA(formattedCandlesRef, period);
                     indicator.series.setData(smaData);
                     break;
-                  case "EMA":
+                  case "ema":
                     // Exponential Moving Average calculation
                     const emaPeriod = Number(indicator.parameters.period) || 20;
                     const emaData = calculateEMA(formattedCandlesRef, emaPeriod);
                     indicator.series.setData(emaData);
                     break;
-                  case "RSI":
+                  case "rsi":
                     // Relative Strength Index calculation
                     const rsiPeriod = Number(indicator.parameters.period) || 14;
                     const rsiData = calculateRSI(formattedCandlesRef, rsiPeriod);
                     indicator.series.setData(rsiData);
-                    break;
-                  case "MACD":
-                    // MACD data is handled within the createMACDIndicator function
-                    // or we can manually update it here
-                    updateMACDData(indicator, formattedCandlesRef);
                     break;
                   // Additional indicators would be calculated here
                 }
@@ -1069,7 +1073,7 @@ export function TradingChart({ pair }: TradingChartProps) {
     // First pass: determine and create panes for all oscillators
     indicators.forEach((indicator) => {
       // Special handling for oscillator indicators (RSI, MACD)
-      if (indicator.type === "RSI" || indicator.type === "MACD") {
+      if (indicator.type === "rsi" || indicator.type === "macd") {
         // Generate a unique key for this specific indicator instance
         const indicatorKey = `${indicator.type}-${indicator.id}`;
 
@@ -1110,8 +1114,8 @@ export function TradingChart({ pair }: TradingChartProps) {
               try {
                 // Create appropriate indicator series based on type
                 switch (indicator.type) {
-                  case "SMA":
-                  case "EMA":
+                  case "sma":
+                  case "ema":
                     // Create a line series for moving averages
                     const chartInstance = chartInstanceRef.current.chart;
                     if (chartInstance) {
@@ -1122,7 +1126,7 @@ export function TradingChart({ pair }: TradingChartProps) {
                         priceLineVisible: false,
                         lastValueVisible: true,
                         crosshairMarkerVisible: true,
-                        title: `${indicator.type} (${indicator.parameters.period})`,
+                        title: `${indicator.type.toUpperCase()} (${indicator.parameters.period})`,
                       });
 
                       // Add to the indicator object for future reference
@@ -1130,11 +1134,11 @@ export function TradingChart({ pair }: TradingChartProps) {
                     }
                     break;
 
-                  case "RSI":
+                  case "rsi":
                     // Use existing RSI code (no changes needed)
                     break;
 
-                  case "MACD":
+                  case "macd":
                     // Use our dedicated MACD creation function
                     createMACDIndicator(indicator);
                     break;
@@ -1147,25 +1151,25 @@ export function TradingChart({ pair }: TradingChartProps) {
               if (indicator.series && formattedCandles.length > 0) {
                 // Calculate the indicator values based on type
                 switch (indicator.type) {
-                  case "SMA":
+                  case "sma":
                     // Simple Moving Average calculation
                     const period = Number(indicator.parameters.period) || 20;
                     const smaData = calculateSMA(formattedCandles, period);
                     indicator.series.setData(smaData);
                     break;
-                  case "EMA":
+                  case "ema":
                     // Exponential Moving Average calculation
                     const emaPeriod = Number(indicator.parameters.period) || 20;
                     const emaData = calculateEMA(formattedCandles, emaPeriod);
                     indicator.series.setData(emaData);
                     break;
-                  case "RSI":
+                  case "rsi":
                     // Relative Strength Index calculation
                     const rsiPeriod = Number(indicator.parameters.period) || 14;
                     const rsiData = calculateRSI(formattedCandles, rsiPeriod);
                     indicator.series.setData(rsiData);
                     break;
-                  case "MACD":
+                  case "macd":
                     // MACD data is handled within the createMACDIndicator function
                     // or we can manually update it here
                     updateMACDData(indicator, formattedCandles);
@@ -1191,7 +1195,7 @@ export function TradingChart({ pair }: TradingChartProps) {
   // Create MACD indicator
   const createMACDIndicator = (indicator: IndicatorConfig) => {
     // Get the dedicated pane index for this MACD instance
-    const indicatorKey = `MACD-${indicator.id}`;
+    const indicatorKey = `macd-${indicator.id}`;
     let macdPaneIndex = oscillatorPanesRef.current[indicatorKey];
 
     if (!macdPaneIndex) {
@@ -1220,7 +1224,7 @@ export function TradingChart({ pair }: TradingChartProps) {
       const macdSeries = chartWithPanesForMACD.addSeries(
         LineSeries,
         {
-          color: String(macdColor),
+          color: macdColor,
           lineWidth: 2,
           lastValueVisible: true,
           priceFormat: {
@@ -1237,7 +1241,7 @@ export function TradingChart({ pair }: TradingChartProps) {
       const signalSeries = chartWithPanesForMACD.addSeries(
         LineSeries,
         {
-          color: String(signalColor),
+          color: signalColor,
           lineWidth: 2,
           lastValueVisible: true,
           priceFormat: {
@@ -1254,7 +1258,7 @@ export function TradingChart({ pair }: TradingChartProps) {
       const histogramSeries = chartWithPanesForMACD.addSeries(
         HistogramSeries,
         {
-          color: String(histogramPositiveColor),
+          color: histogramPositiveColor,
           lastValueVisible: false,
           priceFormat: {
             type: "price",
@@ -1469,7 +1473,7 @@ export function TradingChart({ pair }: TradingChartProps) {
         selectedTimeframe={selectedTimeframe}
         onTimeframeChange={handleTimeframeChange}
         openIndicatorDialog={openIndicatorDialog}
-        activeIndicators={indicators as unknown as { id: string; name: string; type: IndicatorType }[]}
+        activeIndicators={indicators}
         onRemoveIndicator={handleRemoveIndicator}
       />
 

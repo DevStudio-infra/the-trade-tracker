@@ -1,7 +1,7 @@
 "use client";
 
 import { IndicatorDialog } from "./IndicatorDialog";
-import { IndicatorType, IndicatorConfig, IndicatorParameters } from "../utils/chartTypes";
+import { IndicatorType, IndicatorConfig, IndicatorParameters } from "../core/ChartTypes";
 import { toast } from "sonner";
 import { useEffect } from "react";
 
@@ -26,12 +26,15 @@ export function IndicatorManager({ indicators, onIndicatorsChange, selectedIndic
 
   // Handle adding a new indicator
   const handleAddIndicator = (name: string, type: IndicatorType, parameters: IndicatorParameters) => {
+    // Get color from parameters, making sure it's a string
+    const color = type === "MACD" && parameters.macdColor ? String(parameters.macdColor) : parameters.color ? String(parameters.color) : "#4CAF50";
+
     // Create a new indicator config
     const newIndicator: IndicatorConfig = {
       id: `${type}-${Date.now()}`,
       type,
       name,
-      color: type === "macd" ? parameters.macdColor || "#2962FF" : parameters.color || "#4CAF50",
+      color,
       visible: true,
       parameters,
     };

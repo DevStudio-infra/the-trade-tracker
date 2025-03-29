@@ -2,7 +2,7 @@
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { IndicatorConfig } from "../utils/chartTypes";
+import { IndicatorConfig } from "../core/ChartTypes";
 
 interface IndicatorBadgeProps {
   indicator: IndicatorConfig;
@@ -13,6 +13,30 @@ interface IndicatorBadgeProps {
  * Component for displaying active indicator badges
  */
 export function IndicatorBadge({ indicator, onRemove }: IndicatorBadgeProps) {
+  // Get display text based on indicator type
+  const getDisplayText = () => {
+    const type = indicator.type;
+
+    // Different indicators have different key parameters to display
+    switch (type) {
+      case "SMA":
+      case "EMA":
+      case "RSI":
+      case "ATR":
+        return `${type}-${indicator.parameters.period || "—"}`;
+      case "MACD":
+        return `MACD`;
+      case "BollingerBands":
+        return `BB`;
+      case "Stochastic":
+        return `STOCH`;
+      case "Ichimoku":
+        return `ICHI`;
+      default:
+        return type;
+    }
+  };
+
   return (
     <Badge
       key={indicator.id}
@@ -23,10 +47,8 @@ export function IndicatorBadge({ indicator, onRemove }: IndicatorBadgeProps) {
       {/* Indicator color dot */}
       <div className="w-2 h-2 rounded-full" style={{ backgroundColor: indicator.color }} />
 
-      {/* Indicator name with period */}
-      <span>
-        {indicator.type.toUpperCase()}-{indicator.parameters.period || "—"}
-      </span>
+      {/* Indicator name with parameter */}
+      <span>{getDisplayText()}</span>
 
       {/* Remove button */}
       <Button

@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { IndicatorType, IndicatorParameters, indicatorDefaults } from "../utils/chartTypes";
+import { IndicatorType, IndicatorParameters, indicatorDefaults } from "../core/ChartTypes";
 import { HexColorPicker } from "react-colorful";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { XIcon, Info, ArrowRightIcon, ChevronUp, ChevronDown } from "lucide-react";
@@ -161,8 +161,8 @@ export function IndicatorDialog({ open, onOpenChange, selectedIndicatorType, onA
     if (selectedIndicatorType) {
       console.log("Setting defaults for indicator type:", selectedIndicatorType);
       const defaults = indicatorDefaults[selectedIndicatorType];
-      setIndicatorParams({ ...defaults.parameters });
-      setSelectedColor(defaults.parameters.color || "#4CAF50");
+      setIndicatorParams({ ...defaults.defaultParameters });
+      setSelectedColor(String(defaults.defaultParameters.color || "#4CAF50"));
     } else {
       // Reset when dialog closes
       setIndicatorParams({});
@@ -175,26 +175,24 @@ export function IndicatorDialog({ open, onOpenChange, selectedIndicatorType, onA
     if (!selectedIndicatorType) return "";
 
     switch (selectedIndicatorType) {
-      case "sma":
+      case "SMA":
         return `SMA ${indicatorParams.period || ""}`;
-      case "ema":
+      case "EMA":
         return `EMA ${indicatorParams.period || ""}`;
-      case "rsi":
+      case "RSI":
         return `RSI ${indicatorParams.period || ""}`;
-      case "macd":
+      case "MACD":
         return `MACD ${indicatorParams.fastPeriod || ""}, ${indicatorParams.slowPeriod || ""}, ${indicatorParams.signalPeriod || ""}`;
-      case "bollinger":
+      case "BollingerBands":
         return `BB ${indicatorParams.period || ""}, ${indicatorParams.stdDev || ""}`;
-      case "stochastic":
+      case "Stochastic":
         return `STOCH ${indicatorParams.kPeriod || ""}, ${indicatorParams.dPeriod || ""}`;
-      case "atr":
+      case "ATR":
         return `ATR ${indicatorParams.period || ""}`;
-      case "ichimoku":
+      case "Ichimoku":
         return `ICHIMOKU`;
-      case "fibonacci":
-        return `FIBO`;
       default:
-        return selectedIndicatorType.toUpperCase();
+        return String(selectedIndicatorType).toUpperCase();
     }
   };
 
@@ -246,8 +244,8 @@ export function IndicatorDialog({ open, onOpenChange, selectedIndicatorType, onA
     if (!selectedIndicatorType) return null;
 
     switch (selectedIndicatorType) {
-      case "sma":
-      case "ema":
+      case "SMA":
+      case "EMA":
         return (
           <div className="space-y-4">
             <div className="grid grid-cols-5 items-center gap-3">
@@ -267,7 +265,7 @@ export function IndicatorDialog({ open, onOpenChange, selectedIndicatorType, onA
             </div>
           </div>
         );
-      case "rsi":
+      case "RSI":
         return (
           <div className="space-y-4">
             <div className="grid grid-cols-5 items-center gap-3">
@@ -294,7 +292,7 @@ export function IndicatorDialog({ open, onOpenChange, selectedIndicatorType, onA
                   id="overbought"
                   min={50}
                   max={100}
-                  value={indicatorParams.overbought || ""}
+                  value={typeof indicatorParams.overbought === "number" || typeof indicatorParams.overbought === "string" ? indicatorParams.overbought : ""}
                   onChange={(value) => handleNumericParamChange("overbought", value)}
                   className="h-11"
                 />
@@ -309,7 +307,7 @@ export function IndicatorDialog({ open, onOpenChange, selectedIndicatorType, onA
                   id="oversold"
                   min={0}
                   max={50}
-                  value={indicatorParams.oversold || ""}
+                  value={typeof indicatorParams.oversold === "number" || typeof indicatorParams.oversold === "string" ? indicatorParams.oversold : ""}
                   onChange={(value) => handleNumericParamChange("oversold", value)}
                   className="h-11"
                 />
@@ -317,7 +315,7 @@ export function IndicatorDialog({ open, onOpenChange, selectedIndicatorType, onA
             </div>
           </div>
         );
-      case "macd":
+      case "MACD":
         return (
           <div className="space-y-4">
             <div className="grid grid-cols-5 items-center gap-3">
@@ -367,7 +365,7 @@ export function IndicatorDialog({ open, onOpenChange, selectedIndicatorType, onA
             </div>
           </div>
         );
-      case "bollinger":
+      case "BollingerBands":
         return (
           <div className="space-y-4">
             <div className="grid grid-cols-5 items-center gap-3">
@@ -403,7 +401,7 @@ export function IndicatorDialog({ open, onOpenChange, selectedIndicatorType, onA
             </div>
           </div>
         );
-      case "stochastic":
+      case "Stochastic":
         return (
           <div className="space-y-4">
             <div className="grid grid-cols-5 items-center gap-3">
@@ -415,7 +413,7 @@ export function IndicatorDialog({ open, onOpenChange, selectedIndicatorType, onA
                   id="kPeriod"
                   min={1}
                   max={50}
-                  value={indicatorParams.kPeriod || ""}
+                  value={typeof indicatorParams.kPeriod === "number" || typeof indicatorParams.kPeriod === "string" ? indicatorParams.kPeriod : ""}
                   onChange={(value) => handleNumericParamChange("kPeriod", value)}
                   className="parameter-input h-11"
                 />
@@ -430,7 +428,7 @@ export function IndicatorDialog({ open, onOpenChange, selectedIndicatorType, onA
                   id="dPeriod"
                   min={1}
                   max={50}
-                  value={indicatorParams.dPeriod || ""}
+                  value={typeof indicatorParams.dPeriod === "number" || typeof indicatorParams.dPeriod === "string" ? indicatorParams.dPeriod : ""}
                   onChange={(value) => handleNumericParamChange("dPeriod", value)}
                   className="h-11"
                 />
@@ -438,7 +436,7 @@ export function IndicatorDialog({ open, onOpenChange, selectedIndicatorType, onA
             </div>
           </div>
         );
-      case "atr":
+      case "ATR":
         return (
           <div className="space-y-4">
             <div className="grid grid-cols-5 items-center gap-3">
@@ -458,7 +456,7 @@ export function IndicatorDialog({ open, onOpenChange, selectedIndicatorType, onA
             </div>
           </div>
         );
-      case "ichimoku":
+      case "Ichimoku":
         return (
           <div className="space-y-4">
             <div className="grid grid-cols-5 items-center gap-3">
@@ -470,7 +468,7 @@ export function IndicatorDialog({ open, onOpenChange, selectedIndicatorType, onA
                   id="conversionPeriod"
                   min={1}
                   max={50}
-                  value={indicatorParams.conversionPeriod || ""}
+                  value={typeof indicatorParams.conversionPeriod === "number" || typeof indicatorParams.conversionPeriod === "string" ? indicatorParams.conversionPeriod : ""}
                   onChange={(value) => handleNumericParamChange("conversionPeriod", value)}
                   className="parameter-input h-11"
                 />
@@ -485,7 +483,7 @@ export function IndicatorDialog({ open, onOpenChange, selectedIndicatorType, onA
                   id="basePeriod"
                   min={1}
                   max={100}
-                  value={indicatorParams.basePeriod || ""}
+                  value={typeof indicatorParams.basePeriod === "number" || typeof indicatorParams.basePeriod === "string" ? indicatorParams.basePeriod : ""}
                   onChange={(value) => handleNumericParamChange("basePeriod", value)}
                   className="h-11"
                 />
@@ -500,7 +498,7 @@ export function IndicatorDialog({ open, onOpenChange, selectedIndicatorType, onA
                   id="spanPeriod"
                   min={1}
                   max={100}
-                  value={indicatorParams.spanPeriod || ""}
+                  value={typeof indicatorParams.spanPeriod === "number" || typeof indicatorParams.spanPeriod === "string" ? indicatorParams.spanPeriod : ""}
                   onChange={(value) => handleNumericParamChange("spanPeriod", value)}
                   className="h-11"
                 />
@@ -515,7 +513,7 @@ export function IndicatorDialog({ open, onOpenChange, selectedIndicatorType, onA
                   id="displacement"
                   min={1}
                   max={100}
-                  value={indicatorParams.displacement || ""}
+                  value={typeof indicatorParams.displacement === "number" || typeof indicatorParams.displacement === "string" ? indicatorParams.displacement : ""}
                   onChange={(value) => handleNumericParamChange("displacement", value)}
                   className="h-11"
                 />
@@ -630,7 +628,7 @@ export function IndicatorDialog({ open, onOpenChange, selectedIndicatorType, onA
           {selectedIndicatorType && (
             <div className="flex items-start mb-4 text-gray-600 dark:text-slate-400 text-xs">
               <Info size={14} className="mr-2 mt-0.5 flex-shrink-0" />
-              <p>{indicatorDefaults[selectedIndicatorType]?.description || "Configure parameters for your indicator."}</p>
+              <p>Configure parameters for your indicator.</p>
             </div>
           )}
           <div className="flex justify-end items-center gap-3">
