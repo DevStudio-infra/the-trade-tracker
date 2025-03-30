@@ -1352,79 +1352,59 @@ export function TradingChart({ pair }: TradingChartProps) {
     }
   }, [candles, resolvedTheme, indicators]); // Add indicators to dependencies
 
-  // Create MACD indicator
+  /**
+   * Create MACD indicator
+   */
   const createMACDIndicator = (indicator: IndicatorConfig) => {
-    // Get the dedicated pane index for this MACD instance
-    const indicatorKey = `MACD-${indicator.id}`;
-    let macdPaneIndex = oscillatorPanesRef.current[indicatorKey];
-
-    if (!macdPaneIndex) {
-      // Assign a new pane if needed
-      macdPaneIndex = getNextAvailablePaneIndex();
-      oscillatorPanesRef.current[indicatorKey] = macdPaneIndex;
-      indicator.parameters.paneIndex = macdPaneIndex;
-      console.log(`CHART DEBUG: Assigning new pane ${macdPaneIndex} to MACD ${indicator.id}`);
+    if (!chartInstanceRef.current.chart) {
+      console.error("[createMACDIndicator] Chart is null");
+      return;
     }
 
-    // Ensure the pane exists
-    ensurePaneExists(macdPaneIndex);
+    // Always use volume pane (index 1) for MACD indicators
+    const macdPaneIndex = 1;
 
-    console.log(`CHART DEBUG: Creating MACD in pane ${macdPaneIndex}`);
+    // Generate a unique price scale ID for this specific MACD instance
+    const uniquePriceScaleId = `macd-${Date.now()}-scale`;
+
+    console.log(`[MACD DEBUG] Creating MACD indicator in pane ${macdPaneIndex} with price scale ID: ${uniquePriceScaleId}`);
 
     try {
-      // Create the MACD indicator with our renderer - using updated approach
+      // Create MACD with properly defined parameters
       const macdIndicator = createIndicator("MACD", {
         ...indicator.parameters,
-        macdColor: indicator.parameters.macdColor || "#2962FF",
-        signalColor: indicator.parameters.signalColor || "#FF6D00",
-        histogramColorPositive: indicator.parameters.histogramColorPositive || "#26A69A",
-        histogramColorNegative: indicator.parameters.histogramColorNegative || "#EF5350",
-        fastPeriod: indicator.parameters.fastPeriod || 12,
-        slowPeriod: indicator.parameters.slowPeriod || 26,
-        signalPeriod: indicator.parameters.signalPeriod || 9,
+        priceScaleId: uniquePriceScaleId,
         paneIndex: macdPaneIndex,
-        // Ensure we have type specified
-        type: "MACD",
       });
 
       // Initialize with our chart
-      macdIndicator.initialize(chartInstanceRef.current.chart as ChartApiWithPanes, indicator);
+      macdIndicator.initialize(chartInstanceRef.current.chart as unknown as ChartApiWithPanes, indicator);
 
-      // Create all series in the same pane
+      // Create series in the specified pane
       const series = macdIndicator.createSeries(macdPaneIndex);
 
-      // Store the main series in the indicator
       if (series) {
+        console.log(`[MACD DEBUG] Successfully created MACD indicator in pane ${macdPaneIndex}`);
         indicator.series = series;
+        indicator.paneIndex = macdPaneIndex;
+
+        // Store renderer reference
+        indicatorRenderersRef.current[indicator.id] = macdIndicator;
+
+        // Calculate and set initial MACD data if we have candles
+        if (candles && candles.length > 0) {
+          const formattedCandles = formatCandlesForIndicator(candles);
+          macdIndicator.updateData(formattedCandles);
+          console.log(`[MACD DEBUG] Updated MACD with ${formattedCandles.length} candles`);
+        }
+
+        // Store the indicator config for later reference
+        prevIndicatorsRef.current[indicator.id] = indicator;
+      } else {
+        console.error(`[MACD ERROR] Failed to create MACD indicator series`);
       }
-      indicator.paneIndex = macdPaneIndex;
-
-      // Store renderer reference in our separate ref map
-      indicatorRenderersRef.current[indicator.id] = macdIndicator;
-
-      console.log(`CHART DEBUG: Successfully created MACD indicator in pane ${macdPaneIndex}`);
-
-      // Calculate and set initial MACD data if we have candles
-      if (candles && candles.length > 0) {
-        const formattedCandles = candles.map((candle) => {
-          return {
-            time: (candle.timestamp / 1000) as Time,
-            open: candle.open,
-            high: candle.high,
-            low: candle.low,
-            close: candle.close,
-            value: candle.close,
-          } as FormattedCandle;
-        });
-
-        // Update data using the indicator's own updateData method
-        macdIndicator.updateData(formattedCandles);
-      }
-
-      // Store the indicator config for later reference
-      prevIndicatorsRef.current[indicator.id] = indicator;
     } catch (error) {
-      console.error("CHART DEBUG: Error creating MACD indicator:", error);
+      console.error("[MACD ERROR] Error creating MACD indicator:", error);
     }
   };
 
@@ -1704,6 +1684,22 @@ export function TradingChart({ pair }: TradingChartProps) {
     } catch (error) {
       console.error("CHART DEBUG: Error creating Stochastic indicator:", error);
     }
+  };
+
+  /**
+   * Format candles for indicator use
+   */
+  const formatCandlesForIndicator = (candlesToFormat: Candle[]): FormattedCandle[] => {
+    return candlesToFormat.map((candle) => {
+      return {
+        time: (candle.timestamp / 1000) as Time,
+        open: candle.open,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close,
+        value: candle.close,
+      } as FormattedCandle;
+    });
   };
 
   if (!pair) {
