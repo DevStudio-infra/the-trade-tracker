@@ -629,6 +629,18 @@ export function TradingChart({ pair }: TradingChartProps) {
                     // Use our dedicated Stochastic creation function
                     createStochasticIndicator(indicator);
                     break;
+                  case "ATR":
+                    // Use our dedicated ATR creation function
+                    createATRIndicator(indicator);
+                    break;
+                  case "BollingerBands":
+                    // Use our dedicated Bollinger Bands creation function
+                    createBollingerBandsIndicator(indicator);
+                    break;
+                  case "Ichimoku":
+                    // Use our dedicated Ichimoku Cloud creation function
+                    createIchimokuIndicator(indicator);
+                    break;
                   // Additional indicator types would be handled here
                 }
               }
@@ -662,6 +674,18 @@ export function TradingChart({ pair }: TradingChartProps) {
                     break;
                   case "Stochastic":
                     // Stochastic data is handled within the createStochasticIndicator function
+                    // No need to update here as we're using the updateData method of the indicator
+                    break;
+                  case "ATR":
+                    // ATR data is handled within the createATRIndicator function
+                    // No need to update here as we're using the updateData method of the indicator
+                    break;
+                  case "BollingerBands":
+                    // Bollinger Bands data is handled within the createBollingerBandsIndicator function
+                    // No need to update here as we're using the updateData method of the indicator
+                    break;
+                  case "Ichimoku":
+                    // Ichimoku data is handled within the createIchimokuIndicator function
                     // No need to update here as we're using the updateData method of the indicator
                     break;
                   // Additional indicators would be calculated here
@@ -854,6 +878,66 @@ export function TradingChart({ pair }: TradingChartProps) {
                 }
               }
             }
+          } else if (indicator.type === "ATR") {
+            // Check if we have a renderer for this ATR in our ref
+            const renderer = indicatorRenderersRef.current[indicator.id];
+            if (renderer) {
+              // Call destroy method on the renderer to properly clean up
+              renderer.destroy();
+              // Remove from our refs
+              delete indicatorRenderersRef.current[indicator.id];
+              console.log(`CHART DEBUG: Destroyed ATR renderer for ${indicator.id}`);
+            } else {
+              // Fallback to removing series directly if renderer not available
+              if (indicator.series) {
+                try {
+                  chartInstanceRef.current.chart?.removeSeries(indicator.series);
+                  console.log(`CHART DEBUG: Removed main ATR series for ${indicator.id}`);
+                } catch (e) {
+                  console.error("Error removing ATR series:", e);
+                }
+              }
+            }
+          } else if (indicator.type === "BollingerBands") {
+            // Check if we have a renderer for this Bollinger Bands in our ref
+            const renderer = indicatorRenderersRef.current[indicator.id];
+            if (renderer) {
+              // Call destroy method on the renderer to properly clean up
+              renderer.destroy();
+              // Remove from our refs
+              delete indicatorRenderersRef.current[indicator.id];
+              console.log(`CHART DEBUG: Destroyed Bollinger Bands renderer for ${indicator.id}`);
+            } else {
+              // Fallback to removing series directly if renderer not available
+              if (indicator.series) {
+                try {
+                  chartInstanceRef.current.chart?.removeSeries(indicator.series);
+                  console.log(`CHART DEBUG: Removed main Bollinger Bands series for ${indicator.id}`);
+                } catch (e) {
+                  console.error("Error removing Bollinger Bands series:", e);
+                }
+              }
+            }
+          } else if (indicator.type === "Ichimoku") {
+            // Check if we have a renderer for this Ichimoku Cloud in our ref
+            const renderer = indicatorRenderersRef.current[indicator.id];
+            if (renderer) {
+              // Call destroy method on the renderer to properly clean up
+              renderer.destroy();
+              // Remove from our refs
+              delete indicatorRenderersRef.current[indicator.id];
+              console.log(`CHART DEBUG: Destroyed Ichimoku Cloud renderer for ${indicator.id}`);
+            } else {
+              // Fallback to removing series directly if renderer not available
+              if (indicator.series) {
+                try {
+                  chartInstanceRef.current.chart?.removeSeries(indicator.series);
+                  console.log(`CHART DEBUG: Removed main Ichimoku Cloud series for ${indicator.id}`);
+                } catch (e) {
+                  console.error("Error removing Ichimoku Cloud series:", e);
+                }
+              }
+            }
           } else {
             // For other indicator types
             if (indicator.series) {
@@ -870,7 +954,14 @@ export function TradingChart({ pair }: TradingChartProps) {
           delete prevIndicatorsRef.current[indicator.id];
 
           // Handle oscillator panes
-          if (indicator.type === "RSI" || indicator.type === "MACD" || indicator.type === "Stochastic") {
+          if (
+            indicator.type === "RSI" ||
+            indicator.type === "MACD" ||
+            indicator.type === "Stochastic" ||
+            indicator.type === "ATR" ||
+            indicator.type === "BollingerBands" ||
+            indicator.type === "Ichimoku"
+          ) {
             const key = `${indicator.type}-${indicator.id}`;
             delete oscillatorPanesRef.current[key];
           }
@@ -1298,6 +1389,21 @@ export function TradingChart({ pair }: TradingChartProps) {
                     // Use our dedicated Stochastic creation function
                     createStochasticIndicator(indicator);
                     break;
+
+                  case "ATR":
+                    // Use our dedicated ATR creation function
+                    createATRIndicator(indicator);
+                    break;
+
+                  case "BollingerBands":
+                    // Use our dedicated Bollinger Bands creation function
+                    createBollingerBandsIndicator(indicator);
+                    break;
+
+                  case "Ichimoku":
+                    // Use our dedicated Ichimoku Cloud creation function
+                    createIchimokuIndicator(indicator);
+                    break;
                 }
               } catch (error) {
                 console.error("Error creating indicator:", error);
@@ -1334,6 +1440,19 @@ export function TradingChart({ pair }: TradingChartProps) {
                     // Stochastic data is handled within the createStochasticIndicator function
                     // No need to update here as we're using the updateData method of the indicator
                     break;
+                  case "ATR":
+                    // ATR data is handled within the createATRIndicator function
+                    // No need to update here as we're using the updateData method of the indicator
+                    break;
+                  case "BollingerBands":
+                    // Bollinger Bands data is handled within the createBollingerBandsIndicator function
+                    // No need to update here as we're using the updateData method of the indicator
+                    break;
+                  case "Ichimoku":
+                    // Ichimoku data is handled within the createIchimokuIndicator function
+                    // No need to update here as we're using the updateData method of the indicator
+                    break;
+                  // Additional indicators would be calculated here
                 }
               }
             });
@@ -1700,6 +1819,235 @@ export function TradingChart({ pair }: TradingChartProps) {
         value: candle.close,
       } as FormattedCandle;
     });
+  };
+
+  /**
+   * Create an ATR Indicator
+   */
+  const createATRIndicator = (indicator: IndicatorConfig) => {
+    try {
+      if (!chartInstanceRef.current?.chart) {
+        console.error("[ATR DEBUG] Cannot create ATR indicator without chart");
+        return;
+      }
+
+      console.log(`[ATR DEBUG] Creating ATR indicator with id ${indicator.id}`);
+      console.log(`[ATR DEBUG] ATR parameters:`, indicator.parameters);
+
+      // Always use volume pane (index 1) for ATR indicators
+      const atrPaneIndex = 1;
+      console.log(`[ATR DEBUG] Using pane ${atrPaneIndex} for ATR indicator`);
+
+      // Store pane assignment for tracking
+      const atrPaneKey = `ATR-${indicator.id}`;
+      oscillatorPanesRef.current[atrPaneKey] = atrPaneIndex;
+
+      // Update indicator parameters with our fixed pane assignment
+      indicator.parameters.paneIndex = atrPaneIndex;
+
+      // Create a unique price scale ID for this instance
+      const priceScaleId = `atr-${indicator.id}-${Date.now()}`;
+      console.log(`[ATR DEBUG] Generated price scale ID: ${priceScaleId}`);
+      indicator.parameters.priceScaleId = priceScaleId;
+
+      // Create the ATR indicator with our renderer
+      const atrIndicator = createIndicator("ATR", {
+        ...indicator.parameters,
+        period: indicator.parameters.period || 14,
+        paneIndex: atrPaneIndex,
+        priceScaleId: priceScaleId,
+        type: "ATR",
+      });
+
+      // Initialize with our chart
+      atrIndicator.initialize(chartInstanceRef.current.chart as unknown as ChartApiWithPanes, indicator);
+
+      // Create series in the specified pane
+      const series = atrIndicator.createSeries(atrPaneIndex);
+
+      console.log(`[ATR DEBUG] Series created:`, series ? "Success" : "Failed");
+
+      // Store the series and update configuration
+      if (series) {
+        indicator.series = series;
+        indicator.paneIndex = atrPaneIndex;
+        console.log(`[ATR DEBUG] ATR indicator ${indicator.id} created successfully in pane ${atrPaneIndex}`);
+      } else {
+        console.error(`[ATR ERROR] Failed to create series for ATR ${indicator.id}`);
+      }
+
+      // Store renderer reference
+      indicatorRenderersRef.current[indicator.id] = atrIndicator;
+
+      // Update data if we have candles
+      if (candles && candles.length > 0) {
+        const formattedCandles = formatCandlesForIndicator(candles);
+        atrIndicator.updateData(formattedCandles);
+        console.log(`[ATR DEBUG] Updated ATR ${indicator.id} with ${formattedCandles.length} candles`);
+      }
+
+      // Store the indicator config
+      prevIndicatorsRef.current[indicator.id] = indicator;
+
+      return atrIndicator;
+    } catch (error) {
+      console.error("[ATR ERROR] Error creating ATR indicator:", error);
+    }
+  };
+
+  /**
+   * Create a Bollinger Bands Indicator
+   */
+  const createBollingerBandsIndicator = (indicator: IndicatorConfig) => {
+    try {
+      if (!chartInstanceRef.current?.chart) {
+        console.error("[BB DEBUG] Cannot create Bollinger Bands indicator without chart");
+        return;
+      }
+
+      console.log(`[BB DEBUG] Creating Bollinger Bands indicator with id ${indicator.id}`);
+      console.log(`[BB DEBUG] Bollinger Bands parameters:`, indicator.parameters);
+
+      // Bollinger Bands go on the main price chart (pane 0)
+      const bbandsIndex = 0;
+      console.log(`[BB DEBUG] Using main price chart (pane ${bbandsIndex}) for Bollinger Bands indicator`);
+
+      // Update indicator parameters with our main pane assignment
+      indicator.parameters.paneIndex = bbandsIndex;
+
+      // Create a unique price scale ID for this instance
+      const priceScaleId = `bbands-${indicator.id}-${Date.now()}`;
+      console.log(`[BB DEBUG] Generated price scale ID: ${priceScaleId}`);
+      indicator.parameters.priceScaleId = priceScaleId;
+
+      // Create the Bollinger Bands indicator with our renderer
+      const bbandsIndicator = createIndicator("BollingerBands", {
+        ...indicator.parameters,
+        period: indicator.parameters.period || 20,
+        stdDev: indicator.parameters.stdDev || 2,
+        middleBandColor: indicator.parameters.middleBandColor || indicator.color || "#FF9800",
+        upperBandColor: indicator.parameters.upperBandColor || "#FF6D00",
+        lowerBandColor: indicator.parameters.lowerBandColor || "#2962FF",
+        paneIndex: bbandsIndex,
+        priceScaleId: priceScaleId,
+        type: "BollingerBands",
+      });
+
+      // Initialize with our chart
+      bbandsIndicator.initialize(chartInstanceRef.current.chart as unknown as ChartApiWithPanes, indicator);
+
+      // Create series in the specified pane
+      const series = bbandsIndicator.createSeries(bbandsIndex);
+
+      console.log(`[BB DEBUG] Series created:`, series ? "Success" : "Failed");
+
+      // Store the series and update configuration
+      if (series) {
+        indicator.series = series;
+        indicator.paneIndex = bbandsIndex;
+        console.log(`[BB DEBUG] Bollinger Bands indicator ${indicator.id} created successfully in pane ${bbandsIndex}`);
+      } else {
+        console.error(`[BB ERROR] Failed to create series for Bollinger Bands ${indicator.id}`);
+      }
+
+      // Store renderer reference
+      indicatorRenderersRef.current[indicator.id] = bbandsIndicator;
+
+      // Update data if we have candles
+      if (candles && candles.length > 0) {
+        const formattedCandles = formatCandlesForIndicator(candles);
+        bbandsIndicator.updateData(formattedCandles);
+        console.log(`[BB DEBUG] Updated Bollinger Bands ${indicator.id} with ${formattedCandles.length} candles`);
+      }
+
+      // Store the indicator config
+      prevIndicatorsRef.current[indicator.id] = indicator;
+
+      return bbandsIndicator;
+    } catch (error) {
+      console.error("[BB ERROR] Error creating Bollinger Bands indicator:", error);
+    }
+  };
+
+  /**
+   * Create an Ichimoku Cloud Indicator
+   */
+  const createIchimokuIndicator = (indicator: IndicatorConfig) => {
+    try {
+      if (!chartInstanceRef.current?.chart) {
+        console.error("[ICHIMOKU] Cannot create Ichimoku Cloud indicator without chart");
+        return;
+      }
+
+      console.log(`[ICHIMOKU] Creating Ichimoku Cloud indicator with id ${indicator.id}`);
+      console.log(`[ICHIMOKU] Ichimoku parameters:`, indicator.parameters);
+
+      // Ichimoku goes on the main price chart (pane 0)
+      const ichimokuPaneIndex = 0;
+      console.log(`[ICHIMOKU] Using main price chart (pane ${ichimokuPaneIndex}) for Ichimoku Cloud indicator`);
+
+      // Update indicator parameters with our main pane assignment
+      indicator.parameters.paneIndex = ichimokuPaneIndex;
+
+      // Create a unique price scale ID for this instance
+      const priceScaleId = `ichimoku-${indicator.id}-${Date.now()}`;
+      console.log(`[ICHIMOKU] Generated price scale ID: ${priceScaleId}`);
+      indicator.parameters.priceScaleId = priceScaleId;
+
+      // Create the Ichimoku Cloud indicator with our renderer
+      const ichimokuIndicator = createIndicator("Ichimoku", {
+        ...indicator.parameters,
+        // Set default parameters if not provided
+        conversionPeriod: indicator.parameters.conversionPeriod || 9,
+        basePeriod: indicator.parameters.basePeriod || 26,
+        spanPeriod: indicator.parameters.spanPeriod || 52,
+        displacement: indicator.parameters.displacement || 26,
+        // Set default colors if not provided
+        conversionLineColor: indicator.parameters.conversionLineColor || "#2962FF", // Blue
+        baseLineColor: indicator.parameters.baseLineColor || "#FF6D00", // Orange
+        spanAColor: indicator.parameters.spanAColor || "#26A69A", // Green
+        spanBColor: indicator.parameters.spanBColor || "#EF5350", // Red
+        chikouColor: indicator.parameters.chikouColor || "#9C27B0", // Purple
+        // Pass pane and scale info
+        paneIndex: ichimokuPaneIndex,
+        priceScaleId: priceScaleId,
+        type: "Ichimoku",
+      });
+
+      // Initialize with our chart
+      ichimokuIndicator.initialize(chartInstanceRef.current.chart as unknown as ChartApiWithPanes, indicator);
+
+      // Create series in the specified pane
+      const series = ichimokuIndicator.createSeries(ichimokuPaneIndex);
+
+      console.log(`[ICHIMOKU] Series created:`, series ? "Success" : "Failed");
+
+      // Store the series and update configuration
+      if (series) {
+        indicator.series = series;
+        indicator.paneIndex = ichimokuPaneIndex;
+        console.log(`[ICHIMOKU] Ichimoku Cloud indicator ${indicator.id} created successfully in pane ${ichimokuPaneIndex}`);
+      } else {
+        console.error(`[ICHIMOKU] Failed to create series for Ichimoku Cloud ${indicator.id}`);
+      }
+
+      // Store renderer reference
+      indicatorRenderersRef.current[indicator.id] = ichimokuIndicator;
+
+      // Update data if we have candles
+      if (candles && candles.length > 0) {
+        const formattedCandles = formatCandlesForIndicator(candles);
+        ichimokuIndicator.updateData(formattedCandles);
+        console.log(`[ICHIMOKU] Updated Ichimoku Cloud ${indicator.id} with ${formattedCandles.length} candles`);
+      }
+
+      // Store the indicator config
+      prevIndicatorsRef.current[indicator.id] = indicator;
+
+      return ichimokuIndicator;
+    } catch (error) {
+      console.error("[ICHIMOKU] Error creating Ichimoku Cloud indicator:", error);
+    }
   };
 
   if (!pair) {

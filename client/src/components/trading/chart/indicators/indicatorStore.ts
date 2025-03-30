@@ -1,12 +1,13 @@
 "use client";
 
 import { create } from "zustand";
-import { persist, StorageValue } from "zustand/middleware";
+import { persist } from "zustand/middleware";
 import { v4 as uuidv4 } from "uuid";
-import { ChartApiWithPanes, IndicatorConfig, IndicatorParameters, IndicatorType } from "../core/ChartTypes";
+import { ChartApiWithPanes, IndicatorConfig, IndicatorParameters } from "../core/ChartTypes";
 import { BaseIndicator } from "./base/types";
-import { createIndicator, getIndicatorConfig } from "./indicatorFactory";
-import { OscillatorPaneTracker, PaneReferenceTracker, cleanUpUnusedPanes, ensurePaneExists, generateIndicatorKey, getNextAvailablePaneIndex } from "../core/ChartUtils";
+import { createIndicator } from "./indicatorFactory";
+import { OscillatorPaneTracker, PaneReferenceTracker, cleanUpUnusedPanes, ensurePaneExists, getNextAvailablePaneIndex } from "../core/ChartUtils";
+import { FormattedCandle } from "../core/ChartTypes";
 
 interface IndicatorState {
   // Map of indicator ID to indicator instance
@@ -34,21 +35,24 @@ interface IndicatorState {
   getIndicators: () => BaseIndicator[];
   clearAllIndicators: () => void;
   setChartInstance: (chart: ChartApiWithPanes | null) => void;
-  updateData: (candles: any[]) => void;
+  updateData: (candles: FormattedCandle[]) => void;
   toggleVisibility: (key: string) => void;
   cleanupUnusedPanes: () => void;
   reset: () => void;
 }
 
-// Interface for serializable indicator data
+// Interface for serialized indicators
 interface SerializedIndicator {
   id: string;
   config: IndicatorConfig;
 }
 
-// Custom serialization type
-interface SerializedState extends Omit<IndicatorState, "indicators"> {
+// Interface for serialized state
+interface SerializedState {
   indicators: SerializedIndicator[];
+  indicatorOrder: string[];
+  oscillatorPanes: OscillatorPaneTracker;
+  createdPanes: PaneReferenceTracker;
 }
 
 export const useIndicatorStore = create<IndicatorState>()(
@@ -243,7 +247,7 @@ export const useIndicatorStore = create<IndicatorState>()(
         });
       },
 
-      updateData: (candles: any[]) => {
+      updateData: (candles: FormattedCandle[]) => {
         const { indicators } = get();
 
         if (candles.length === 0) {
@@ -252,7 +256,7 @@ export const useIndicatorStore = create<IndicatorState>()(
         }
 
         // Update all indicators with the new data
-        Object.values(indicators).forEach((indicator) => {
+        indicators.forEach((indicator) => {
           try {
             indicator.updateData(candles);
           } catch (error) {
@@ -321,61 +325,88 @@ export const useIndicatorStore = create<IndicatorState>()(
     }),
     {
       name: "trading-chart-indicators",
-      serialize: (state): string => {
-        // Convert indicators Map to array for serialization
-        const serializableState: SerializedState = {
-          ...state,
-          indicators: Array.from(state.indicators.entries()).map(([id, indicator]: [string, BaseIndicator]) => {
-            // Serialize each indicator (just store config, not the full instance)
-            return {
-              id,
-              config: indicator.getConfig(),
+      storage: {
+        getItem: (name) => {
+          try {
+            const value = localStorage.getItem(name);
+            if (!value) return null;
+            return JSON.parse(value);
+          } catch (e) {
+            console.error(`Error retrieving ${name} from localStorage:`, e);
+            return null;
+          }
+        },
+        setItem: (name, value) => {
+          try {
+            // Type-safe extraction
+            const state = value.state;
+            if (!state) {
+              localStorage.setItem(name, JSON.stringify(value));
+              return;
+            }
+
+            // Convert indicators Map to array for serialization
+            const indicators =
+              state.indicators instanceof Map
+                ? Array.from(state.indicators.entries()).map(([id, indicator]) => {
+                    // The indicator should be a BaseIndicator, but use safe access pattern
+                    const baseIndicator = indicator as BaseIndicator;
+                    const config = baseIndicator.getConfig ? baseIndicator.getConfig() : {};
+                    return { id, config };
+                  })
+                : [];
+
+            const serializableState = {
+              state: {
+                indicators,
+                indicatorOrder: state.indicatorOrder || [],
+                chartInstance: null, // Don't serialize chart instance
+                oscillatorPanes: state.oscillatorPanes || {},
+                createdPanes: state.createdPanes || {},
+              },
+              version: value.version,
             };
-          }),
-        };
-        return JSON.stringify(serializableState);
+
+            localStorage.setItem(name, JSON.stringify(serializableState));
+          } catch (e) {
+            console.error(`Error storing ${name} in localStorage:`, e);
+          }
+        },
+        removeItem: (name) => {
+          localStorage.removeItem(name);
+        },
       },
-      deserialize: (str): IndicatorState => {
-        const deserializedState = JSON.parse(str) as SerializedState;
+      onRehydrateStorage: () => (state) => {
+        if (!state) return;
 
-        // Reconstruct the state with empty collections first
-        const state: IndicatorState = {
-          ...deserializedState,
-          indicators: new Map(),
-          indicatorOrder: deserializedState.indicatorOrder || [],
-          // Add all methods from the store definition
-          addIndicator: () => "", // Will be overwritten by the store
-          createAndAddIndicator: () => "", // Will be overwritten by the store
-          removeIndicator: () => {}, // Will be overwritten by the store
-          updateIndicator: () => {}, // Will be overwritten by the store
-          setIndicatorVisibility: () => {}, // Will be overwritten by the store
-          reorderIndicators: () => {}, // Will be overwritten by the store
-          getIndicator: () => undefined, // Will be overwritten by the store
-          getIndicators: () => [], // Will be overwritten by the store
-          clearAllIndicators: () => {}, // Will be overwritten by the store
-          setChartInstance: () => {}, // Will be overwritten by the store
-          updateData: () => {}, // Will be overwritten by the store
-          toggleVisibility: () => {}, // Will be overwritten by the store
-          cleanupUnusedPanes: () => {}, // Will be overwritten by the store
-          reset: () => {}, // Will be overwritten by the store
-        };
+        // Cast state to access indicators safely
+        const serializedState = state as unknown as SerializedState;
 
-        // Recreate indicator instances from configs
-        if (Array.isArray(deserializedState.indicators)) {
-          deserializedState.indicators.forEach(({ id, config }) => {
+        // Regenerate BaseIndicator instances from serialized configs
+        const indicators = new Map<string, BaseIndicator>();
+
+        if (serializedState.indicators && Array.isArray(serializedState.indicators)) {
+          serializedState.indicators.forEach((item: SerializedIndicator) => {
             try {
-              // Recreate the indicator using the factory
-              const indicator = createIndicator(config.type as string, config.parameters);
+              // Type safety for config
+              if (!item || !item.id || !item.config || !item.config.type) {
+                console.error(`Invalid indicator data:`, item);
+                return;
+              }
 
-              // Add to the map
-              state.indicators.set(id, indicator);
+              const indicator = createIndicator(item.config.type as string, item.config.parameters);
+
+              indicators.set(item.id, indicator);
             } catch (error) {
-              console.error(`Failed to deserialize indicator ${id}:`, error);
+              console.error(`Failed to rehydrate indicator:`, error);
             }
           });
         }
 
-        return state;
+        // Replace the array with a Map in the original state object
+        // This is a type cast since we're changing the structure
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (state as any).indicators = indicators;
       },
     }
   )

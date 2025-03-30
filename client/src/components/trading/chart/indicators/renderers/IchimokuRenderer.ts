@@ -33,6 +33,7 @@ export class IchimokuRenderer extends IndicatorBase {
   private spanASeries: ISeriesApi<"Line"> | null = null;
   private spanBSeries: ISeriesApi<"Line"> | null = null;
   private chikouSeries: ISeriesApi<"Line"> | null = null;
+  private priceScaleId: string; // Add priceScaleId for sharing between all components
 
   // Default parameters
   private conversionPeriod: number;
@@ -60,6 +61,9 @@ export class IchimokuRenderer extends IndicatorBase {
     this.spanAColor = options.spanAColor || "#26A69A"; // Green
     this.spanBColor = options.spanBColor || "#EF5350"; // Red
     this.chikouColor = options.chikouColor || "#9C27B0"; // Purple
+
+    // Create a unique price scale ID for this instance
+    this.priceScaleId = `ichimoku-${options.id}-scale`;
   }
 
   /**
@@ -69,25 +73,42 @@ export class IchimokuRenderer extends IndicatorBase {
    */
   createSeries(paneIndex: number): ISeriesApi<SeriesType> | null {
     if (!this.chart) {
-      console.error("Chart instance not available");
+      console.error("[ICHIMOKU] Chart instance not available");
       return null;
     }
 
     try {
-      console.log(`Creating Ichimoku series in pane ${paneIndex}`);
+      console.log(`[ICHIMOKU] Creating Ichimoku series in pane ${paneIndex}`);
+
+      // Use price scale ID from parameters if provided, otherwise use the one from constructor
+      if (this.config.parameters.priceScaleId) {
+        this.priceScaleId = this.config.parameters.priceScaleId as string;
+      }
+
+      console.log(`[ICHIMOKU] Using price scale ID: ${this.priceScaleId}`);
+
+      // For main pane, share the right price scale
+      const sharedScaleId = paneIndex === 0 ? "right" : this.priceScaleId;
+
+      // Common options for all series
+      const commonSeriesOptions = {
+        priceFormat: {
+          type: "price" as const,
+          precision: 2,
+          minMove: 0.01,
+        },
+        priceScaleId: sharedScaleId,
+      };
 
       // Create Tenkan-sen (Conversion Line)
       this.conversionLineSeries = this.chart.addSeries(
         LineSeries,
         {
+          ...commonSeriesOptions,
           color: this.conversionLineColor,
-          lineWidth: 2,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          lineWidth: 2 as any,
           title: `Tenkan-sen (${this.conversionPeriod})`,
-          priceFormat: {
-            type: "price",
-            precision: 2,
-            minMove: 0.01,
-          },
         },
         paneIndex
       ) as ISeriesApi<"Line">;
@@ -96,14 +117,11 @@ export class IchimokuRenderer extends IndicatorBase {
       this.baseLineSeries = this.chart.addSeries(
         LineSeries,
         {
+          ...commonSeriesOptions,
           color: this.baseLineColor,
-          lineWidth: 2,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          lineWidth: 2 as any,
           title: `Kijun-sen (${this.basePeriod})`,
-          priceFormat: {
-            type: "price",
-            precision: 2,
-            minMove: 0.01,
-          },
         },
         paneIndex
       ) as ISeriesApi<"Line">;
@@ -112,15 +130,12 @@ export class IchimokuRenderer extends IndicatorBase {
       this.spanASeries = this.chart.addSeries(
         LineSeries,
         {
+          ...commonSeriesOptions,
           color: this.spanAColor,
-          lineWidth: 1,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          lineWidth: 1 as any,
           lineStyle: 2, // Dashed
           title: "Senkou Span A",
-          priceFormat: {
-            type: "price",
-            precision: 2,
-            minMove: 0.01,
-          },
         },
         paneIndex
       ) as ISeriesApi<"Line">;
@@ -129,15 +144,12 @@ export class IchimokuRenderer extends IndicatorBase {
       this.spanBSeries = this.chart.addSeries(
         LineSeries,
         {
+          ...commonSeriesOptions,
           color: this.spanBColor,
-          lineWidth: 1,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          lineWidth: 1 as any,
           lineStyle: 2, // Dashed
           title: "Senkou Span B",
-          priceFormat: {
-            type: "price",
-            precision: 2,
-            minMove: 0.01,
-          },
         },
         paneIndex
       ) as ISeriesApi<"Line">;
@@ -146,17 +158,22 @@ export class IchimokuRenderer extends IndicatorBase {
       this.chikouSeries = this.chart.addSeries(
         LineSeries,
         {
+          ...commonSeriesOptions,
           color: this.chikouColor,
-          lineWidth: 1,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          lineWidth: 1 as any,
           title: "Chikou Span",
-          priceFormat: {
-            type: "price",
-            precision: 2,
-            minMove: 0.01,
-          },
         },
         paneIndex
       ) as ISeriesApi<"Line">;
+
+      // Store all series references in additionalSeries for easy access
+      this.additionalSeries = {
+        baseLineSeries: this.baseLineSeries,
+        spanASeries: this.spanASeries,
+        spanBSeries: this.spanBSeries,
+        chikouSeries: this.chikouSeries,
+      };
 
       // Store reference for later
       this.mainSeries = this.conversionLineSeries;
@@ -166,12 +183,12 @@ export class IchimokuRenderer extends IndicatorBase {
       this.config.paneIndex = paneIndex;
       this.config.parameters.paneIndex = paneIndex;
 
-      console.log(`Successfully created Ichimoku series`);
+      console.log(`[ICHIMOKU] Successfully created Ichimoku series`);
 
       // Main series is the Conversion Line (Tenkan-sen)
       return this.conversionLineSeries;
     } catch (error) {
-      console.error("Error creating Ichimoku series:", error);
+      console.error("[ICHIMOKU] Error creating Ichimoku series:", error);
       return null;
     }
   }

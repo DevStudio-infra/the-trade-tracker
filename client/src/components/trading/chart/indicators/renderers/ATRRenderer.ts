@@ -12,6 +12,7 @@ import { calculateATR } from "../calculations/atr";
 export interface ATRRendererOptions extends BaseIndicatorOptions {
   parameters: IndicatorParameters & {
     period?: number;
+    priceScaleId?: string;
   };
 }
 
@@ -33,7 +34,7 @@ export class ATRRenderer extends IndicatorBase {
       name: options.name || `ATR (${options.parameters.period || 14})`,
       type: "ATR",
     });
-    this.priceScaleId = `atr-scale-${options.id}`;
+    this.priceScaleId = `atr-${options.id}-scale`;
   }
 
   /**
@@ -46,8 +47,16 @@ export class ATRRenderer extends IndicatorBase {
       // Get parameters
       const period = (this.config.parameters.period as number) || 14;
 
+      // Use price scale ID from parameters if provided, otherwise use the default
+      if (this.config.parameters.priceScaleId) {
+        this.priceScaleId = this.config.parameters.priceScaleId as string;
+      }
+
       // Log creation
-      console.log(`[ATR] Creating ATR series for ${this.config.id} in pane ${paneIndex}`);
+      console.log(`[ATR] Creating ATR series for ${this.config.id} in pane ${paneIndex} with price scale ID: ${this.priceScaleId}`);
+
+      // Determine the pane type for proper configuration
+      const isInVolumPane = paneIndex === 1;
 
       // Create the ATR line series
       this.lineSeries = this.chart.addSeries(
@@ -56,6 +65,7 @@ export class ATRRenderer extends IndicatorBase {
           color: this.config.color,
           // We use `any` here because the types in lightweight-charts are inconsistent
           // between different versions. In v3, lineWidth is a number, but in v4+ it's an object.
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           lineWidth: 2 as any,
           lastValueVisible: true,
           priceFormat: {
@@ -65,9 +75,38 @@ export class ATRRenderer extends IndicatorBase {
           },
           title: `ATR (${period})`,
           priceScaleId: this.priceScaleId,
+          // Don't use overlay - it's not available in the type
         },
         paneIndex
       ) as ISeriesApi<"Line">;
+
+      // Configure the price scale specifically for ATR
+      if (this.lineSeries && typeof this.lineSeries.priceScale === "function") {
+        const priceScale = this.lineSeries.priceScale();
+
+        if (isInVolumPane) {
+          // For volume pane, position ATR above volume bars
+          priceScale.applyOptions({
+            scaleMargins: {
+              top: 0.05, // Very small margin at top
+              bottom: 0.5, // Leave bottom half for volume
+            },
+            visible: true,
+            autoScale: true,
+            mode: 0,
+          });
+        } else {
+          // For other panes, use default settings
+          priceScale.applyOptions({
+            autoScale: true,
+            mode: 0,
+            scaleMargins: {
+              top: 0.1,
+              bottom: 0.1,
+            },
+          });
+        }
+      }
 
       // Store reference for later
       this.mainSeries = this.lineSeries;
@@ -121,7 +160,14 @@ export class ATRRenderer extends IndicatorBase {
    * Get the preferred pane index for this indicator type
    */
   getPreferredPaneIndex(): number {
-    return -1; // ATR goes in a separate pane
+    // If a pane index is specified in the configuration, use it
+    if (typeof this.config.parameters.paneIndex === "number") {
+      return this.config.parameters.paneIndex as number;
+    }
+
+    // CRITICAL FIX: Always use pane 1 (volume pane) for ATR
+    // This ensures all ATR indicators go in the same pane
+    return 1;
   }
 
   /**
