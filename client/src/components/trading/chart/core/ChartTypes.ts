@@ -69,6 +69,8 @@ export interface IndicatorParameters {
   additionalSeries?: {
     [key: string]: ISeriesApi<SeriesType> | null;
   };
+  // Allow storing arbitrary objects as a property, needed for renderer references
+  [key: symbol]: unknown;
 }
 
 /**
@@ -128,6 +130,10 @@ export const indicatorDefaults: IndicatorDefaults = {
       fastPeriod: 12,
       slowPeriod: 26,
       signalPeriod: 9,
+      macdColor: "#2962FF",
+      signalColor: "#FF6D00",
+      histogramColorPositive: "#26A69A",
+      histogramColorNegative: "#EF5350",
     },
   },
   BollingerBands: {

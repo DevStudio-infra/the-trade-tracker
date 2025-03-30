@@ -35,3 +35,6 @@ export * from "./base/IndicatorBase";
 // Export indicator factory and store
 export * from "./indicatorFactory";
 export * from "./indicatorStore";
+
+// No longer export deprecated components
+// export * from './IndicatorRenderer';

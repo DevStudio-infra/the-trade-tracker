@@ -39,7 +39,7 @@ export function createIndicator(type: string, params?: IndicatorParameters): Bas
   switch (type) {
     case "MACD":
       indicator = new MACDRenderer({
-        type: type as IndicatorType,
+        type: "MACD",
         id,
         parameters: mergedParams,
         name: `MACD (${mergedParams.fastPeriod || 12}, ${mergedParams.slowPeriod || 26}, ${mergedParams.signalPeriod || 9})`,

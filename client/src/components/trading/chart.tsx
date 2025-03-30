@@ -15,6 +15,8 @@ import { useSettings } from "@/hooks/useSettings";
 import { IndicatorManager } from "@/components/trading/chart/indicators";
 import { IndicatorType, IndicatorConfig, ChartApiWithPanes } from "./chart/core/ChartTypes";
 import { ChartHeader } from "./chart/ChartHeader";
+import { createIndicator } from "./chart/indicators/indicatorFactory";
+import { BaseIndicator } from "./chart/indicators/base/types";
 
 // Timeframes are now imported from ChartTypes.ts
 
@@ -60,6 +62,8 @@ interface FormattedCandle {
   value: number;
 }
 
+// Add this at the top level, outside any component
+
 export function TradingChart({ pair }: TradingChartProps) {
   // State management - group related state variables together
   // Chart state
@@ -97,6 +101,9 @@ export function TradingChart({ pair }: TradingChartProps) {
   // References for tracking oscillator panes
   const oscillatorPanesRef = useRef<Record<string, number>>({});
   const panesRef = useRef<Record<number, boolean>>({ 0: true, 1: true }); // 0: main, 1: volume
+
+  // Add this near other refs
+  const indicatorRenderersRef = useRef<Record<string, BaseIndicator>>({});
 
   // Hooks
   const api = useApi();
@@ -157,6 +164,8 @@ export function TradingChart({ pair }: TradingChartProps) {
     // Get colors based on current theme
     const colors = getChartColors();
 
+    console.log("CHART DEBUG: Creating new chart instance");
+
     // Create chart instance
     const chart = createChart(chartContainer, {
       layout: {
@@ -194,15 +203,45 @@ export function TradingChart({ pair }: TradingChartProps) {
     // Cast to enhanced chart API with pane support
     const chartWithPanes = chart as ChartApiWithPanes;
 
+    console.log("CHART DEBUG: Creating initial panes");
+
+    // Check if we have the panes API
+    if (!chartWithPanes.panes || typeof chartWithPanes.panes !== "function") {
+      console.error("CHART DEBUG: Chart does not have panes API");
+    } else {
+      const initialPanes = chartWithPanes.panes();
+      console.log(`CHART DEBUG: Chart initialized with ${initialPanes.length} panes`);
+    }
+
     // Create the initial panes setup - main pane (index 0) for price and volume,
     // and a secondary pane (index 1) for indicators like RSI
     // The main pane is created by default, but we need to create the secondary pane
     if (typeof chartWithPanes.createPane === "function") {
-      // Create an additional pane for oscillators like RSI
-      chartWithPanes.createPane({
-        height: 150, // Smaller height for the indicator pane
-      });
+      try {
+        // Create an additional pane for oscillators like RSI
+        chartWithPanes.createPane({
+          height: 150, // Smaller height for the indicator pane
+        });
+
+        // Verify pane was created
+        if (chartWithPanes.panes && typeof chartWithPanes.panes === "function") {
+          const panes = chartWithPanes.panes();
+          console.log(`CHART DEBUG: After volume pane creation, chart has ${panes.length} panes`);
+
+          // Track the panes we created
+          panesRef.current = {
+            0: true, // Main pane
+            1: true, // Volume pane
+          };
+        }
+      } catch (error) {
+        console.error("CHART DEBUG: Error creating volume pane:", error);
+      }
+    } else {
+      console.error("CHART DEBUG: Chart does not have createPane API");
     }
+
+    console.log("CHART DEBUG: Adding candlestick series");
 
     // Add candlestick series with the new v5 syntax and proper typing
     const candlestickSeries = chartWithPanes.addSeries(CandlestickSeries, {
@@ -227,6 +266,8 @@ export function TradingChart({ pair }: TradingChartProps) {
       borderVisible: true,
       borderColor: colors.borderColor,
     });
+
+    console.log("CHART DEBUG: Adding volume series");
 
     // Add volume series with separate price scale and proper typing
     const volumeSeries = chartWithPanes.addSeries(HistogramSeries, {
@@ -254,6 +295,31 @@ export function TradingChart({ pair }: TradingChartProps) {
       candlestickSeries,
       volumeSeries,
     };
+
+    // Check if we have the correct number of panes after setup
+    if (chartWithPanes.panes && typeof chartWithPanes.panes === "function") {
+      const panesAfterSetup = chartWithPanes.panes();
+      console.log(`CHART DEBUG: After complete setup, chart has ${panesAfterSetup.length} panes`);
+
+      // Create an additional buffer pane for indicators that will be added later
+      if (panesAfterSetup.length < 3 && typeof chartWithPanes.createPane === "function") {
+        try {
+          console.log("CHART DEBUG: Creating buffer pane for future indicators");
+          chartWithPanes.createPane({
+            height: 200, // Height for indicator panes
+          });
+
+          // Track the additional pane
+          panesRef.current[2] = true;
+
+          // Verify buffer pane was created
+          const panesFinal = chartWithPanes.panes();
+          console.log(`CHART DEBUG: After buffer pane creation, chart has ${panesFinal.length} panes`);
+        } catch (error) {
+          console.error("CHART DEBUG: Error creating buffer pane:", error);
+        }
+      }
+    }
 
     // Better resize handling with ResizeObserver
     const resizeObserver = new ResizeObserver((entries) => {
@@ -559,6 +625,10 @@ export function TradingChart({ pair }: TradingChartProps) {
                     // Use our dedicated MACD creation function
                     createMACDIndicator(indicator);
                     break;
+                  case "Stochastic":
+                    // Use our dedicated Stochastic creation function
+                    createStochasticIndicator(indicator);
+                    break;
                   // Additional indicator types would be handled here
                 }
               }
@@ -589,6 +659,10 @@ export function TradingChart({ pair }: TradingChartProps) {
                     // MACD data is handled within the createMACDIndicator function
                     // or we can manually update it here
                     updateMACDData(indicator, formattedCandlesRef);
+                    break;
+                  case "Stochastic":
+                    // Stochastic data is handled within the createStochasticIndicator function
+                    // No need to update here as we're using the updateData method of the indicator
                     break;
                   // Additional indicators would be calculated here
                 }
@@ -740,27 +814,72 @@ export function TradingChart({ pair }: TradingChartProps) {
 
   // Effect to clean up indicators when they are removed
   useEffect(() => {
-    if (!chartInstanceRef.current.chart) return;
+    // Create a list of indicators to clean up (removed from the list)
+    const indicatorsToCleanup = Object.values(prevIndicatorsRef.current).filter((prevIndicator) => !indicators.find((indicator) => indicator.id === prevIndicator.id));
 
-    // Clean up any removed indicators
-    const indicatorIds = indicators.map((i) => i.id);
-    const storedIds = Object.keys(prevIndicatorsRef.current);
+    if (indicatorsToCleanup.length > 0) {
+      try {
+        indicatorsToCleanup.forEach((indicator) => {
+          // Clean up specific indicator types
+          if (indicator.type === "MACD") {
+            // Check if we have a renderer for this MACD in our ref
+            const renderer = indicatorRenderersRef.current[indicator.id];
+            if (renderer) {
+              // Call destroy method on the renderer to properly clean up
+              renderer.destroy();
+              // Remove from our refs
+              delete indicatorRenderersRef.current[indicator.id];
+              console.log(`CHART DEBUG: Destroyed MACD renderer for ${indicator.id}`);
+            } else {
+              // Fallback to legacy cleanup
+              cleanupMACDIndicator(indicator);
+            }
+          } else if (indicator.type === "Stochastic") {
+            // Check if we have a renderer for this Stochastic in our ref
+            const renderer = indicatorRenderersRef.current[indicator.id];
+            if (renderer) {
+              // Call destroy method on the renderer to properly clean up
+              renderer.destroy();
+              // Remove from our refs
+              delete indicatorRenderersRef.current[indicator.id];
+              console.log(`CHART DEBUG: Destroyed Stochastic renderer for ${indicator.id}`);
+            } else {
+              // Fallback to removing series directly if renderer not available
+              if (indicator.series) {
+                try {
+                  chartInstanceRef.current.chart?.removeSeries(indicator.series);
+                  console.log(`CHART DEBUG: Removed main Stochastic series for ${indicator.id}`);
+                } catch (e) {
+                  console.error("Error removing Stochastic series:", e);
+                }
+              }
+            }
+          } else {
+            // For other indicator types
+            if (indicator.series) {
+              // Remove the series from the chart
+              try {
+                chartInstanceRef.current.chart?.removeSeries(indicator.series);
+              } catch (e) {
+                console.error("Error removing series:", e);
+              }
+            }
+          }
 
-    // Find indicators that were removed
-    storedIds.forEach((id) => {
-      if (!indicatorIds.includes(id) && prevIndicatorsRef.current[id]?.series) {
-        try {
-          // If the chart still exists, remove the series
-          chartInstanceRef.current.chart?.removeSeries(prevIndicatorsRef.current[id].series!);
-          // Remove from our reference object
-          delete prevIndicatorsRef.current[id];
-          console.log(`Removed indicator: ${id}`);
-        } catch (err) {
-          console.error("Error removing indicator series:", err);
-        }
+          // Remove from our tracking
+          delete prevIndicatorsRef.current[indicator.id];
+
+          // Handle oscillator panes
+          if (indicator.type === "RSI" || indicator.type === "MACD" || indicator.type === "Stochastic") {
+            const key = `${indicator.type}-${indicator.id}`;
+            delete oscillatorPanesRef.current[key];
+          }
+        });
+      } catch (error) {
+        console.error("Error cleaning up indicators:", error);
       }
-    });
-  }, [indicators]);
+    }
+  }, [indicators.length]);
 
   // Effect to send trading data to server when pair, timeframe, or broker changes
   useEffect(() => {
@@ -1010,10 +1129,14 @@ export function TradingChart({ pair }: TradingChartProps) {
 
   // Create or ensure a pane exists
   const ensurePaneExists = (paneIndex: number) => {
-    if (!chartInstanceRef.current.chart) return false;
+    if (!chartInstanceRef.current.chart) {
+      console.error("CHART DEBUG: Cannot ensure pane exists, chart is null");
+      return false;
+    }
 
     // If we already have this pane tracked, it exists
     if (panesRef.current[paneIndex]) {
+      console.log(`CHART DEBUG: Pane ${paneIndex} already exists in our tracking`);
       return true;
     }
 
@@ -1021,27 +1144,59 @@ export function TradingChart({ pair }: TradingChartProps) {
       // Cast to access panes API
       const chartWithPanes = chartInstanceRef.current.chart as ChartApiWithPanes;
 
-      if (chartWithPanes.panes && typeof chartWithPanes.panes === "function") {
-        const currentPanes = chartWithPanes.panes();
+      if (!chartWithPanes.panes || typeof chartWithPanes.panes !== "function") {
+        console.error("CHART DEBUG: Chart does not have panes API");
+        return false;
+      }
 
-        // If we need to create new panes
-        if (paneIndex >= currentPanes.length && chartWithPanes.createPane) {
-          for (let i = currentPanes.length; i <= paneIndex; i++) {
-            console.log(`CHART DEBUG: Creating pane ${i}`);
-            chartWithPanes.createPane({
-              height: i === 1 ? 100 : 200, // Volume pane smaller, others larger
-            });
-            panesRef.current[i] = true;
-          }
-          return true;
-        } else if (paneIndex < currentPanes.length) {
-          // Pane exists but we weren't tracking it
-          panesRef.current[paneIndex] = true;
-          return true;
+      const currentPanes = chartWithPanes.panes();
+      console.log(`CHART DEBUG: Current panes count: ${currentPanes.length}, need pane: ${paneIndex}`);
+
+      // If we need to create new panes
+      if (paneIndex >= currentPanes.length) {
+        if (!chartWithPanes.createPane || typeof chartWithPanes.createPane !== "function") {
+          console.error("CHART DEBUG: Chart does not have createPane API");
+          return false;
         }
+
+        // Create panes one by one until we reach the required index
+        for (let i = currentPanes.length; i <= paneIndex; i++) {
+          console.log(`CHART DEBUG: Creating pane ${i}`);
+
+          try {
+            // Create pane with specific height
+            const paneHeight = i === 1 ? 100 : 200; // Volume pane smaller, others larger
+            chartWithPanes.createPane({
+              height: paneHeight,
+            });
+
+            // Verify pane was created
+            const updatedPanes = chartWithPanes.panes();
+            if (updatedPanes.length <= i) {
+              console.error(`CHART DEBUG: Failed to create pane ${i}, current count: ${updatedPanes.length}`);
+              return false;
+            }
+
+            console.log(`CHART DEBUG: Successfully created pane ${i}, total panes: ${updatedPanes.length}`);
+            panesRef.current[i] = true;
+          } catch (err) {
+            console.error(`CHART DEBUG: Error creating pane ${i}:`, err);
+            return false;
+          }
+        }
+
+        // Final verification
+        const finalPanes = chartWithPanes.panes();
+        console.log(`CHART DEBUG: After creation, total panes: ${finalPanes.length}, requested pane: ${paneIndex}`);
+        return finalPanes.length > paneIndex;
+      } else if (paneIndex < currentPanes.length) {
+        // Pane exists but we weren't tracking it
+        console.log(`CHART DEBUG: Pane ${paneIndex} already exists in chart but not in our tracking`);
+        panesRef.current[paneIndex] = true;
+        return true;
       }
     } catch (error) {
-      console.error("Error ensuring pane exists:", error);
+      console.error("CHART DEBUG: Error ensuring pane exists:", error);
     }
 
     return false;
@@ -1068,8 +1223,8 @@ export function TradingChart({ pair }: TradingChartProps) {
 
     // First pass: determine and create panes for all oscillators
     indicators.forEach((indicator) => {
-      // Special handling for oscillator indicators (RSI, MACD)
-      if (indicator.type === "RSI" || indicator.type === "MACD") {
+      // Special handling for oscillator indicators (RSI, MACD, Stochastic)
+      if (indicator.type === "RSI" || indicator.type === "MACD" || indicator.type === "Stochastic") {
         // Generate a unique key for this specific indicator instance
         const indicatorKey = `${indicator.type}-${indicator.id}`;
 
@@ -1138,6 +1293,11 @@ export function TradingChart({ pair }: TradingChartProps) {
                     // Use our dedicated MACD creation function
                     createMACDIndicator(indicator);
                     break;
+
+                  case "Stochastic":
+                    // Use our dedicated Stochastic creation function
+                    createStochasticIndicator(indicator);
+                    break;
                 }
               } catch (error) {
                 console.error("Error creating indicator:", error);
@@ -1169,6 +1329,10 @@ export function TradingChart({ pair }: TradingChartProps) {
                     // MACD data is handled within the createMACDIndicator function
                     // or we can manually update it here
                     updateMACDData(indicator, formattedCandles);
+                    break;
+                  case "Stochastic":
+                    // Stochastic data is handled within the createStochasticIndicator function
+                    // No need to update here as we're using the updateData method of the indicator
                     break;
                 }
               }
@@ -1207,90 +1371,40 @@ export function TradingChart({ pair }: TradingChartProps) {
 
     console.log(`CHART DEBUG: Creating MACD in pane ${macdPaneIndex}`);
 
-    // Use the chart instance
-    const chartWithPanesForMACD = chartInstanceRef.current.chart as ChartApiWithPanes;
-
     try {
-      // Get colors from parameters or use defaults
-      const macdColor = indicator.parameters.macdColor || "#2962FF";
-      const signalColor = indicator.parameters.signalColor || "#FF6D00";
-      const histogramPositiveColor = indicator.parameters.histogramColorPositive || "#26A69A";
-
-      // Create MACD line series
-      const macdSeries = chartWithPanesForMACD.addSeries(
-        LineSeries,
-        {
-          color: String(macdColor),
-          lineWidth: 2,
-          lastValueVisible: true,
-          priceFormat: {
-            type: "price",
-            precision: 4,
-            minMove: 0.0001,
-          },
-          title: `MACD (${indicator.parameters.fastPeriod || 12},${indicator.parameters.slowPeriod || 26},${indicator.parameters.signalPeriod || 9})`,
-        },
-        macdPaneIndex
-      );
-
-      // Create signal line series
-      const signalSeries = chartWithPanesForMACD.addSeries(
-        LineSeries,
-        {
-          color: String(signalColor),
-          lineWidth: 2,
-          lastValueVisible: true,
-          priceFormat: {
-            type: "price",
-            precision: 4,
-            minMove: 0.0001,
-          },
-          title: "Signal",
-        },
-        macdPaneIndex
-      );
-
-      // Create histogram series
-      const histogramSeries = chartWithPanesForMACD.addSeries(
-        HistogramSeries,
-        {
-          color: String(histogramPositiveColor),
-          lastValueVisible: false,
-          priceFormat: {
-            type: "price",
-            precision: 4,
-            minMove: 0.0001,
-          },
-          title: "Histogram",
-        },
-        macdPaneIndex
-      );
-
-      // Configure scale for MACD
-      macdSeries.priceScale().applyOptions({
-        scaleMargins: {
-          top: 0.2,
-          bottom: 0.2,
-        },
-        autoScale: true,
-        visible: true,
+      // Create the MACD indicator with our renderer - using updated approach
+      const macdIndicator = createIndicator("MACD", {
+        ...indicator.parameters,
+        macdColor: indicator.parameters.macdColor || "#2962FF",
+        signalColor: indicator.parameters.signalColor || "#FF6D00",
+        histogramColorPositive: indicator.parameters.histogramColorPositive || "#26A69A",
+        histogramColorNegative: indicator.parameters.histogramColorNegative || "#EF5350",
+        fastPeriod: indicator.parameters.fastPeriod || 12,
+        slowPeriod: indicator.parameters.slowPeriod || 26,
+        signalPeriod: indicator.parameters.signalPeriod || 9,
+        paneIndex: macdPaneIndex,
+        // Ensure we have type specified
+        type: "MACD",
       });
 
-      // Store pane index with the indicator
-      indicator.paneIndex = macdPaneIndex;
+      // Initialize with our chart
+      macdIndicator.initialize(chartInstanceRef.current.chart as ChartApiWithPanes, indicator);
+
+      // Create all series in the same pane
+      const series = macdIndicator.createSeries(macdPaneIndex);
 
       // Store the main series in the indicator
-      indicator.series = macdSeries;
+      if (series) {
+        indicator.series = series;
+      }
+      indicator.paneIndex = macdPaneIndex;
 
-      // Store additional series in the parameters
-      indicator.parameters.additionalSeries = {
-        signalSeries,
-        histogramSeries,
-      };
+      // Store renderer reference in our separate ref map
+      indicatorRenderersRef.current[indicator.id] = macdIndicator;
 
       console.log(`CHART DEBUG: Successfully created MACD indicator in pane ${macdPaneIndex}`);
 
-      // Calculate and set initial MACD data
+      // Calculate and set initial MACD data if we have candles
       if (candles && candles.length > 0) {
         const formattedCandles = candles.map((candle) => {
           return {
@@ -1303,8 +1417,12 @@ export function TradingChart({ pair }: TradingChartProps) {
           } as FormattedCandle;
         });
 
-        updateMACDData(indicator, formattedCandles);
+        // Update data using the indicator's own updateData method
+        macdIndicator.updateData(formattedCandles);
       }
+
+      // Store the indicator config for later reference
+      prevIndicatorsRef.current[indicator.id] = indicator;
     } catch (error) {
       console.error("CHART DEBUG: Error creating MACD indicator:", error);
     }
@@ -1313,6 +1431,17 @@ export function TradingChart({ pair }: TradingChartProps) {
   // Calculate and update MACD data
   const updateMACDData = (indicator: IndicatorConfig, formattedCandles: FormattedCandle[]) => {
     try {
+      // Check if we have a renderer for this MACD
+      const renderer = indicatorRenderersRef.current[indicator.id];
+
+      if (renderer) {
+        // Use the renderer's updateData method directly
+        renderer.updateData(formattedCandles);
+        console.log("CHART DEBUG: Updated MACD data using renderer");
+        return;
+      }
+
+      // Fallback to old implementation if renderer not available
       const fastPeriod = indicator.parameters.fastPeriod || 12;
       const slowPeriod = indicator.parameters.slowPeriod || 26;
       const signalPeriod = indicator.parameters.signalPeriod || 9;
@@ -1347,6 +1476,8 @@ export function TradingChart({ pair }: TradingChartProps) {
 
         histogramSeries.setData(coloredHistogram);
       }
+
+      console.log("CHART DEBUG: Updated MACD data using legacy method");
     } catch (error) {
       console.error("CHART DEBUG: Error updating MACD data:", error);
     }
@@ -1453,6 +1584,127 @@ export function TradingChart({ pair }: TradingChartProps) {
 
     return result;
   }
+
+  // Legacy MACD cleanup function
+  const cleanupMACDIndicator = (indicator: IndicatorConfig) => {
+    if (!chartInstanceRef.current.chart) return;
+
+    try {
+      // Remove main MACD series
+      if (indicator.series) {
+        chartInstanceRef.current.chart.removeSeries(indicator.series);
+      }
+
+      // Remove additional series from MACD
+      const signalSeries = indicator.parameters.additionalSeries?.signalSeries;
+      const histogramSeries = indicator.parameters.additionalSeries?.histogramSeries;
+
+      if (signalSeries) {
+        chartInstanceRef.current.chart.removeSeries(signalSeries);
+      }
+
+      if (histogramSeries) {
+        chartInstanceRef.current.chart.removeSeries(histogramSeries);
+      }
+
+      console.log(`CHART DEBUG: Cleaned up legacy MACD indicator ${indicator.id}`);
+    } catch (error) {
+      console.error("CHART DEBUG: Error cleaning up legacy MACD:", error);
+    }
+  };
+
+  /**
+   * Create a Stochastic Indicator
+   */
+  const createStochasticIndicator = (indicator: IndicatorConfig) => {
+    try {
+      if (!chartInstanceRef.current?.chart) {
+        console.error("CHART DEBUG: Cannot create Stochastic indicator without chart");
+        return;
+      }
+
+      console.log(`CHART DEBUG: Creating Stochastic indicator with id ${indicator.id}`);
+      console.log(`CHART DEBUG: Stochastic parameters:`, indicator.parameters);
+
+      // CRITICAL FIX: Always use pane 1 for all Stochastic indicators
+      // Pane 1 typically contains volume but can accommodate oscillators
+      const stochasticPaneIndex = 1;
+      console.log(`CHART DEBUG: Using FIXED pane ${stochasticPaneIndex} for ALL Stochastic indicators`);
+
+      // Store pane assignment for tracking
+      const stochasticPaneKey = `Stochastic-${indicator.id}`;
+      oscillatorPanesRef.current[stochasticPaneKey] = stochasticPaneIndex;
+
+      // Update indicator parameters with our fixed pane assignment
+      indicator.parameters.paneIndex = stochasticPaneIndex;
+
+      // Create a unique price scale ID for this instance
+      // This ensures components of one indicator share same scale but different indicators don't interfere
+      const priceScaleId = `stochastic-${indicator.id}-${Date.now()}`;
+      console.log(`CHART DEBUG: Generated price scale ID: ${priceScaleId}`);
+      indicator.parameters.priceScaleId = priceScaleId;
+
+      // Create the Stochastic indicator with our renderer
+      const stochasticIndicator = createIndicator("Stochastic", {
+        ...indicator.parameters,
+        kPeriod: indicator.parameters.kPeriod || 14,
+        dPeriod: indicator.parameters.dPeriod || 3,
+        overboughtLevel: indicator.parameters.overboughtLevel || 80,
+        oversoldLevel: indicator.parameters.oversoldLevel || 20,
+        kLineColor: indicator.parameters.kLineColor || "#2962FF", // Blue for %K line
+        dLineColor: indicator.parameters.dLineColor || "#FF6D00", // Orange for %D line
+        overboughtLineColor: indicator.parameters.overboughtLineColor || "#787B86",
+        oversoldLineColor: indicator.parameters.oversoldLineColor || "#787B86",
+        paneIndex: stochasticPaneIndex, // FIXED pane assignment
+        priceScaleId: priceScaleId,
+        type: "Stochastic",
+      });
+
+      // Initialize with our chart - use casting to bypass the type check
+      stochasticIndicator.initialize(chartInstanceRef.current.chart as unknown as ChartApiWithPanes, indicator);
+
+      // Create series in the specified pane
+      const series = stochasticIndicator.createSeries(stochasticPaneIndex);
+
+      console.log(`CHART DEBUG: Series created:`, series ? "Success" : "Failed");
+
+      // Store the series and update configuration
+      if (series) {
+        indicator.series = series;
+        indicator.paneIndex = stochasticPaneIndex;
+        console.log(`CHART DEBUG: Stochastic indicator ${indicator.id} created successfully in pane ${stochasticPaneIndex}`);
+      } else {
+        console.error(`CHART DEBUG: Failed to create series for Stochastic ${indicator.id}`);
+      }
+
+      // Store renderer reference
+      indicatorRenderersRef.current[indicator.id] = stochasticIndicator;
+
+      // Update data if we have candles
+      if (candles && candles.length > 0) {
+        const formattedCandles = candles.map((candle) => {
+          return {
+            time: (candle.timestamp / 1000) as Time,
+            open: candle.open,
+            high: candle.high,
+            low: candle.low,
+            close: candle.close,
+            value: candle.close,
+          } as FormattedCandle;
+        });
+
+        stochasticIndicator.updateData(formattedCandles);
+        console.log(`CHART DEBUG: Updated Stochastic ${indicator.id} with ${formattedCandles.length} candles`);
+      }
+
+      // Store the indicator config
+      prevIndicatorsRef.current[indicator.id] = indicator;
+
+      return stochasticIndicator;
+    } catch (error) {
+      console.error("CHART DEBUG: Error creating Stochastic indicator:", error);
+    }
+  };
 
   if (!pair) {
     return (

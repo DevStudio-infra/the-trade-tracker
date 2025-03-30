@@ -172,7 +172,12 @@ export abstract class IndicatorBase implements BaseIndicator {
    * Get default parameters for this indicator type
    */
   protected getDefaultParameters(): IndicatorParameters {
-    return indicatorDefaults[this.config.type as keyof typeof indicatorDefaults]?.defaultParameters || {};
+    const type = this.config?.type || "SMA";
+    if (!type || !indicatorDefaults[type as keyof typeof indicatorDefaults]) {
+      console.warn(`Unknown indicator type: ${type}, using defaults for SMA`);
+      return indicatorDefaults["SMA"].defaultParameters || {};
+    }
+    return indicatorDefaults[type as keyof typeof indicatorDefaults]?.defaultParameters || {};
   }
 
   /**
