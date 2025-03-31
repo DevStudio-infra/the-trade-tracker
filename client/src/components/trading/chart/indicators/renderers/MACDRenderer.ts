@@ -35,6 +35,8 @@ export class MACDRenderer extends IndicatorBase {
   private signalLineSeries: ISeriesApi<"Line"> | null = null;
   private histogramSeries: ISeriesApi<"Histogram"> | null = null;
   private priceScaleId: string;
+  private histogramColorPositive: string = "#26A69A"; // Default positive color
+  private histogramColorNegative: string = "#EF5350"; // Default negative color
 
   /**
    * Create a new MACD renderer
@@ -86,136 +88,94 @@ export class MACDRenderer extends IndicatorBase {
 
       console.log(`[MACD DEBUG] Pane configuration: mainPane=${isInMainPane}, volumePane=${isInVolumPane}, dedicatedPane=${isInDedicatedPane}`);
 
-      // Create a common price format
-      const priceFormat = {
-        type: "price" as const,
-        precision: 5,
-        minMove: 0.00001,
-      };
+      // Store colors for later use
+      this.histogramColorPositive = histogramPositiveColor;
+      this.histogramColorNegative = histogramNegativeColor;
+      console.log("[MACD DEBUG] Using histogram colors - positive:", histogramPositiveColor, "negative:", histogramNegativeColor);
 
-      // CRITICAL: Create all series with shared options to ensure they remain in the same pane
-      const sharedSeriesOptions = {
+      // Common options for all series to ensure no labels are shown
+      const commonSeriesOptions = {
+        lastValueVisible: false,
+        priceLineVisible: false,
+        crosshairMarkerVisible: false,
+        title: "",
+        priceFormat: {
+          type: "price" as const,
+          precision: 2,
+          minMove: 0.01,
+        },
         priceScaleId: this.priceScaleId,
-        priceFormat: priceFormat,
-        // Configure based on pane type
-        overlay: isInMainPane, // Only use overlay mode for main pane
       };
 
-      // STEP 1: Create the histogram first as the base element
-      console.log(`[MACD DEBUG] Creating histogram first in pane ${paneIndex}`);
+      // Create histogram first
+      console.log("[MACD DEBUG] Creating histogram first in pane", paneIndex);
       this.histogramSeries = this.chart.addSeries(
         HistogramSeries,
         {
-          ...sharedSeriesOptions,
+          ...commonSeriesOptions,
           color: histogramPositiveColor,
-          base: 0,
-          priceLineVisible: false,
-          lastValueVisible: true,
-          title: "MACD Histogram",
         },
         paneIndex
-      ) as ISeriesApi<"Histogram">;
+      );
 
-      // Save the negative color for later use when updating data
-      this.config.parameters.histogramColorNegative = histogramNegativeColor;
-      console.log(`[MACD DEBUG] Using histogram colors - positive: ${histogramPositiveColor}, negative: ${histogramNegativeColor}`);
-
-      // STEP 2: Now create the MACD line using the SAME price scale ID
-      console.log(`[MACD DEBUG] Creating MACD line with the same price scale`);
+      // Create MACD line
+      console.log("[MACD DEBUG] Creating MACD line with the same price scale");
       this.macdLineSeries = this.chart.addSeries(
         LineSeries,
         {
-          ...sharedSeriesOptions,
+          ...commonSeriesOptions,
           color: macdColor,
           lineWidth: 2,
-          lastValueVisible: true,
-          title: `MACD (${this.config.parameters.fastPeriod || 12},${this.config.parameters.slowPeriod || 26},${this.config.parameters.signalPeriod || 9})`,
         },
-        paneIndex // SAME pane index
-      ) as ISeriesApi<"Line">;
+        paneIndex
+      );
 
-      // STEP 3: Create the signal line last, but with the SAME price scale ID
-      console.log(`[MACD DEBUG] Creating signal line with the same price scale`);
+      // Create signal line
+      console.log("[MACD DEBUG] Creating signal line with the same price scale");
       this.signalLineSeries = this.chart.addSeries(
         LineSeries,
         {
-          ...sharedSeriesOptions,
+          ...commonSeriesOptions,
           color: signalColor,
           lineWidth: 1,
-          lineStyle: 1, // Dashed line
-          lastValueVisible: true,
-          title: "Signal",
         },
-        paneIndex // SAME pane index
-      ) as ISeriesApi<"Line">;
+        paneIndex
+      );
 
-      // Configure price scale settings only AFTER all series have been added
-      if (this.histogramSeries) {
-        console.log(`[MACD DEBUG] Configuring shared price scale`);
-        try {
-          // Get the price scale from any of the series
-          const priceScale = this.histogramSeries.priceScale();
+      // Configure the price scale for all series
+      console.log("[MACD DEBUG] Configuring shared price scale");
+      const priceScale = this.macdLineSeries.priceScale();
+      priceScale.applyOptions({
+        scaleMargins: {
+          top: 0.1,
+          bottom: 0.1,
+        },
+        visible: false,
+        entireTextOnly: true,
+      });
 
-          // Apply different options based on pane type
-          if (isInMainPane) {
-            // For main pane, optimize as an overlay
-            priceScale.applyOptions({
-              scaleMargins: {
-                // Position in the upper area of the main chart
-                top: 0.7,
-                bottom: 0.2,
-              },
-              visible: false, // Don't show a separate scale
-              autoScale: false, // Use fixed scale
-              mode: 2, // Entire range mode
-            });
-          } else if (isInVolumPane) {
-            // For volume pane, optimize positioning above volume bars
-            priceScale.applyOptions({
-              scaleMargins: {
-                // Position ABOVE volume bars with careful margins
-                top: 0.05, // Very small margin at top
-                bottom: 0.5, // Leave bottom half for volume
-              },
-              visible: true,
-              autoScale: true,
-              mode: 0,
-            });
-          } else {
-            // For a dedicated pane, use full range
-            priceScale.applyOptions({
-              autoScale: true,
-              mode: 0, // Normal scale
-              scaleMargins: {
-                top: 0.1,
-                bottom: 0.1,
-              },
-              entireTextOnly: true,
-            });
-          }
-
-          console.log(`[MACD DEBUG] Successfully configured price scale for ${this.config.id} in pane ${paneIndex}`);
-        } catch (e) {
-          console.error(`[MACD ERROR] Error configuring price scale:`, e);
-        }
-      }
-
-      // Store references for later use
-      this.mainSeries = this.macdLineSeries;
-
-      // Store additional series references
+      // Store references for cleanup
       this.additionalSeries = {
         histogramSeries: this.histogramSeries,
         signalSeries: this.signalLineSeries,
       };
 
-      // Update config
-      this.config.series = this.macdLineSeries;
-      this.config.paneIndex = paneIndex;
-      this.config.parameters.paneIndex = paneIndex;
+      // Store main series reference
+      this.mainSeries = this.macdLineSeries;
 
-      console.log(`[MACD DEBUG] Successfully created all MACD components in pane ${paneIndex}`);
+      // Apply additional options to ensure visibility settings
+      [this.macdLineSeries, this.signalLineSeries, this.histogramSeries].forEach((series) => {
+        if (series) {
+          series.applyOptions({
+            lastValueVisible: false,
+            priceLineVisible: false,
+            crosshairMarkerVisible: false,
+            title: "",
+          });
+        }
+      });
 
+      console.log("[MACD DEBUG] Successfully created all MACD components in pane", paneIndex);
       return this.macdLineSeries;
     } catch (error) {
       console.error(`[MACD ERROR] Error creating MACD series:`, error);

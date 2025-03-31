@@ -98,74 +98,75 @@ export class IchimokuRenderer extends IndicatorBase {
           minMove: 0.01,
         },
         priceScaleId: sharedScaleId,
+        lastValueVisible: false, // Hide last value label
+        priceLineVisible: false, // Hide price line
+        crosshairMarkerVisible: false, // Hide crosshair markers
       };
 
       // Create Tenkan-sen (Conversion Line)
-      this.conversionLineSeries = this.chart.addSeries(
-        LineSeries,
-        {
-          ...commonSeriesOptions,
-          color: this.conversionLineColor,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          lineWidth: 2 as any,
-          title: `Tenkan-sen (${this.conversionPeriod})`,
-        },
-        paneIndex
-      ) as ISeriesApi<"Line">;
+      const conversionLineOptions = {
+        ...commonSeriesOptions,
+        color: this.conversionLineColor,
+        lineWidth: 2 as 1 | 2 | 3 | 4,
+      };
 
       // Create Kijun-sen (Base Line)
-      this.baseLineSeries = this.chart.addSeries(
-        LineSeries,
-        {
-          ...commonSeriesOptions,
-          color: this.baseLineColor,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          lineWidth: 2 as any,
-          title: `Kijun-sen (${this.basePeriod})`,
-        },
-        paneIndex
-      ) as ISeriesApi<"Line">;
+      const baseLineOptions = {
+        ...commonSeriesOptions,
+        color: this.baseLineColor,
+        lineWidth: 2 as 1 | 2 | 3 | 4,
+      };
 
       // Create Senkou Span A (Leading Span A)
-      this.spanASeries = this.chart.addSeries(
-        LineSeries,
-        {
-          ...commonSeriesOptions,
-          color: this.spanAColor,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          lineWidth: 1 as any,
-          lineStyle: 2, // Dashed
-          title: "Senkou Span A",
-        },
-        paneIndex
-      ) as ISeriesApi<"Line">;
+      const spanAOptions = {
+        ...commonSeriesOptions,
+        color: this.spanAColor,
+        lineWidth: 1 as 1 | 2 | 3 | 4,
+        lineStyle: 2, // Dashed
+      };
 
       // Create Senkou Span B (Leading Span B)
-      this.spanBSeries = this.chart.addSeries(
-        LineSeries,
-        {
-          ...commonSeriesOptions,
-          color: this.spanBColor,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          lineWidth: 1 as any,
-          lineStyle: 2, // Dashed
-          title: "Senkou Span B",
-        },
-        paneIndex
-      ) as ISeriesApi<"Line">;
+      const spanBOptions = {
+        ...commonSeriesOptions,
+        color: this.spanBColor,
+        lineWidth: 1 as 1 | 2 | 3 | 4,
+        lineStyle: 2, // Dashed
+      };
 
       // Create Chikou Span (Lagging Span)
-      this.chikouSeries = this.chart.addSeries(
-        LineSeries,
-        {
-          ...commonSeriesOptions,
-          color: this.chikouColor,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          lineWidth: 1 as any,
-          title: "Chikou Span",
-        },
-        paneIndex
-      ) as ISeriesApi<"Line">;
+      const chikouOptions = {
+        ...commonSeriesOptions,
+        color: this.chikouColor,
+        lineWidth: 1 as 1 | 2 | 3 | 4,
+      };
+
+      // Create all series first
+      this.conversionLineSeries = this.chart.addSeries(LineSeries, conversionLineOptions, paneIndex) as ISeriesApi<"Line">;
+      this.baseLineSeries = this.chart.addSeries(LineSeries, baseLineOptions, paneIndex) as ISeriesApi<"Line">;
+      this.spanASeries = this.chart.addSeries(LineSeries, spanAOptions, paneIndex) as ISeriesApi<"Line">;
+      this.spanBSeries = this.chart.addSeries(LineSeries, spanBOptions, paneIndex) as ISeriesApi<"Line">;
+      this.chikouSeries = this.chart.addSeries(LineSeries, chikouOptions, paneIndex) as ISeriesApi<"Line">;
+
+      // Apply additional options to hide all labels and markers
+      const hideOptions = {
+        lastValueVisible: false,
+        priceLineVisible: false,
+        crosshairMarkerVisible: false,
+        title: "",
+      };
+
+      // Apply hide options to all series
+      [this.conversionLineSeries, this.baseLineSeries, this.spanASeries, this.spanBSeries, this.chikouSeries].forEach((series) => {
+        if (series) {
+          series.applyOptions(hideOptions);
+          // Also hide the price scale
+          series.priceScale().applyOptions({
+            visible: false,
+            borderVisible: false,
+            entireTextOnly: true,
+          });
+        }
+      });
 
       // Store all series references in additionalSeries for easy access
       this.additionalSeries = {
@@ -199,16 +200,23 @@ export class IchimokuRenderer extends IndicatorBase {
    */
   updateData(candles: FormattedCandle[]) {
     if (!this.conversionLineSeries || !this.baseLineSeries || !this.spanASeries || !this.spanBSeries || !this.chikouSeries) {
-      console.error("Ichimoku series not created");
+      console.error("[ICHIMOKU] Series not created");
       return;
     }
 
     try {
+      console.log("[ICHIMOKU DEBUG] Checking series options before update:");
+      console.log("Conversion line:", this.conversionLineSeries.options());
+      console.log("Base line:", this.baseLineSeries.options());
+      console.log("Span A:", this.spanASeries.options());
+      console.log("Span B:", this.spanBSeries.options());
+      console.log("Chikou:", this.chikouSeries.options());
+
       // Calculate Ichimoku data
       const ichimokuData = calculateIchimoku(candles, this.conversionPeriod, this.basePeriod, this.spanPeriod, this.displacement);
 
       if (ichimokuData.length === 0) {
-        console.warn("Not enough data to calculate Ichimoku");
+        console.warn("[ICHIMOKU] Not enough data to calculate Ichimoku");
         return;
       }
 
@@ -273,6 +281,21 @@ export class IchimokuRenderer extends IndicatorBase {
       this.spanBSeries.setData(spanBData);
       this.chikouSeries.setData(chikouData);
 
+      // Verify options after data update
+      console.log("[ICHIMOKU DEBUG] Verifying series options after data update:");
+      console.log("Conversion line:", this.conversionLineSeries.options());
+      console.log("Base line:", this.baseLineSeries.options());
+      console.log("Span A:", this.spanASeries.options());
+      console.log("Span B:", this.spanBSeries.options());
+      console.log("Chikou:", this.chikouSeries.options());
+
+      // Re-apply options to ensure they stick
+      this.conversionLineSeries.applyOptions({ lastValueVisible: false, priceLineVisible: false });
+      this.baseLineSeries.applyOptions({ lastValueVisible: false, priceLineVisible: false });
+      this.spanASeries.applyOptions({ lastValueVisible: false, priceLineVisible: false });
+      this.spanBSeries.applyOptions({ lastValueVisible: false, priceLineVisible: false });
+      this.chikouSeries.applyOptions({ lastValueVisible: false, priceLineVisible: false });
+
       // Apply individual scale margins for better visualization
       if (this.chart) {
         this.conversionLineSeries.priceScale().applyOptions({
@@ -283,8 +306,16 @@ export class IchimokuRenderer extends IndicatorBase {
           autoScale: true,
         });
       }
+
+      // Final verification
+      console.log("[ICHIMOKU DEBUG] Final series options verification:");
+      console.log("Conversion line:", this.conversionLineSeries.options());
+      console.log("Base line:", this.baseLineSeries.options());
+      console.log("Span A:", this.spanASeries.options());
+      console.log("Span B:", this.spanBSeries.options());
+      console.log("Chikou:", this.chikouSeries.options());
     } catch (error) {
-      console.error("Error updating Ichimoku data:", error);
+      console.error("[ICHIMOKU] Error updating Ichimoku data:", error);
     }
   }
 

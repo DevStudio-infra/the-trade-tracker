@@ -7,7 +7,7 @@ import { useTradingStore } from "@/stores/trading-store";
 import { toast } from "sonner";
 import { Loader2, AlertCircle } from "lucide-react";
 import { useTheme } from "next-themes";
-import { createChart, ColorType, HistogramSeries, LineSeries, CandlestickSeries } from "lightweight-charts";
+import { createChart, HistogramSeries, LineSeries, CandlestickSeries } from "lightweight-charts";
 import type { IChartApi, ISeriesApi, Time, CandlestickData, HistogramData } from "lightweight-charts";
 import { useSettings } from "@/hooks/useSettings";
 
@@ -25,7 +25,7 @@ const chartColors = {
   light: {
     background: "#FFFFFF",
     text: "#333333",
-    grid: "#EAEAEA",
+    gridLines: "#EAEAEA",
     borderColor: "#DDDDDD",
     upColor: "#26A69A",
     downColor: "#EF5350",
@@ -33,11 +33,12 @@ const chartColors = {
     wickDownColor: "#EF5350",
     volumeUp: "rgba(38, 166, 154, 0.5)",
     volumeDown: "rgba(239, 83, 80, 0.5)",
+    crosshairColor: "#999999",
   },
   dark: {
     background: "#1E222D",
     text: "#DDD",
-    grid: "#2B2B43",
+    gridLines: "#2B2B43",
     borderColor: "#2B2B43",
     upColor: "#4CAF50",
     downColor: "#FF5252",
@@ -45,6 +46,7 @@ const chartColors = {
     wickDownColor: "#FF5252",
     volumeUp: "rgba(76, 175, 80, 0.5)",
     volumeDown: "rgba(255, 82, 82, 0.5)",
+    crosshairColor: "#999999",
   },
 };
 
@@ -169,32 +171,45 @@ export function TradingChart({ pair }: TradingChartProps) {
     // Create chart instance
     const chart = createChart(chartContainer, {
       layout: {
-        background: { type: ColorType.Solid, color: colors.background },
+        background: { color: colors.background },
         textColor: colors.text,
-        fontSize: 12,
-        // Configure panes with separators and allow resizing
-        panes: {
-          separatorColor: colors.borderColor,
-          separatorHoverColor: resolvedTheme === "dark" ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.1)",
-          enableResize: true,
-        },
       },
       grid: {
-        vertLines: { color: colors.grid },
-        horzLines: { color: colors.grid },
-      },
-      timeScale: {
-        timeVisible: true,
-        secondsVisible: false,
-        rightOffset: 10,
-        barSpacing: 8,
-        fixLeftEdge: true,
-        fixRightEdge: true,
-        borderColor: colors.borderColor,
+        vertLines: { color: colors.gridLines },
+        horzLines: { color: colors.gridLines },
       },
       rightPriceScale: {
         borderColor: colors.borderColor,
-        entireTextOnly: true,
+        visible: true,
+        borderVisible: true,
+      },
+      timeScale: {
+        borderColor: colors.borderColor,
+        timeVisible: true,
+        secondsVisible: false,
+      },
+      crosshair: {
+        vertLine: {
+          width: 1,
+          color: colors.crosshairColor,
+          style: 2,
+        },
+        horzLine: {
+          width: 1,
+          color: colors.crosshairColor,
+          style: 2,
+        },
+      },
+      handleScroll: {
+        mouseWheel: true,
+        pressedMouseMove: true,
+        horzTouchDrag: true,
+        vertTouchDrag: true,
+      },
+      handleScale: {
+        axisPressedMouseMove: true,
+        mouseWheel: true,
+        pinch: true,
       },
       width: chartContainer.clientWidth,
       height: 500,
@@ -250,6 +265,8 @@ export function TradingChart({ pair }: TradingChartProps) {
       borderVisible: false,
       wickUpColor: colors.wickUpColor,
       wickDownColor: colors.wickDownColor,
+      lastValueVisible: false, // Hide last value label
+      priceLineVisible: false, // Hide price line
       priceFormat: {
         type: "price",
         precision: precision,
@@ -272,6 +289,8 @@ export function TradingChart({ pair }: TradingChartProps) {
     // Add volume series with separate price scale and proper typing
     const volumeSeries = chartWithPanes.addSeries(HistogramSeries, {
       color: colors.volumeUp,
+      lastValueVisible: false, // Hide last value label
+      priceLineVisible: false, // Hide price line
       priceFormat: {
         type: "volume",
       },
@@ -482,9 +501,23 @@ export function TradingChart({ pair }: TradingChartProps) {
                         color: indicator.color,
                         lineWidth: 2,
                         priceLineVisible: false,
-                        lastValueVisible: true,
-                        crosshairMarkerVisible: true,
-                        title: `${indicator.type} (${indicator.parameters.period})`,
+                        lastValueVisible: false, // Hide the last value label
+                        crosshairMarkerVisible: false, // Hide crosshair marker
+                        title: "", // Empty title to hide from legend
+                        priceFormat: {
+                          type: "price",
+                          precision: precision,
+                          minMove: Math.pow(10, -precision),
+                        },
+                      });
+
+                      // Configure price scale to hide labels
+                      lineSeries.priceScale().applyOptions({
+                        visible: false,
+                        scaleMargins: {
+                          top: 0.1,
+                          bottom: 0.1,
+                        },
                       });
 
                       // Add to the indicator object for future reference
@@ -525,6 +558,8 @@ export function TradingChart({ pair }: TradingChartProps) {
                           precision: 2,
                           minMove: 0.01,
                         },
+                        lastValueVisible: false, // Hide the last value label
+                        priceLineVisible: false, // Hide price line
                         title: `RSI (${indicator.parameters.period})`,
                         // Set overbought/oversold levels if provided
                         ...(indicator.parameters.overbought
@@ -1366,16 +1401,29 @@ export function TradingChart({ pair }: TradingChartProps) {
                         color: indicator.color,
                         lineWidth: 2,
                         priceLineVisible: false,
-                        lastValueVisible: true,
-                        crosshairMarkerVisible: true,
-                        title: `${indicator.type} (${indicator.parameters.period})`,
+                        lastValueVisible: false, // Hide the last value label
+                        crosshairMarkerVisible: false, // Hide crosshair marker
+                        title: "", // Empty title to hide from legend
+                        priceFormat: {
+                          type: "price",
+                          precision: precision,
+                          minMove: Math.pow(10, -precision),
+                        },
+                      });
+
+                      // Configure price scale to hide labels
+                      lineSeries.priceScale().applyOptions({
+                        visible: false,
+                        scaleMargins: {
+                          top: 0.1,
+                          bottom: 0.1,
+                        },
                       });
 
                       // Add to the indicator object for future reference
                       indicator.series = lineSeries;
                     }
                     break;
-
                   case "RSI":
                     // Use existing RSI code (no changes needed)
                     break;
@@ -1476,7 +1524,7 @@ export function TradingChart({ pair }: TradingChartProps) {
    */
   const createMACDIndicator = (indicator: IndicatorConfig) => {
     if (!chartInstanceRef.current.chart) {
-      console.error("[createMACDIndicator] Chart is null");
+      console.error("[MACD DEBUG] Chart is null");
       return;
     }
 
@@ -1490,11 +1538,19 @@ export function TradingChart({ pair }: TradingChartProps) {
 
     try {
       // Create MACD with properly defined parameters
-      const macdIndicator = createIndicator("MACD", {
+      const indicatorParams = {
         ...indicator.parameters,
         priceScaleId: uniquePriceScaleId,
         paneIndex: macdPaneIndex,
-      });
+        lastValueVisible: false,
+        priceLineVisible: false,
+        crosshairMarkerVisible: false,
+        title: "",
+      };
+
+      console.log("[MACD DEBUG] Creating indicator with parameters:", indicatorParams);
+
+      const macdIndicator = createIndicator("MACD", indicatorParams);
 
       // Initialize with our chart
       macdIndicator.initialize(chartInstanceRef.current.chart as unknown as ChartApiWithPanes, indicator);
@@ -1503,9 +1559,20 @@ export function TradingChart({ pair }: TradingChartProps) {
       const series = macdIndicator.createSeries(macdPaneIndex);
 
       if (series) {
-        console.log(`[MACD DEBUG] Successfully created MACD indicator in pane ${macdPaneIndex}`);
+        console.log("[MACD DEBUG] Successfully created MACD series. Options:", series.options());
         indicator.series = series;
         indicator.paneIndex = macdPaneIndex;
+
+        // Configure price scale to hide labels
+        const priceScaleOptions = {
+          visible: false,
+          scaleMargins: {
+            top: 0.1,
+            bottom: 0.1,
+          },
+        };
+        console.log("[MACD DEBUG] Applying price scale options:", priceScaleOptions);
+        series.priceScale().applyOptions(priceScaleOptions);
 
         // Store renderer reference
         indicatorRenderersRef.current[indicator.id] = macdIndicator;
@@ -1513,17 +1580,29 @@ export function TradingChart({ pair }: TradingChartProps) {
         // Calculate and set initial MACD data if we have candles
         if (candles && candles.length > 0) {
           const formattedCandles = formatCandlesForIndicator(candles);
+          console.log(`[MACD DEBUG] Updating data with ${formattedCandles.length} candles`);
           macdIndicator.updateData(formattedCandles);
-          console.log(`[MACD DEBUG] Updated MACD with ${formattedCandles.length} candles`);
+
+          // Verify options after data update
+          if (indicator.series) {
+            console.log("[MACD DEBUG] Series options after data update:", indicator.series.options());
+          }
+
+          // Check additional series options
+          const additionalSeries = indicator.parameters.additionalSeries;
+          if (additionalSeries) {
+            console.log("[MACD DEBUG] Signal series options:", additionalSeries.signalSeries?.options());
+            console.log("[MACD DEBUG] Histogram series options:", additionalSeries.histogramSeries?.options());
+          }
         }
 
         // Store the indicator config for later reference
         prevIndicatorsRef.current[indicator.id] = indicator;
       } else {
-        console.error(`[MACD ERROR] Failed to create MACD indicator series`);
+        console.error("[MACD DEBUG] Failed to create MACD indicator series");
       }
     } catch (error) {
-      console.error("[MACD ERROR] Error creating MACD indicator:", error);
+      console.error("[MACD DEBUG] Error creating MACD indicator:", error);
     }
   };
 
@@ -1534,13 +1613,75 @@ export function TradingChart({ pair }: TradingChartProps) {
       const renderer = indicatorRenderersRef.current[indicator.id];
 
       if (renderer) {
+        console.log("[MACD DEBUG] Using renderer for indicator:", indicator.id);
+
         // Use the renderer's updateData method directly
         renderer.updateData(formattedCandles);
-        console.log("CHART DEBUG: Updated MACD data using renderer");
+
+        // Log current series options before changes
+        if (indicator.series) {
+          console.log("[MACD DEBUG] Current main series options:", indicator.series.options());
+        }
+
+        // Log additional series options before changes
+        const additionalSeries = indicator.parameters.additionalSeries;
+        if (additionalSeries) {
+          console.log("[MACD DEBUG] Signal series options:", additionalSeries.signalSeries?.options());
+          console.log("[MACD DEBUG] Histogram series options:", additionalSeries.histogramSeries?.options());
+        }
+
+        // Ensure all series have labels hidden
+        if (indicator.series) {
+          const hideOptions = {
+            lastValueVisible: false,
+            priceLineVisible: false,
+            crosshairMarkerVisible: false,
+            title: "",
+          };
+          console.log("[MACD DEBUG] Applying hide options to main series:", hideOptions);
+          indicator.series.applyOptions(hideOptions);
+
+          // Hide price scale
+          const priceScaleOptions = {
+            visible: false,
+            scaleMargins: {
+              top: 0.1,
+              bottom: 0.1,
+            },
+          };
+          console.log("[MACD DEBUG] Applying price scale options:", priceScaleOptions);
+          indicator.series.priceScale().applyOptions(priceScaleOptions);
+
+          // Log options after changes
+          console.log("[MACD DEBUG] Main series options after update:", indicator.series.options());
+        }
+
+        // Also hide labels for additional series if they exist
+        if (additionalSeries) {
+          const seriesToHide = [additionalSeries.signalSeries, additionalSeries.histogramSeries].filter(Boolean);
+
+          seriesToHide.forEach((series, index) => {
+            if (series) {
+              const hideOptions = {
+                lastValueVisible: false,
+                priceLineVisible: false,
+                crosshairMarkerVisible: false,
+                title: "",
+              };
+              console.log(`[MACD DEBUG] Applying hide options to ${index === 0 ? "signal" : "histogram"} series:`, hideOptions);
+              series.applyOptions(hideOptions);
+
+              // Log options after changes
+              console.log(`[MACD DEBUG] ${index === 0 ? "Signal" : "Histogram"} series options after update:`, series.options());
+            }
+          });
+        }
+
         return;
       }
 
-      // Fallback to old implementation if renderer not available
+      console.log("[MACD DEBUG] No renderer found, using legacy update method");
+      // Rest of the existing MACD update code...
       const fastPeriod = indicator.parameters.fastPeriod || 12;
       const slowPeriod = indicator.parameters.slowPeriod || 26;
       const signalPeriod = indicator.parameters.signalPeriod || 9;
@@ -1555,11 +1696,25 @@ export function TradingChart({ pair }: TradingChartProps) {
       // Set data for MACD line
       if (macdSeries && macdData.macdLine.length > 0) {
         macdSeries.setData(macdData.macdLine);
+        // Hide labels for MACD line
+        macdSeries.applyOptions({
+          lastValueVisible: false,
+          priceLineVisible: false,
+          crosshairMarkerVisible: false,
+          title: "",
+        });
       }
 
       // Set data for Signal line
       if (signalSeries && macdData.signalLine.length > 0) {
         signalSeries.setData(macdData.signalLine);
+        // Hide labels for Signal line
+        signalSeries.applyOptions({
+          lastValueVisible: false,
+          priceLineVisible: false,
+          crosshairMarkerVisible: false,
+          title: "",
+        });
       }
 
       // Set data for Histogram with colors
@@ -1574,6 +1729,13 @@ export function TradingChart({ pair }: TradingChartProps) {
         }));
 
         histogramSeries.setData(coloredHistogram);
+        // Hide labels for Histogram
+        histogramSeries.applyOptions({
+          lastValueVisible: false,
+          priceLineVisible: false,
+          crosshairMarkerVisible: false,
+          title: "",
+        });
       }
 
       console.log("CHART DEBUG: Updated MACD data using legacy method");
