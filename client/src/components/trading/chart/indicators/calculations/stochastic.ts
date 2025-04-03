@@ -2,10 +2,10 @@
 
 import { Time } from "lightweight-charts";
 import { FormattedCandle } from "../../../chart/core/ChartTypes";
-import { calculateSMAFromValues } from "./sma";
+import { calculateSMA } from "./sma";
 
 /**
- * Stochastic Oscillator data structure
+ * Stochastic data structure
  */
 export interface StochasticData {
   k: Array<{ time: Time; value: number }>;
@@ -13,67 +13,77 @@ export interface StochasticData {
 }
 
 /**
- * Calculate the Stochastic Oscillator
+ * Calculate Stochastic Oscillator
  *
- * @param candles Array of formatted candles
- * @param kPeriod The period for the %K line (typically 14)
- * @param dPeriod The period for the %D line (typically 3)
- * @returns Object containing %K and %D line data
+ * %K = (Current Close - Lowest Low) / (Highest High - Lowest Low) * 100
+ * %D = SMA of %K
+ *
+ * @param candles - Array of candle data
+ * @param period - The period for calculations (typically 14)
+ * @param smoothK - Smoothing for %K (typically 1 or 3)
+ * @param smoothD - Smoothing for %D (typically 3)
+ * @returns Stochastic data with %K and %D lines
  */
-export function calculateStochastic(candles: FormattedCandle[], kPeriod: number = 14, dPeriod: number = 3): StochasticData {
-  // Handle edge cases
-  if (!candles || candles.length === 0 || kPeriod <= 0 || dPeriod <= 0) {
+export function calculateStochastic(candles: FormattedCandle[], period: number = 14, smoothK: number = 3, smoothD: number = 3): StochasticData {
+  if (!candles || candles.length === 0) {
     return { k: [], d: [] };
   }
 
-  // We need at least kPeriod candles to calculate the first %K
-  if (candles.length < kPeriod) {
+  // Ensure we have enough candles
+  if (candles.length < period) {
     return { k: [], d: [] };
   }
 
-  // Initialize arrays for %K values and timestamps
-  const kValues: number[] = [];
-  const times: Time[] = [];
+  // Calculate raw %K values
+  const rawK: Array<{ time: Time; value: number }> = [];
+  for (let i = period - 1; i < candles.length; i++) {
+    const periodCandles = candles.slice(i - period + 1, i + 1);
+    const currentClose = periodCandles[period - 1].close;
+    const lowestLow = Math.min(...periodCandles.map((c) => c.low));
+    const highestHigh = Math.max(...periodCandles.map((c) => c.high));
 
-  // Calculate %K values for each point
-  for (let i = kPeriod - 1; i < candles.length; i++) {
-    // Get highest high and lowest low over the kPeriod
-    let highestHigh = -Infinity;
-    let lowestLow = Infinity;
+    const k =
+      highestHigh - lowestLow === 0
+        ? 100 // If there's no range, consider it overbought
+        : ((currentClose - lowestLow) / (highestHigh - lowestLow)) * 100;
 
-    for (let j = 0; j < kPeriod; j++) {
-      const candle = candles[i - j];
-      highestHigh = Math.max(highestHigh, candle.high);
-      lowestLow = Math.min(lowestLow, candle.low);
-    }
-
-    // Calculate %K = ((Close - Lowest Low) / (Highest High - Lowest Low)) * 100
-    let kValue = 0;
-    if (highestHigh !== lowestLow) {
-      kValue = ((candles[i].close - lowestLow) / (highestHigh - lowestLow)) * 100;
-    }
-
-    kValues.push(kValue);
-    times.push(candles[i].time);
+    rawK.push({
+      time: candles[i].time,
+      value: k,
+    });
   }
 
-  // Create array for %K line
-  const kLine = kValues.map((value, i) => ({
-    time: times[i],
-    value,
+  // Smooth %K if needed
+  const smoothedK =
+    smoothK > 1
+      ? calculateSMA(
+          rawK.map((point) => ({
+            time: point.time,
+            open: point.value,
+            high: point.value,
+            low: point.value,
+            close: point.value,
+          })),
+          smoothK
+        )
+      : rawK;
+
+  // Calculate %D (SMA of smoothed %K)
+  const kForD = smoothedK.map((point) => ({
+    time: point.time,
+    open: point.value,
+    high: point.value,
+    low: point.value,
+    close: point.value,
   }));
 
-  // Calculate %D line (SMA of %K)
-  const dValues = calculateSMAFromValues(kValues, dPeriod);
-
-  // Create array for %D line
-  const dLine = dValues.map((value, i) => ({
-    time: times[i + dPeriod - 1], // Offset to align with corresponding time
-    value,
-  }));
+  const d = calculateSMA(kForD, smoothD);
 
   return {
-    k: kLine,
-    d: dLine,
+    k: smoothedK,
+    d: d.map((point) => ({
+      time: point.time,
+      value: point.value,
+    })),
   };
 }

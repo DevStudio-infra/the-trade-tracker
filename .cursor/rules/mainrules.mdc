@@ -1,0 +1,91 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Trade Tracker Main Rules & Organization
+
+## Application Structure
+
+### Client Architecture
+```
+client/src/
+├── app/                    # Next.js app router pages
+│   ├── (auth)/            # Authentication related pages
+│   ├── (protected)/       # Protected routes (require auth)
+│   │   └── trading/       # Main trading interface
+│   └── api/               # API routes
+├── components/            # Reusable components
+│   ├── ui/               # Basic UI components
+│   └── trading/          # Trading specific components
+│       ├── chart/        # Chart related components
+│       │   ├── core/     # Core chart functionality
+│       │   ├── indicators/# Technical indicators
+│       │   └── overlays/ # Chart overlays
+│       └── forms/        # Trading forms
+└── lib/                  # Utilities and helpers
+```
+
+### Component Organization
+1. **Trading Components**
+   - Each trading component should be self-contained
+   - State management through Zustand stores
+   - Props interface must be clearly defined
+   - Document any external dependencies
+
+2. **Chart Components**
+   - Maintain separation between chart core and features
+   - Indicators should extend IndicatorBase
+   - Use consistent naming conventions
+   - Document mathematical formulas used
+
+3. **Form Components**
+   - Use react-hook-form for form management
+   - Implement proper validation
+   - Maintain consistent error handling
+
+## Development Guidelines
+
+### Code Standards
+1. Use TypeScript strictly - no any types unless absolutely necessary
+2. Document complex logic with clear comments
+3. Follow consistent naming conventions
+4. Write unit tests for critical functionality
+
+### Feature Development
+1. Create feature branch from main
+2. Update todo.mdc with new features/fixes
+3. Document changes in code
+4. Create PR with clear description
+5. Update todo.mdc when feature is complete
+
+### Bug Fixes
+1. Document bug in todo.mdc
+2. Create fix branch from main
+3. Add regression tests
+4. Update todo.mdc when fixed
+
+### Indicator Development Rules
+1. Extend IndicatorBase for all indicators
+2. Implement proper cleanup
+3. Handle errors gracefully
+4. Document calculation methods
+5. Currently restricted to:
+   - Multiple indicators in main chart
+   - Single oscillator in bottom pane
+
+## Maintenance
+
+### Documentation
+- Keep todo.mdc updated
+- Document all major changes
+- Update README for significant changes
+- Maintain clear inline documentation
+
+### Code Review
+1. Check against these guidelines
+2. Verify TypeScript types
+3. Ensure proper error handling
+4. Validate performance impact
+
+Note: These rules are living documentation - update as needed to reflect current best practices and requirements.

@@ -66,7 +66,8 @@ export class RSIRenderer extends IndicatorBase {
       // Log creation
       console.log(`[RSI] Creating RSI series for ${this.config.id} in pane ${paneIndex}`);
 
-      // Create RSI line
+      // Create RSI line with a specific price scale ID
+      const rsiPriceScaleId = `rsi-${this.config.id}`;
       this.rsiSeries = this.createStandardSeries(
         LineSeries,
         {
@@ -79,10 +80,14 @@ export class RSIRenderer extends IndicatorBase {
             minMove: 0.01,
           },
           title: `RSI (${period})`,
-          priceScaleId: this.priceScaleId,
+          crosshairMarkerVisible: true,
+          crosshairMarkerRadius: 4,
+          priceLineVisible: true,
+          priceLineColor: rsiColor,
+          priceScaleId: rsiPriceScaleId,
         },
         paneIndex
-      ) as ISeriesApi<"Line"> | null;
+      ) as ISeriesApi<"Line">;
 
       // Create overbought level line (typically at 70)
       this.overboughtSeries = this.createStandardSeries(
@@ -97,10 +102,12 @@ export class RSIRenderer extends IndicatorBase {
             minMove: 0.01,
           },
           title: `Overbought (${overboughtLevel})`,
-          priceScaleId: this.priceScaleId,
+          crosshairMarkerVisible: false,
+          priceLineVisible: false,
+          priceScaleId: rsiPriceScaleId,
         },
         paneIndex
-      ) as ISeriesApi<"Line"> | null;
+      ) as ISeriesApi<"Line">;
 
       // Create oversold level line (typically at 30)
       this.oversoldSeries = this.createStandardSeries(
@@ -115,10 +122,12 @@ export class RSIRenderer extends IndicatorBase {
             minMove: 0.01,
           },
           title: `Oversold (${oversoldLevel})`,
-          priceScaleId: this.priceScaleId,
+          crosshairMarkerVisible: false,
+          priceLineVisible: false,
+          priceScaleId: rsiPriceScaleId,
         },
         paneIndex
-      ) as ISeriesApi<"Line"> | null;
+      ) as ISeriesApi<"Line">;
 
       // Create middle line (at 50)
       this.middleSeries = this.createStandardSeries(
@@ -133,10 +142,40 @@ export class RSIRenderer extends IndicatorBase {
             minMove: 0.01,
           },
           title: "Middle (50)",
-          priceScaleId: this.priceScaleId,
+          crosshairMarkerVisible: false,
+          priceLineVisible: false,
+          priceScaleId: rsiPriceScaleId,
         },
         paneIndex
-      ) as ISeriesApi<"Line"> | null;
+      ) as ISeriesApi<"Line">;
+
+      // Configure the price scale for all series
+      if (this.rsiSeries) {
+        const priceScale = this.rsiSeries.priceScale();
+        priceScale.applyOptions({
+          scaleMargins: {
+            top: 0.1,
+            bottom: 0.1,
+          },
+          mode: 1, // Percentage mode
+          alignLabels: true,
+          borderVisible: true,
+          borderColor: "rgba(197, 203, 206, 0.3)",
+          textColor: "rgba(255, 255, 255, 0.5)",
+          visible: true,
+          autoScale: true,
+        });
+
+        // Move the price scale to the left
+        const panes = this.chart.panes();
+        if (panes && panes[paneIndex]) {
+          const pane = panes[paneIndex];
+          if (pane.hasOwnProperty("rightPriceScale")) {
+            // @ts-ignore
+            pane.rightPriceScale().applyOptions({ visible: false });
+          }
+        }
+      }
 
       // Store references for later
       this.mainSeries = this.rsiSeries;
@@ -240,7 +279,7 @@ export class RSIRenderer extends IndicatorBase {
    * Get the preferred pane index for this indicator type
    */
   getPreferredPaneIndex(): number {
-    return -1; // RSI needs a separate pane
+    return -1; // RSI always needs its own pane
   }
 
   /**

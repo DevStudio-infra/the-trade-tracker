@@ -22,10 +22,20 @@ export const timeframes = [
  * methods available in v5 of lightweight-charts
  */
 export interface ChartApiWithPanes extends IChartApi {
-  createPane: (options: { height: number }) => IPaneApi<Time>;
+  addPane: (height: number) => IPaneApi<Time>;
   panes: () => IPaneApi<Time>[];
   removePane: (index: number) => void;
   addSeries: <T extends SeriesType>(definition: SeriesDefinition<T>, options?: SeriesPartialOptionsMap[T], paneIndex?: number) => ISeriesApi<T>;
+  addCandlestickSeries: (options?: SeriesPartialOptionsMap["Candlestick"]) => ISeriesApi<"Candlestick">;
+  applyOptions: (options: {
+    layout?: {
+      panes?: {
+        separatorColor?: string;
+        separatorHoverColor?: string;
+        enableResize?: boolean;
+      };
+    };
+  }) => void;
 }
 
 /**

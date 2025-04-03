@@ -48,6 +48,11 @@ export function ChartInstance({ width, height, candles, indicators = [], chartOp
         layout: {
           background: { color: "#ffffff" },
           textColor: "#333333",
+          panes: {
+            separatorColor: "rgba(197, 203, 206, 0.3)",
+            separatorHoverColor: "rgba(197, 203, 206, 0.5)",
+            enableResize: true,
+          },
         },
         grid: {
           vertLines: { color: "#f0f0f0" },
@@ -58,12 +63,29 @@ export function ChartInstance({ width, height, candles, indicators = [], chartOp
         },
         rightPriceScale: {
           borderColor: "#d1d1d1",
+          scaleMargins: {
+            top: 0.1,
+            bottom: 0.2,
+          },
+        },
+        leftPriceScale: {
+          visible: true,
+          borderColor: "#d1d1d1",
+          scaleMargins: {
+            top: 0.1,
+            bottom: 0.2,
+          },
         },
         ...chartOptions,
       }) as ChartApiWithPanes;
 
       // Store the chart instance
       chartRef.current = chart;
+
+      // Initialize panes state
+      setPanes({
+        0: true, // Main chart pane
+      });
 
       // Notify parent that chart is ready
       if (onChartReady) {
@@ -115,37 +137,18 @@ export function ChartInstance({ width, height, candles, indicators = [], chartOp
       }
 
       try {
-        // Check if chart has panes support
-        if (typeof chartRef.current.panes === "function") {
-          const currentPanes = chartRef.current.panes();
+        // Create the new pane
+        const paneHeight = paneIndex === 1 ? 100 : 150; // Volume pane is smaller
+        const newPane = chartRef.current.addPane(paneHeight);
+        console.log(`Created pane ${paneIndex} with height ${paneHeight}:`, newPane);
 
-          // If needed pane index is beyond current panes, create new ones
-          if (paneIndex >= currentPanes.length && typeof chartRef.current.createPane === "function") {
-            // Create panes until we reach the target index
-            for (let i = currentPanes.length; i <= paneIndex; i++) {
-              console.log(`Creating pane ${i}`);
-
-              // Adjust height based on pane type
-              const paneHeight = i === 1 ? 100 : 200; // Volume pane is smaller
-
-              chartRef.current.createPane({ height: paneHeight });
-
-              // Update panes state
-              setPanes((prev) => ({ ...prev, [i]: true }));
-            }
-
-            return true;
-          } else if (paneIndex < currentPanes.length) {
-            // Pane already exists in chart but not in our state
-            setPanes((prev) => ({ ...prev, [paneIndex]: true }));
-            return true;
-          }
-        }
+        // Update panes state
+        setPanes((prev) => ({ ...prev, [paneIndex]: true }));
+        return true;
       } catch (error) {
-        console.error("Error ensuring pane exists:", error);
+        console.error("Error creating pane:", error);
+        return false;
       }
-
-      return false;
     },
     [panes]
   );

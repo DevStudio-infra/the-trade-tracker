@@ -78,39 +78,53 @@ export function ensurePaneExists(chart: ChartApiWithPanes, paneIndex: number, pa
 
   try {
     // Check if we have a chart with panes support
-    if (chart.panes && typeof chart.panes === "function") {
-      const currentPanes = chart.panes();
-      console.log(`CHART UTILS: Current panes count: ${currentPanes.length}`);
+    if (!chart || typeof chart.panes !== "function" || typeof chart.addPane !== "function") {
+      console.error("CHART UTILS: Chart instance does not support panes");
+      return false;
+    }
 
-      // If the pane index is beyond current panes length
-      if (paneIndex >= currentPanes.length && chart.createPane) {
-        // Create new panes until we reach the desired index
-        for (let i = currentPanes.length; i <= paneIndex; i++) {
-          console.log(`CHART UTILS: Creating pane ${i}`);
+    const currentPanes = chart.panes();
+    console.log(`CHART UTILS: Current panes count: ${currentPanes.length}`);
 
+    // If the pane index is beyond current panes length
+    if (paneIndex >= currentPanes.length) {
+      // Create new panes until we reach the desired index
+      for (let i = currentPanes.length; i <= paneIndex; i++) {
+        console.log(`CHART UTILS: Creating pane ${i}`);
+
+        try {
           // Get the appropriate height for this pane
           const paneHeight = getPaneHeight(i, heightMap);
 
           // Create the pane
-          chart.createPane({
-            height: paneHeight,
-          });
+          const newPane = chart.addPane(paneHeight);
+
+          if (!newPane) {
+            console.error(`CHART UTILS: Failed to create pane ${i}`);
+            return false;
+          }
 
           // Mark as created
           panesRef[i] = true;
+
+          console.log(`CHART UTILS: Successfully created pane ${i} with height ${paneHeight}`);
+        } catch (paneError) {
+          console.error(`CHART UTILS: Error creating pane ${i}:`, paneError);
+          return false;
         }
-
-        console.log(`CHART UTILS: Created panes up to index ${paneIndex}`);
-        return true;
-      } else if (paneIndex < currentPanes.length) {
-        // Pane exists in the chart but not in our tracking
-        panesRef[paneIndex] = true;
-
-        // Ensure the pane has appropriate height
-        updatePaneHeight(chart, paneIndex, heightMap);
-
-        return true;
       }
+
+      console.log(`CHART UTILS: Created panes up to index ${paneIndex}`);
+      return true;
+    } else if (paneIndex < currentPanes.length) {
+      // Pane exists in the chart but not in our tracking
+      panesRef[paneIndex] = true;
+
+      // Ensure the pane has appropriate height
+      updatePaneHeight(chart, paneIndex, heightMap);
+
+      console.log(`CHART UTILS: Found existing pane ${paneIndex}`);
+      return true;
     }
   } catch (error) {
     console.error("CHART UTILS: Error ensuring pane exists:", error);
@@ -134,11 +148,11 @@ export function getPaneHeight(paneIndex: number, heightMap?: { [key: number]: nu
 
   // Default heights based on pane index
   switch (paneIndex) {
-    case 0: // Main chart
+    case 0: // Main chart with volume
       return 500;
-    case 1: // Volume
-      return 100;
-    default: // Oscillators and other indicators
+    case 1: // Oscillators (RSI, MACD, etc.)
+      return 150;
+    default: // Additional indicator panes
       return 150;
   }
 }

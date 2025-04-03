@@ -2,7 +2,7 @@
 
 import { Time } from "lightweight-charts";
 import { FormattedCandle } from "../../../chart/core/ChartTypes";
-import { calculateEMA, calculateEMAFromValues } from "./ema";
+import { calculateEMA } from "./ema";
 
 /**
  * MACD (Moving Average Convergence Divergence) data structure

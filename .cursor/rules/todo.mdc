@@ -1,0 +1,29 @@
+# Trade Tracker Todo List
+
+## Critical Fixes
+- [ ] Fix multiple pane issues in chart
+  - Currently oscillator indicators (RSI, MACD, Stochastic) share the same pane despite -1 return
+  - Need to investigate lightweight-charts v5 pane creation behavior
+  - Potential solution might involve custom pane management
+
+## Features
+- [ ] Enable multiple indicator support
+  - Allow multiple indicators in main chart pane
+  - Implement proper pane separation for oscillator indicators
+  - Add UI feedback when max indicators reached
+
+## Temporary Restrictions
+- [x] Limit to single oscillator indicator in bottom pane
+- [x] Allow multiple indicators in main chart pane only
+
+## UI/UX Improvements
+- [ ] Add visual feedback when indicator limit is reached
+- [ ] Improve indicator selection UI
+- [ ] Add indicator removal confirmation
+
+## Documentation
+- [ ] Document indicator pane management system
+- [ ] Add inline code comments for pane creation logic
+- [ ] Update README with indicator limitations
+
+Note: This list is dynamic and will be updated as issues are resolved or new ones are discovered.

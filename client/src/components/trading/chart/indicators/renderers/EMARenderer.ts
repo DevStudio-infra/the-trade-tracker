@@ -22,6 +22,7 @@ export interface EMARendererOptions extends BaseIndicatorOptions {
  */
 export class EMARenderer extends IndicatorBase {
   private lineSeries: ISeriesApi<"Line"> | null = null;
+  private priceScaleId: string;
 
   /**
    * Create a new EMA renderer
@@ -32,13 +33,23 @@ export class EMARenderer extends IndicatorBase {
       name: options.name || `EMA (${options.parameters.period || 20})`,
       type: "EMA",
     });
+    this.priceScaleId = `ema-${options.id}-scale`;
+    console.log(`[EMA] Creating EMARenderer with options:`, {
+      id: options.id,
+      name: options.name || `EMA (${options.parameters.period || 20})`,
+      type: "EMA",
+      parameters: options.parameters,
+    });
   }
 
   /**
    * Create the EMA series
    */
   createSeries(paneIndex: number): ISeriesApi<SeriesType> | null {
-    if (!this.chart) return null;
+    if (!this.chart) {
+      console.error(`[EMA] Cannot create series without chart instance for ${this.config.id}`);
+      return null;
+    }
 
     try {
       // Get parameters
@@ -48,7 +59,7 @@ export class EMARenderer extends IndicatorBase {
       console.log(`[EMA] Creating EMA series for ${this.config.id} in pane ${paneIndex}`);
 
       // Create the EMA line series
-      this.lineSeries = this.createStandardSeries(
+      this.lineSeries = this.chart.addSeries(
         LineSeries,
         {
           color: this.config.color,
@@ -56,23 +67,52 @@ export class EMARenderer extends IndicatorBase {
           lastValueVisible: true,
           priceFormat: {
             type: "price",
-            precision: 4,
-            minMove: 0.0001,
+            precision: 5,
+            minMove: 0.00001,
           },
           title: `EMA (${period})`,
+          priceScaleId: "left",
+          crosshairMarkerVisible: true,
+          crosshairMarkerRadius: 4,
+          priceLineVisible: true,
+          priceLineSource: 1,
+          priceLineWidth: 1,
+          priceLineColor: this.config.color,
+          baseLineVisible: false,
+          lastPriceAnimation: 0,
         },
         paneIndex
-      ) as ISeriesApi<"Line"> | null;
+      ) as ISeriesApi<"Line">;
 
-      // Store reference for later
-      this.mainSeries = this.lineSeries;
+      if (this.lineSeries) {
+        // Configure the price scale
+        const priceScale = this.lineSeries.priceScale();
+        priceScale.applyOptions({
+          scaleMargins: {
+            top: 0.1,
+            bottom: 0.1,
+          },
+          visible: true,
+          borderVisible: true,
+          borderColor: "rgba(197, 203, 206, 0.3)",
+          autoScale: true,
+          entireTextOnly: false,
+          alignLabels: true,
+          textColor: "rgba(255, 255, 255, 0.5)",
+        });
 
-      // Update config to store series reference
-      this.config.series = this.lineSeries || undefined;
-      this.config.paneIndex = paneIndex;
-      this.config.parameters.paneIndex = paneIndex;
+        // Store reference for later
+        this.mainSeries = this.lineSeries;
 
-      console.log(`[EMA] Successfully created EMA series for ${this.config.id}`);
+        // Update config to store series reference
+        this.config.series = this.lineSeries;
+        this.config.paneIndex = paneIndex;
+        this.config.parameters.paneIndex = paneIndex;
+
+        console.log(`[EMA] Successfully created EMA series for ${this.config.id}`);
+      } else {
+        console.error(`[EMA] Failed to create line series for ${this.config.id}`);
+      }
 
       return this.lineSeries;
     } catch (error) {
@@ -86,6 +126,7 @@ export class EMARenderer extends IndicatorBase {
    */
   updateData(candles: FormattedCandle[]): void {
     if (!this.lineSeries || candles.length === 0) {
+      console.log(`[EMA] Cannot update data - series: ${!!this.lineSeries}, candles: ${candles.length}`);
       return;
     }
 
@@ -95,6 +136,7 @@ export class EMARenderer extends IndicatorBase {
 
       // Calculate EMA data
       const emaData = calculateEMA(candles, period);
+      console.log(`[EMA] Calculated EMA data for ${this.config.id}, points: ${emaData.length}`);
 
       // Set the data for the line series
       this.lineSeries.setData(emaData);
@@ -105,8 +147,14 @@ export class EMARenderer extends IndicatorBase {
         priceScale.applyOptions({
           autoScale: true,
           mode: 0,
+          scaleMargins: {
+            top: 0.1,
+            bottom: 0.1,
+          },
         });
       }
+
+      console.log(`[EMA] Successfully updated EMA data for ${this.config.id}`);
     } catch (error) {
       console.error(`[EMA] Error updating EMA data for ${this.config.id}:`, error);
     }

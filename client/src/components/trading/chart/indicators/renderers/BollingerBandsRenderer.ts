@@ -16,7 +16,6 @@ export interface BollingerBandsRendererOptions extends BaseIndicatorOptions {
     middleBandColor?: string;
     upperBandColor?: string;
     lowerBandColor?: string;
-    priceScaleId?: string;
   };
 }
 
@@ -40,8 +39,6 @@ export class BollingerBandsRenderer extends IndicatorBase {
       name: options.name || `Bollinger Bands (${options.parameters.period || 20}, ${options.parameters.stdDev || 2})`,
       type: "BollingerBands",
     });
-
-    // Create a unique price scale ID for this instance
     this.priceScaleId = `bbands-${options.id}-scale`;
   }
 
@@ -61,24 +58,24 @@ export class BollingerBandsRenderer extends IndicatorBase {
       const upperBandColor = (this.config.parameters.upperBandColor as string) || "#FF6D00";
       const lowerBandColor = (this.config.parameters.lowerBandColor as string) || "#2962FF";
 
-      // Use price scale ID from parameters if provided, otherwise use the one from constructor
-      if (this.config.parameters.priceScaleId) {
-        this.priceScaleId = this.config.parameters.priceScaleId as string;
-      }
-
       // Log creation
-      console.log(`[BB] Creating Bollinger Bands series for ${this.config.id} in pane ${paneIndex} with price scale ID: ${this.priceScaleId}`);
+      console.log(`[BB] Creating Bollinger Bands series for ${this.config.id} in pane ${paneIndex}`);
 
       // Create the common options for all bands
       const commonSeriesOptions = {
         priceFormat: {
           type: "price" as const,
-          precision: 4,
-          minMove: 0.0001,
+          precision: 5,
+          minMove: 0.00001,
         },
         lastValueVisible: true,
-        // For main pane, we want to share the price scale with candlesticks
-        priceScaleId: paneIndex === 0 ? "right" : this.priceScaleId,
+        priceScaleId: "left",
+        crosshairMarkerVisible: true,
+        crosshairMarkerRadius: 4,
+        priceLineVisible: true,
+        priceLineSource: 1,
+        priceLineWidth: 1 as any,
+        lastPriceAnimation: 0,
       };
 
       // Create the middle band line series (SMA)
@@ -87,12 +84,30 @@ export class BollingerBandsRenderer extends IndicatorBase {
         {
           ...commonSeriesOptions,
           color: middleBandColor,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          lineWidth: 2 as any,
+          lineWidth: 2,
           title: `BB Middle (${period})`,
+          priceLineColor: middleBandColor,
         },
         paneIndex
       ) as ISeriesApi<"Line">;
+
+      // Configure the price scale for all bands
+      if (this.middleBandSeries) {
+        const priceScale = this.middleBandSeries.priceScale();
+        priceScale.applyOptions({
+          scaleMargins: {
+            top: 0.1,
+            bottom: 0.1,
+          },
+          visible: true,
+          borderVisible: true,
+          borderColor: "rgba(197, 203, 206, 0.3)",
+          autoScale: true,
+          entireTextOnly: false,
+          alignLabels: true,
+          textColor: "rgba(255, 255, 255, 0.5)",
+        });
+      }
 
       // Create the upper band line series
       this.upperBandSeries = this.chart.addSeries(
@@ -100,9 +115,9 @@ export class BollingerBandsRenderer extends IndicatorBase {
         {
           ...commonSeriesOptions,
           color: upperBandColor,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          lineWidth: 1 as any,
+          lineWidth: 1,
           title: `BB Upper (${stdDev}σ)`,
+          priceLineColor: upperBandColor,
         },
         paneIndex
       ) as ISeriesApi<"Line">;
@@ -113,9 +128,9 @@ export class BollingerBandsRenderer extends IndicatorBase {
         {
           ...commonSeriesOptions,
           color: lowerBandColor,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          lineWidth: 1 as any,
+          lineWidth: 1,
           title: `BB Lower (${stdDev}σ)`,
+          priceLineColor: lowerBandColor,
         },
         paneIndex
       ) as ISeriesApi<"Line">;
@@ -170,6 +185,10 @@ export class BollingerBandsRenderer extends IndicatorBase {
         priceScale.applyOptions({
           autoScale: true,
           mode: 0,
+          scaleMargins: {
+            top: 0.1,
+            bottom: 0.1,
+          },
         });
       }
     } catch (error) {
@@ -181,13 +200,7 @@ export class BollingerBandsRenderer extends IndicatorBase {
    * Get the preferred pane index for this indicator type
    */
   getPreferredPaneIndex(): number {
-    // If a pane index is specified in the configuration, use it
-    if (typeof this.config.parameters.paneIndex === "number") {
-      return this.config.parameters.paneIndex as number;
-    }
-
-    // Default to main chart (pane 0)
-    return 0;
+    return 0; // Bollinger Bands go on the main price chart (pane 0)
   }
 
   /**

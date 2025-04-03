@@ -1,11 +1,24 @@
 "use client";
 
-import { ISeriesApi, SeriesType } from "lightweight-charts";
+import { IChartApi, ISeriesApi, SeriesType, LineSeries, HistogramSeries, DeepPartial, SeriesOptionsCommon, LineStyleOptions, HistogramStyleOptions } from "lightweight-charts";
 import { ChartApiWithPanes, FormattedCandle, IndicatorConfig, IndicatorParameters, IndicatorType, indicatorDefaults } from "../../../chart/core/ChartTypes";
 import { BaseIndicator, BaseIndicatorOptions, SeriesConstructor, SeriesCreationOptions } from "./types";
 
+type StandardSeriesOptions = DeepPartial<SeriesOptionsCommon & (LineStyleOptions | HistogramStyleOptions)>;
+
 /**
- * Abstract base class for all indicators
+ * Base class for all indicators
+ *
+ * IMPORTANT LIMITATION:
+ * Currently, there is an issue with the lightweight-charts v5 pane system where
+ * multiple oscillator indicators returning -1 for getPreferredPaneIndex() still
+ * end up in the same pane. As a temporary workaround, we are restricting the system
+ * to only allow:
+ * 1. Multiple indicators in the main chart pane (index 0)
+ * 2. Single oscillator indicator in a separate pane
+ *
+ * This limitation is tracked in the todo list and will be addressed in a future update.
+ * See /.cursor/rules/todo.mdc for more details.
  */
 export abstract class IndicatorBase implements BaseIndicator {
   protected chart: ChartApiWithPanes | null = null;
@@ -165,7 +178,20 @@ export abstract class IndicatorBase implements BaseIndicator {
    * Get the preferred pane index for this indicator type
    */
   getPreferredPaneIndex(): number {
-    return indicatorDefaults[this.config.type as keyof typeof indicatorDefaults]?.defaultPane || 0;
+    // If a pane index is specified in the configuration, use it
+    if (typeof this.config.parameters.paneIndex === "number") {
+      return this.config.parameters.paneIndex as number;
+    }
+
+    // By default, oscillators and other indicators that need their own pane
+    // should return -1 to request a new pane
+    const oscillatorTypes = ["RSI", "MACD", "Stochastic"];
+    if (oscillatorTypes.includes(this.config.type)) {
+      return -1;
+    }
+
+    // Overlay indicators go on the main chart (pane 0)
+    return 0;
   }
 
   /**
@@ -181,46 +207,40 @@ export abstract class IndicatorBase implements BaseIndicator {
   }
 
   /**
-   * Helper to create a series with standard options
+   * Create a standard series with common configuration
    */
-  protected createStandardSeries<T extends SeriesType>(SeriesClass: SeriesConstructor<T>, options: SeriesCreationOptions, paneIndex: number): ISeriesApi<T> | null {
+  protected createStandardSeries<T extends SeriesType>(seriesConstructor: SeriesConstructor<T>, options: SeriesPartialOptionsMap[T], paneIndex: number): ISeriesApi<T> | null {
     if (!this.chart) return null;
 
     try {
-      // Create the series with the chart
+      // Create the series
       const series = this.chart.addSeries(
-        SeriesClass,
+        seriesConstructor,
         {
-          color: options.color || this.config.color,
-          lineWidth: options.lineWidth ? { value: options.lineWidth, scaleWith: false } : undefined,
-          lastValueVisible: options.lastValueVisible !== undefined ? options.lastValueVisible : true,
-          priceFormat: options.priceFormat
-            ? {
-                type: options.priceFormat.type as "price" | "volume" | "percent",
-                precision: options.priceFormat.precision,
-                minMove: options.priceFormat.minMove,
-              }
-            : {
-                type: "price",
-                precision: 4,
-                minMove: 0.0001,
-              },
-          title: options.title,
-          priceScaleId: options.priceScaleId,
+          ...options,
+          priceScaleId: "left", // Force left price scale for all indicators
         },
         paneIndex
       );
 
-      // Apply autoscale provider if provided
-      if (options.autoscaleInfoProvider && typeof series.applyOptions === "function") {
-        series.applyOptions({
-          autoscaleInfoProvider: options.autoscaleInfoProvider,
+      // Configure the price scale
+      const priceScale = series.priceScale();
+      if (priceScale) {
+        priceScale.applyOptions({
+          scaleMargins: {
+            top: 0.1,
+            bottom: 0.1,
+          },
+          borderVisible: true,
+          borderColor: "rgba(197, 203, 206, 0.3)",
+          visible: true,
+          autoScale: true,
         });
       }
 
-      return series as ISeriesApi<T>;
+      return series;
     } catch (error) {
-      console.error(`Error creating series for ${this.config.type} indicator:`, error);
+      console.error(`Error creating series:`, error);
       return null;
     }
   }

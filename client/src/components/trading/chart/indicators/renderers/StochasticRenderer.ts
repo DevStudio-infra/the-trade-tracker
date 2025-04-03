@@ -95,280 +95,111 @@ export class StochasticRenderer extends IndicatorBase {
       const overboughtLineColor = (this.config.parameters.overboughtLineColor as string) || "#787B86";
       const oversoldLineColor = (this.config.parameters.oversoldLineColor as string) || "#787B86";
 
-      // Use the price scale ID provided in parameters
-      if (this.config.parameters.priceScaleId) {
-        this.priceScaleId = this.config.parameters.priceScaleId as string;
-      }
-      console.log(`[Stochastic] Using price scale ID: ${this.priceScaleId} in pane ${paneIndex}`);
+      console.log(`[Stochastic] Creating Stochastic series in pane ${paneIndex}`);
 
-      // Determine the pane type for proper configuration
-      const isInMainPane = paneIndex === 0;
-      const isInVolumPane = paneIndex === 1;
-      const isInDedicatedPane = !isInMainPane && !isInVolumPane;
-
-      console.log(`[Stochastic] Pane configuration: mainPane=${isInMainPane}, volumePane=${isInVolumPane}, dedicatedPane=${isInDedicatedPane}`);
-
-      // CRITICAL FIX: Create all series in the same synchronized operation
-      // to ensure they're all placed in exactly the same pane
-
-      // Define shared options for all series - optimized for each pane type
-      const sharedSeriesOptions = {
-        priceScaleId: this.priceScaleId,
+      // Common options for all series
+      const commonSeriesOptions = {
         priceFormat: {
           type: "price" as const,
           precision: 2,
           minMove: 0.01,
         },
-        // Configure based on pane type
-        overlay: isInMainPane || isInVolumPane, // Use overlay mode for main and volume panes
         lastValueVisible: true,
-
-        // For any pane, use explicit scale configuration for Stochastic (0-100 scale)
-        autoscaleInfoProvider: () => ({
-          priceRange: {
-            minValue: 0,
-            maxValue: 100,
-          },
-          margins: {
-            above: 0.1,
-            below: 0.1,
-          },
-        }),
+        crosshairMarkerVisible: true,
+        crosshairMarkerRadius: 4,
       };
 
-      // CRITICAL FIX: Use a more explicit approach to build the series
-      // Store all series creation parameters to ensure synchronized creation
-      const seriesParams = [
-        // K line (main series)
+      // Create K line (main series)
+      this.kSeries = this.createStandardSeries(
+        LineSeries,
         {
-          type: "k",
-          options: {
-            ...sharedSeriesOptions,
-            color: kLineColor,
-            title: `%K (${kPeriod})`,
-            lineWidth: 2,
-            priceLineVisible: false,
-          },
+          ...commonSeriesOptions,
+          color: kLineColor,
+          lineWidth: 2,
+          title: `%K (${kPeriod})`,
+          priceLineVisible: true,
+          priceLineColor: kLineColor,
         },
-        // Overbought line
+        paneIndex
+      ) as ISeriesApi<"Line">;
+
+      // Create D line
+      this.dSeries = this.createStandardSeries(
+        LineSeries,
         {
-          type: "overbought",
-          options: {
-            ...sharedSeriesOptions,
-            color: overboughtLineColor,
-            title: "", // No title for level lines
-            lineWidth: 1,
-            lineStyle: 2, // Dashed line
-            lastValueVisible: false,
-            priceLineVisible: false,
-            crosshairMarkerVisible: false,
-          },
+          ...commonSeriesOptions,
+          color: dLineColor,
+          lineWidth: 2,
+          title: `%D (${dPeriod})`,
+          priceLineVisible: true,
+          priceLineColor: dLineColor,
         },
-        // Oversold line
+        paneIndex
+      ) as ISeriesApi<"Line">;
+
+      // Create overbought level line
+      this.overboughtSeries = this.createStandardSeries(
+        LineSeries,
         {
-          type: "oversold",
-          options: {
-            ...sharedSeriesOptions,
-            color: oversoldLineColor,
-            title: "", // No title for level lines
-            lineWidth: 1,
-            lineStyle: 2, // Dashed line
-            lastValueVisible: false,
-            priceLineVisible: false,
-            crosshairMarkerVisible: false,
-          },
+          ...commonSeriesOptions,
+          color: overboughtLineColor,
+          lineWidth: 1,
+          title: `Overbought (${overboughtLevel})`,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
         },
-        // D line
+        paneIndex
+      ) as ISeriesApi<"Line">;
+
+      // Create oversold level line
+      this.oversoldSeries = this.createStandardSeries(
+        LineSeries,
         {
-          type: "d",
-          options: {
-            ...sharedSeriesOptions,
-            color: dLineColor,
-            title: `%D (${dPeriod})`,
-            lineWidth: 2,
-            priceLineVisible: false,
-            crosshairMarkerVisible: true,
-          },
+          ...commonSeriesOptions,
+          color: oversoldLineColor,
+          lineWidth: 1,
+          title: `Oversold (${oversoldLevel})`,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
         },
-      ];
+        paneIndex
+      ) as ISeriesApi<"Line">;
 
-      // CRITICAL FIX: Create all series at once in a synchronized block
-      console.log(`[Stochastic] Creating all Stochastic series in pane ${paneIndex} with synchronized approach`);
-
-      let kSeries: ISeriesApi<SeriesType> | null = null;
-      let overboughtSeries: ISeriesApi<SeriesType> | null = null;
-      let oversoldSeries: ISeriesApi<SeriesType> | null = null;
-      let dSeries: ISeriesApi<SeriesType> | null = null;
-
-      try {
-        // Create all series in one synchronized block to ensure they're in the same pane
-        if (this.chart) {
-          // Create K line first (main series) - CRITICAL: Use this as the anchor for all other series
-          kSeries = this.chart.addSeries(
-            LineSeries,
-            // Use type assertion that matches what the API expects
-            seriesParams[0].options as any,
-            paneIndex
-          );
-          console.log(`[Stochastic] Successfully created K line (anchor series) in pane ${paneIndex}`);
-          this.kSeries = kSeries as ISeriesApi<"Line">;
-
-          // Create the overbought line AFTER the K line is created
-          overboughtSeries = this.chart.addSeries(
-            LineSeries,
-            // Use type assertion that matches what the API expects
-            seriesParams[1].options as any,
-            paneIndex
-          );
-          console.log(`[Stochastic] Successfully created Overbought line in pane ${paneIndex}`);
-          this.overboughtSeries = overboughtSeries as ISeriesApi<"Line">;
-
-          // Create the oversold line AFTER the overbought line is created
-          oversoldSeries = this.chart.addSeries(
-            LineSeries,
-            // Use type assertion that matches what the API expects
-            seriesParams[2].options as any,
-            paneIndex
-          );
-          console.log(`[Stochastic] Successfully created Oversold line in pane ${paneIndex}`);
-          this.oversoldSeries = oversoldSeries as ISeriesApi<"Line">;
-
-          // Create the D line AFTER the oversold line is created
-          dSeries = this.chart.addSeries(
-            LineSeries,
-            // Use type assertion that matches what the API expects
-            seriesParams[3].options as any,
-            paneIndex
-          );
-          console.log(`[Stochastic] Successfully created D line in pane ${paneIndex}`);
-          this.dSeries = dSeries as ISeriesApi<"Line">;
-
-          // CRITICAL VERIFICATION: Verify all series are in the same pane
-          console.log(`[Stochastic] Verification - All series created in pane ${paneIndex}`);
-        }
-      } catch (err) {
-        console.error(`[Stochastic] Error creating synchronized series set: ${err}`);
-        // If we fail, attempt cleanup
-        if (kSeries && this.chart) this.chart.removeSeries(kSeries);
-        if (overboughtSeries && this.chart) this.chart.removeSeries(overboughtSeries);
-        if (oversoldSeries && this.chart) this.chart.removeSeries(oversoldSeries);
-        if (dSeries && this.chart) this.chart.removeSeries(dSeries);
-
-        this.kSeries = null;
-        this.overboughtSeries = null;
-        this.oversoldSeries = null;
-        this.dSeries = null;
-
-        return null;
+      // Configure the price scale for all series
+      if (this.kSeries) {
+        const priceScale = this.kSeries.priceScale();
+        priceScale.applyOptions({
+          scaleMargins: {
+            top: 0.1,
+            bottom: 0.1,
+          },
+          mode: 1, // Percentage mode
+          alignLabels: true,
+          borderVisible: true,
+          borderColor: "rgba(197, 203, 206, 0.3)",
+          textColor: "rgba(255, 255, 255, 0.5)",
+          visible: true,
+          autoScale: true,
+        });
       }
 
-      // Set initial data for overbought/oversold level lines if we have candle data
-      const data = this._getStoredData();
-      if (data && data.length > 0) {
-        const firstTime = data[0].time;
-        const lastTime = data[data.length - 1].time;
+      // Store references
+      this.mainSeries = this.kSeries;
+      this.additionalSeries = {
+        dSeries: this.dSeries,
+        overboughtSeries: this.overboughtSeries,
+        oversoldSeries: this.oversoldSeries,
+      };
 
-        if (this.overboughtSeries) {
-          this.overboughtSeries.setData([
-            { time: firstTime, value: overboughtLevel },
-            { time: lastTime, value: overboughtLevel },
-          ]);
-        }
-
-        if (this.oversoldSeries) {
-          this.oversoldSeries.setData([
-            { time: firstTime, value: oversoldLevel },
-            { time: lastTime, value: oversoldLevel },
-          ]);
-        }
-      }
-
-      // Configure price scale explicitly - based on pane type
-      try {
-        if (kSeries) {
-          const priceScale = kSeries.priceScale();
-          if (priceScale) {
-            // Different configurations based on pane type
-            if (isInMainPane) {
-              // For main pane, optimize Stochastic as an overlay
-              priceScale.applyOptions({
-                scaleMargins: {
-                  // Position in the upper area of the main chart
-                  top: 0.7,
-                  bottom: 0.2,
-                },
-                visible: false, // Don't show a separate scale
-                autoScale: false, // Use fixed scale
-                mode: 2, // Entire range mode
-              });
-            } else if (isInVolumPane) {
-              // For volume pane, optimize positioning above volume bars
-              // CRITICAL FIX: Use very specific margins to ensure indicator displays properly
-              priceScale.applyOptions({
-                scaleMargins: {
-                  // Position ABOVE volume bars with careful margins
-                  top: 0.05, // Very small margin at top
-                  bottom: 0.5, // Leave bottom half for volume
-                },
-                visible: true,
-                autoScale: false,
-                mode: 2, // Entire range mode
-              });
-
-              // CRITICAL FIX: Configure kSeries for better visibility in volume pane
-              if (this.kSeries) {
-                this.kSeries.applyOptions({
-                  lastValueVisible: true,
-                  priceLineVisible: false,
-                  baseLineVisible: false,
-                  // Make line more prominent in the volume pane
-                  lineWidth: 2,
-                });
-              }
-
-              // CRITICAL FIX: Configure dSeries for better visibility in volume pane
-              if (this.dSeries) {
-                this.dSeries.applyOptions({
-                  lastValueVisible: true,
-                  priceLineVisible: false,
-                  baseLineVisible: false,
-                  // Make line more prominent in the volume pane
-                  lineWidth: 2,
-                });
-              }
-            } else {
-              // For a dedicated pane, use full range
-              priceScale.applyOptions({
-                scaleMargins: {
-                  top: 0.1,
-                  bottom: 0.1,
-                },
-                visible: true,
-                autoScale: false,
-                mode: 2, // Entire range mode
-              });
-            }
-            console.log(`[Stochastic] Configured price scale for ${this.config.id} in pane ${paneIndex}`);
-          }
-        }
-      } catch (err) {
-        console.error(`[Stochastic] Error configuring price scale: ${err}`);
-      }
-
-      // Calculate and set data if we have chart data already
-      if (data && data.length > 0 && this.kSeries && this.dSeries) {
-        this.updateData(data);
-      }
-
-      // Store the main series for the renderer to reference
-      this.mainSeries = kSeries;
-
-      // Store pane index and series in config for future reference
-      this.config.series = kSeries || undefined;
+      // Update config
+      this.config.series = this.kSeries || undefined;
       this.config.paneIndex = paneIndex;
+      this.config.parameters.paneIndex = paneIndex;
 
-      // Return the main series (K line)
-      return kSeries;
+      console.log(`[Stochastic] Successfully created Stochastic series`);
+      return this.kSeries;
     } catch (error) {
       console.error(`[Stochastic] Error creating Stochastic series:`, error);
       return null;
@@ -508,17 +339,10 @@ export class StochasticRenderer extends IndicatorBase {
   }
 
   /**
-   * Get the preferred pane index for the indicator
+   * Get the preferred pane index for this indicator
    */
   getPreferredPaneIndex(): number {
-    // If a pane index is specified in the configuration, use it
-    if (typeof this.config.parameters.paneIndex === "number") {
-      return this.config.parameters.paneIndex as number;
-    }
-
-    // CRITICAL FIX: Always use pane 1 (volume pane) for Stochastic
-    // This ensures all Stochastic indicators go in the same pane
-    return 1;
+    return -1; // Stochastic always needs its own pane
   }
 
   /**

@@ -1,30 +1,26 @@
 "use client";
 
-import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { create, StateCreator } from "zustand";
+import { persist, PersistOptions } from "zustand/middleware";
 import { v4 as uuidv4 } from "uuid";
-import { ChartApiWithPanes, IndicatorConfig, IndicatorParameters } from "../core/ChartTypes";
+import { ChartApiWithPanes, IndicatorParameters, indicatorDefaults } from "../core/ChartTypes";
 import { BaseIndicator } from "./base/types";
 import { createIndicator } from "./indicatorFactory";
-import { OscillatorPaneTracker, PaneReferenceTracker, cleanUpUnusedPanes, ensurePaneExists, getNextAvailablePaneIndex } from "../core/ChartUtils";
+import { OscillatorPaneTracker, PaneReferenceTracker, cleanUpUnusedPanes } from "../core/ChartUtils";
 import { FormattedCandle } from "../core/ChartTypes";
+import { ISeriesApi, CandlestickData, Time } from "lightweight-charts";
+
+const OSCILLATOR_INDICATORS = ["RSI", "MACD", "Stochastic", "ATR"];
+const OVERLAY_INDICATORS = ["SMA", "EMA", "BollingerBands", "Ichimoku"];
 
 interface IndicatorState {
-  // Map of indicator ID to indicator instance
   indicators: Map<string, BaseIndicator>;
-  // Ordered list of indicator IDs to maintain display order
   indicatorOrder: string[];
-
-  // Chart instance reference (if any)
   chartInstance: ChartApiWithPanes | null;
-
-  // Map of indicator keys to pane indices for oscillators
   oscillatorPanes: OscillatorPaneTracker;
-
-  // Track which panes have been created
   createdPanes: PaneReferenceTracker;
-
-  // Methods for managing indicators
+  paneAssignments: Map<string, number>; // Maps indicator IDs to pane indices
+  mainSeries: ISeriesApi<"Candlestick"> | null;
   addIndicator: (indicator: BaseIndicator) => string;
   createAndAddIndicator: (type: string, parameters?: IndicatorParameters, name?: string, color?: string) => string;
   removeIndicator: (id: string) => void;
@@ -34,382 +30,640 @@ interface IndicatorState {
   getIndicator: (id: string) => BaseIndicator | undefined;
   getIndicators: () => BaseIndicator[];
   clearAllIndicators: () => void;
-  setChartInstance: (chart: ChartApiWithPanes | null) => void;
+  setChartInstance: (chart: ChartApiWithPanes | null, mainSeries?: ISeriesApi<"Candlestick"> | null) => void;
   updateData: (candles: FormattedCandle[]) => void;
   toggleVisibility: (key: string) => void;
   cleanupUnusedPanes: () => void;
   reset: () => void;
+  assignPane: (indicatorId: string, paneIndex: number) => void;
+  getIndicatorPane: (indicatorId: string) => number | undefined;
 }
 
-// Interface for serialized indicators
-interface SerializedIndicator {
-  id: string;
-  config: IndicatorConfig;
+// Helper function to determine if an indicator should be overlaid on the main chart
+function isOverlayIndicator(type: string): boolean {
+  return OVERLAY_INDICATORS.includes(type);
 }
 
-// Interface for serialized state
-interface SerializedState {
-  indicators: SerializedIndicator[];
-  indicatorOrder: string[];
-  oscillatorPanes: OscillatorPaneTracker;
-  createdPanes: PaneReferenceTracker;
-}
+// Create the base store without persistence
+const createBaseStore: StateCreator<IndicatorState> = (set, get) => ({
+  indicators: new Map<string, BaseIndicator>(),
+  indicatorOrder: [],
+  chartInstance: null,
+  oscillatorPanes: {},
+  createdPanes: {},
+  paneAssignments: new Map<string, number>(),
+  mainSeries: null,
 
-export const useIndicatorStore = create<IndicatorState>()(
-  persist(
-    (set, get) => ({
-      indicators: new Map<string, BaseIndicator>(),
+  assignPane: (indicatorId: string, paneIndex: number) => {
+    set((state) => ({
+      paneAssignments: new Map(state.paneAssignments).set(indicatorId, paneIndex),
+      oscillatorPanes: { ...state.oscillatorPanes, [indicatorId]: paneIndex },
+    }));
+  },
+
+  getIndicatorPane: (indicatorId: string) => {
+    return get().paneAssignments.get(indicatorId);
+  },
+
+  addIndicator: (indicator: BaseIndicator) => {
+    const id = indicator.getId();
+    const type = indicator.getType();
+    const { indicators, chartInstance } = get();
+
+    // Check if this is an oscillator
+    const isOscillator = OSCILLATOR_INDICATORS.includes(type);
+    console.log(`Adding indicator ${type} (${id}), isOscillator=${isOscillator}`);
+
+    if (isOscillator) {
+      // Check if we already have ANY oscillator
+      const existingOscillators = Array.from(indicators.values()).filter((ind) => OSCILLATOR_INDICATORS.includes(ind.getType()));
+
+      if (existingOscillators.length > 0) {
+        const existingOscillator = existingOscillators[0];
+        console.warn(`Cannot add ${type}: Only one oscillator indicator allowed. Please remove ${existingOscillator.getName()} first.`);
+        throw new Error(`Only one oscillator indicator allowed. Please remove ${existingOscillator.getName()} first.`);
+      }
+
+      // Use pane 1 for oscillators (pane 0 is main chart with volume)
+      if (chartInstance) {
+        try {
+          // Initialize the indicator with the chart
+          indicator.initialize(chartInstance, {
+            id: indicator.getId(),
+            type: indicator.getType(),
+            name: indicator.getName(),
+            color: indicator.getConfig().color,
+            visible: indicator.isVisible(),
+            parameters: {
+              paneIndex: 1,
+              priceScaleId: "left",
+            }, // Use pane 1 for oscillators
+          });
+
+          // Create the indicator series in pane 1
+          indicator.createSeries(1);
+
+          // Update tracking
+          get().assignPane(id, 1);
+          console.log(`Added ${type} to pane 1`);
+        } catch (error) {
+          console.error(`Failed to add ${type} to pane 1:`, error);
+        }
+      }
+    } else {
+      // Non-oscillator indicators go in the main pane (0) by default
+      if (chartInstance) {
+        indicator.initialize(chartInstance, {
+          id: indicator.getId(),
+          type: indicator.getType(),
+          name: indicator.getName(),
+          color: indicator.getConfig().color,
+          visible: indicator.isVisible(),
+          parameters: {
+            paneIndex: 0,
+            priceScaleId: "left",
+          },
+        });
+        indicator.createSeries(0);
+      }
+      get().assignPane(id, 0);
+    }
+
+    set((state: IndicatorState) => {
+      const newIndicators = new Map(state.indicators);
+      newIndicators.set(id, indicator);
+      const newOrder = state.indicatorOrder.includes(id) ? [...state.indicatorOrder] : [...state.indicatorOrder, id];
+      return {
+        indicators: newIndicators,
+        indicatorOrder: newOrder,
+      };
+    });
+
+    return id;
+  },
+
+  createAndAddIndicator: (type: string, parameters?: IndicatorParameters, name?: string, color?: string) => {
+    console.log(`=== INDICATOR STORE: CREATE AND ADD START ===`);
+    const { indicators, chartInstance } = get();
+
+    console.log(`Store state:`, {
+      hasChartInstance: !!chartInstance,
+      currentIndicators: Array.from(indicators.values()).map((ind) => ({
+        type: ind.getType(),
+        name: ind.getName(),
+        isOscillator: OSCILLATOR_INDICATORS.includes(ind.getType()),
+        isOverlay: isOverlayIndicator(ind.getType()),
+      })),
+      type,
+      parameters,
+      name,
+      color,
+    });
+
+    // Check if this is an oscillator type indicator
+    const isOscillator = OSCILLATOR_INDICATORS.includes(type);
+    const isOverlay = isOverlayIndicator(type);
+    console.log(`Indicator type check: ${type}, isOscillator=${isOscillator}, isOverlay=${isOverlay}`);
+
+    if (isOscillator) {
+      // Check if we already have ANY oscillator
+      const existingOscillators = Array.from(indicators.values()).filter((ind) => {
+        const indType = ind.getType();
+        const isOsc = OSCILLATOR_INDICATORS.includes(indType);
+        console.log(`Checking existing indicator: ${ind.getName()} (${indType}), isOscillator=${isOsc}`);
+        return isOsc;
+      });
+
+      if (existingOscillators.length > 0) {
+        const existingOscillator = existingOscillators[0];
+        const error = `Cannot add ${type}: Only one oscillator indicator allowed. Please remove ${existingOscillator.getName()} first.`;
+        console.warn(error);
+        throw new Error(error);
+      }
+    }
+
+    const id = uuidv4();
+    console.log(`Generated new indicator ID: ${id}`);
+
+    // Get default parameters for this indicator type
+    const defaultParams = indicatorDefaults[type]?.defaultParameters || {};
+
+    const params: IndicatorParameters = {
+      ...defaultParams,
+      ...(parameters || {}),
+      id,
+      name: name || type,
+      color: color || undefined,
+    };
+
+    console.log(`Creating indicator with params:`, params);
+    const indicator = createIndicator(type, params);
+    console.log(`Indicator created:`, {
+      type: indicator.getType(),
+      name: indicator.getName(),
+      id: indicator.getId(),
+      config: indicator.getConfig(),
+    });
+
+    // Add the indicator to the store
+    const addedId = get().addIndicator(indicator);
+    console.log(`Indicator added to store with ID: ${addedId}`);
+
+    // Initialize the indicator with the chart if available
+    if (chartInstance) {
+      console.log(`Chart instance available, initializing indicator`);
+      try {
+        // Initialize based on indicator type
+        if (isOverlay) {
+          // Overlay indicators go on the main chart (pane 0)
+          console.log(`Initializing overlay indicator ${indicator.getName()} in main pane`);
+          indicator.initialize(chartInstance, {
+            id: indicator.getId(),
+            type: indicator.getType(),
+            name: indicator.getName(),
+            color: indicator.getConfig().color,
+            visible: indicator.isVisible(),
+            parameters: {
+              paneIndex: 0,
+              priceScaleId: "left",
+            },
+          });
+          indicator.createSeries(0);
+        } else if (isOscillator) {
+          // Oscillators go in pane 1
+          console.log(`Creating pane for oscillator ${indicator.getName()}`);
+
+          try {
+            // Initialize the indicator with the chart and config options
+            indicator.initialize(chartInstance, {
+              id: indicator.getId(),
+              type: indicator.getType(),
+              name: indicator.getName(),
+              color: indicator.getConfig().color,
+              visible: indicator.isVisible(),
+              parameters: {
+                paneIndex: 1,
+                priceScaleId: "left",
+              },
+            });
+
+            // Create the indicator series in pane 1
+            indicator.createSeries(1);
+
+            console.log(`Successfully initialized oscillator ${indicator.getName()} in pane 1`);
+          } catch (error) {
+            console.error(`Error initializing oscillator ${indicator.getId()}:`, error);
+          }
+        }
+        console.log(`Successfully initialized indicator ${indicator.getName()}`);
+
+        // Get data from main series if available
+        const { mainSeries } = get();
+        if (mainSeries) {
+          const data = mainSeries.data();
+          if (data && data.length > 0) {
+            // Convert the data to FormattedCandle format
+            const formattedData = data.map((d) => {
+              const candleData = d as CandlestickData<Time>;
+              return {
+                time: candleData.time,
+                open: candleData.open,
+                high: candleData.high,
+                low: candleData.low,
+                close: candleData.close,
+                value: 0, // Volume data not available in candlestick data
+              };
+            });
+            indicator.updateData(formattedData);
+          }
+        }
+      } catch (error) {
+        console.error(`Error initializing indicator:`, error);
+        // Clean up on initialization failure
+        indicators.delete(addedId);
+        throw error;
+      }
+    } else {
+      console.log(`No chart instance available, skipping indicator initialization`);
+    }
+
+    console.log(`=== INDICATOR STORE: CREATE AND ADD END ===`);
+    return addedId;
+  },
+
+  removeIndicator: (id: string) => {
+    set((state) => {
+      const indicator = state.indicators.get(id);
+      console.log(`Removing indicator: ${indicator?.getName()} (${indicator?.getType()})`);
+
+      if (!indicator) return state;
+
+      // Get the pane index before cleanup
+      const paneIndex = state.paneAssignments.get(id);
+
+      // Clean up the indicator
+      indicator.destroy();
+
+      // Create new maps without the removed indicator
+      const newIndicators = new Map(state.indicators);
+      newIndicators.delete(id);
+
+      const newPaneAssignments = new Map(state.paneAssignments);
+      newPaneAssignments.delete(id);
+
+      // Create new oscillatorPanes without the removed indicator
+      const newOscillatorPanes = { ...state.oscillatorPanes };
+      delete newOscillatorPanes[id];
+
+      // Remove from the order array
+      const newOrder = state.indicatorOrder.filter((orderId) => orderId !== id);
+
+      // Clean up the pane if it was an oscillator
+      if (paneIndex !== undefined && paneIndex > 0 && state.chartInstance) {
+        try {
+          const activePaneIndices = new Set(Array.from(newPaneAssignments.values()));
+          cleanUpUnusedPanes(state.chartInstance, activePaneIndices, state.createdPanes);
+        } catch (error) {
+          console.error("Error cleaning up panes:", error);
+        }
+      }
+
+      console.log(`Removed indicator ${id}, remaining indicators: ${newIndicators.size}`);
+
+      return {
+        indicators: newIndicators,
+        indicatorOrder: newOrder,
+        paneAssignments: newPaneAssignments,
+        oscillatorPanes: newOscillatorPanes,
+      };
+    });
+  },
+
+  updateIndicator: (id: string, parameters: IndicatorParameters) => {
+    const { indicators } = get();
+    const indicator = indicators.get(id);
+
+    if (indicator) {
+      indicator.setParameters(parameters);
+
+      // Update the store to trigger a re-render
+      set((state) => ({
+        indicators: new Map(state.indicators),
+      }));
+    }
+  },
+
+  setIndicatorVisibility: (id: string, visible: boolean) => {
+    const { indicators } = get();
+    const indicator = indicators.get(id);
+
+    if (indicator) {
+      indicator.setVisible(visible);
+
+      // Update the store to trigger a re-render
+      set((state) => ({
+        indicators: new Map(state.indicators),
+      }));
+    }
+  },
+
+  reorderIndicators: (orderedIds: string[]) => {
+    set({ indicatorOrder: orderedIds });
+  },
+
+  getIndicator: (id: string) => {
+    return get().indicators.get(id);
+  },
+
+  getIndicators: () => {
+    const { indicators, indicatorOrder } = get();
+    return indicatorOrder.map((id) => indicators.get(id)).filter((indicator): indicator is BaseIndicator => !!indicator);
+  },
+
+  clearAllIndicators: () => {
+    const { indicators } = get();
+
+    // Clean up all indicators
+    indicators.forEach((indicator) => {
+      indicator.destroy();
+    });
+
+    // Reset the store
+    set({
+      indicators: new Map(),
       indicatorOrder: [],
-      chartInstance: null,
+    });
+  },
+
+  setChartInstance: (chart: ChartApiWithPanes | null, mainSeries: ISeriesApi<"Candlestick"> | null = null) => {
+    const { indicators } = get();
+
+    console.log(`=== INDICATOR STORE: SET CHART INSTANCE START ===`);
+    console.log(`Chart instance ${chart ? "provided" : "null"}`);
+    console.log(`Main series ${mainSeries ? "provided" : "null"}`);
+
+    // If we're clearing the chart
+    if (!chart) {
+      // Clean up all indicators
+      indicators.forEach((indicator) => {
+        try {
+          indicator.destroy();
+        } catch (error) {
+          console.error(`INDICATOR STORE: Error destroying indicator during chart reset:`, error);
+        }
+      });
+
+      // Reset state
+      set({
+        chartInstance: null,
+        mainSeries: null,
+        createdPanes: {},
+        oscillatorPanes: {},
+      });
+      return;
+    }
+
+    // We have a new chart instance
+    set({ chartInstance: chart, mainSeries });
+
+    // Initialize overlay indicators first (in main pane)
+    Array.from(indicators.values()).forEach((indicator) => {
+      const type = indicator.getType();
+      const isOverlay = isOverlayIndicator(type);
+
+      if (isOverlay) {
+        try {
+          console.log(`Initializing overlay indicator: ${indicator.getName()} in main pane`);
+          indicator.initialize(chart, {
+            id: indicator.getId(),
+            type: indicator.getType(),
+            name: indicator.getName(),
+            color: indicator.getConfig().color,
+            visible: indicator.isVisible(),
+            parameters: {
+              paneIndex: 0,
+              priceScaleId: "left",
+            },
+          });
+          indicator.createSeries(0);
+
+          // Update data if we have the main series
+          if (mainSeries) {
+            const data = mainSeries.data();
+            if (data && data.length > 0) {
+              const formattedData = data.map((d) => {
+                const candleData = d as CandlestickData<Time>;
+                return {
+                  time: candleData.time,
+                  open: candleData.open,
+                  high: candleData.high,
+                  low: candleData.low,
+                  close: candleData.close,
+                  value: 0,
+                };
+              });
+              indicator.updateData(formattedData);
+            }
+          }
+        } catch (error) {
+          console.error(`INDICATOR STORE: Error initializing overlay indicator ${indicator.getId()}:`, error);
+        }
+      }
+    });
+
+    // Then initialize oscillators in separate panes
+    Array.from(indicators.values()).forEach((indicator) => {
+      const type = indicator.getType();
+      const isOscillator = OSCILLATOR_INDICATORS.includes(type);
+
+      if (isOscillator) {
+        try {
+          console.log(`Initializing oscillator: ${indicator.getName()} in pane 1`);
+          indicator.initialize(chart, {
+            id: indicator.getId(),
+            type: indicator.getType(),
+            name: indicator.getName(),
+            color: indicator.getConfig().color,
+            visible: indicator.isVisible(),
+            parameters: { paneIndex: 1 },
+          });
+          indicator.createSeries(1);
+
+          // Update oscillatorPanes map
+          set((state) => ({
+            oscillatorPanes: { ...state.oscillatorPanes, [indicator.getId()]: 1 },
+          }));
+
+          // Update data if we have the main series
+          if (mainSeries) {
+            const data = mainSeries.data();
+            if (data && data.length > 0) {
+              const formattedData = data.map((d) => {
+                const candleData = d as CandlestickData<Time>;
+                return {
+                  time: candleData.time,
+                  open: candleData.open,
+                  high: candleData.high,
+                  low: candleData.low,
+                  close: candleData.close,
+                  value: 0,
+                };
+              });
+              indicator.updateData(formattedData);
+            }
+          }
+        } catch (error) {
+          console.error(`INDICATOR STORE: Error initializing oscillator ${indicator.getId()}:`, error);
+        }
+      }
+    });
+
+    // Update the store with the cleaned up indicators
+    set({ indicators: new Map(indicators) });
+    console.log(`=== INDICATOR STORE: SET CHART INSTANCE END ===`);
+  },
+
+  updateData: (candles: FormattedCandle[]) => {
+    const { indicators } = get();
+
+    if (candles.length === 0) {
+      console.warn(`INDICATOR STORE: Cannot update indicators with empty candles`);
+      return;
+    }
+
+    // Update all indicators with the new data
+    indicators.forEach((indicator) => {
+      try {
+        indicator.updateData(candles);
+      } catch (error) {
+        console.error(`INDICATOR STORE: Error updating indicator data:`, error);
+      }
+    });
+  },
+
+  toggleVisibility: (key: string) => {
+    const { indicators } = get();
+    const indicator = indicators.get(key);
+
+    if (!indicator) {
+      console.warn(`INDICATOR STORE: Cannot toggle visibility for indicator ${key}, not found`);
+      return;
+    }
+
+    // Toggle visibility
+    const isVisible = indicator.isVisible();
+    indicator.setVisible(!isVisible);
+
+    // Update in our collection
+    set((state) => ({
+      indicators: new Map(state.indicators),
+    }));
+  },
+
+  cleanupUnusedPanes: () => {
+    const { chartInstance, oscillatorPanes, createdPanes } = get();
+
+    if (!chartInstance) {
+      return;
+    }
+
+    // Get all active pane indices
+    const activePaneIndices = new Set<number>(Object.values(oscillatorPanes));
+
+    // Always keep panes 0 and 1 (main chart and volume)
+    activePaneIndices.add(0);
+    activePaneIndices.add(1);
+
+    // Clean up unused panes
+    cleanUpUnusedPanes(chartInstance, activePaneIndices, createdPanes);
+  },
+
+  reset: () => {
+    const { chartInstance, indicators } = get();
+
+    // Clean up all indicators
+    Object.values(indicators).forEach((indicator) => {
+      try {
+        indicator.destroy();
+      } catch (error) {
+        console.error(`INDICATOR STORE: Error destroying indicator during reset:`, error);
+      }
+    });
+
+    // Reset state
+    set({
+      indicators: new Map(),
+      chartInstance: chartInstance, // Keep the chart instance
       oscillatorPanes: {},
       createdPanes: {},
+    });
+  },
+});
 
-      addIndicator: (indicator: BaseIndicator) => {
-        const id = indicator.getId();
-        set((state) => {
-          // Create a new Map with the indicator added
-          const newIndicators = new Map(state.indicators);
-          newIndicators.set(id, indicator);
+type IndicatorPersist = (config: StateCreator<IndicatorState>, options: PersistOptions<IndicatorState>) => StateCreator<IndicatorState>;
 
-          // Add to the order if not already present
-          const newOrder = state.indicatorOrder.includes(id) ? [...state.indicatorOrder] : [...state.indicatorOrder, id];
+// Create the store with persistence
+export const useIndicatorStore = create<IndicatorState>(
+  (persist as IndicatorPersist)(createBaseStore, {
+    name: "indicator-store",
+    storage: {
+      getItem: (name: string) => {
+        try {
+          const value = localStorage.getItem(name);
+          if (!value) return null;
+          return JSON.parse(value);
+        } catch (e) {
+          console.error(`Error retrieving ${name} from localStorage:`, e);
+          return null;
+        }
+      },
+      setItem: (name: string, value: unknown) => {
+        try {
+          if (typeof window === "undefined") {
+            return;
+          }
 
-          return {
-            indicators: newIndicators,
-            indicatorOrder: newOrder,
+          const state = (value as { state?: IndicatorState }).state;
+          if (!state) {
+            localStorage.setItem(name, JSON.stringify(value));
+            return;
+          }
+
+          // Create a serializable version of the state
+          const serializableState = {
+            state: {
+              indicators: Array.from(state.indicators.entries()).map(([id, indicator]) => ({
+                id,
+                type: indicator.getType(),
+                name: indicator.getName(),
+                parameters: indicator.getConfig().parameters,
+                color: indicator.getConfig().color,
+                visible: indicator.isVisible(),
+              })),
+              indicatorOrder: state.indicatorOrder || [],
+              chartInstance: null, // Don't persist chart instance
+              oscillatorPanes: state.oscillatorPanes || {},
+              createdPanes: state.createdPanes || {},
+              paneAssignments: Array.from(state.paneAssignments.entries()),
+              mainSeries: null, // Don't persist main series
+            },
+            version: (value as { version?: number }).version,
           };
-        });
-        return id;
-      },
 
-      createAndAddIndicator: (type, parameters, name, color) => {
-        // Generate a unique ID
-        const id = uuidv4();
-
-        // Prepare parameters with id, name, color if provided
-        const params: IndicatorParameters = {
-          ...(parameters || {}),
-          id,
-          name: name || type,
-          color: color || undefined,
-        };
-
-        // Create the indicator
-        const indicator = createIndicator(type, params);
-
-        // Add to store
-        set((state) => {
-          const newIndicators = new Map(state.indicators);
-          newIndicators.set(id, indicator);
-          return {
-            indicators: newIndicators,
-            indicatorOrder: [...state.indicatorOrder, id],
-          };
-        });
-
-        return id;
-      },
-
-      removeIndicator: (id: string) => {
-        set((state) => {
-          // Create new indicators map without the removed indicator
-          const newIndicators = new Map(state.indicators);
-
-          // Clean up the indicator before removing
-          const indicator = newIndicators.get(id);
-          if (indicator) {
-            indicator.destroy();
-            newIndicators.delete(id);
-          }
-
-          // Remove from the order array
-          const newOrder = state.indicatorOrder.filter((orderId) => orderId !== id);
-
-          return {
-            indicators: newIndicators,
-            indicatorOrder: newOrder,
-          };
-        });
-      },
-
-      updateIndicator: (id: string, parameters: IndicatorParameters) => {
-        const { indicators } = get();
-        const indicator = indicators.get(id);
-
-        if (indicator) {
-          indicator.setParameters(parameters);
-
-          // Update the store to trigger a re-render
-          set((state) => ({
-            indicators: new Map(state.indicators),
-          }));
+          localStorage.setItem(name, JSON.stringify(serializableState));
+        } catch (e) {
+          console.error(`Error storing ${name} in localStorage:`, e);
         }
       },
-
-      setIndicatorVisibility: (id: string, visible: boolean) => {
-        const { indicators } = get();
-        const indicator = indicators.get(id);
-
-        if (indicator) {
-          indicator.setVisible(visible);
-
-          // Update the store to trigger a re-render
-          set((state) => ({
-            indicators: new Map(state.indicators),
-          }));
-        }
-      },
-
-      reorderIndicators: (orderedIds: string[]) => {
-        set({ indicatorOrder: orderedIds });
-      },
-
-      getIndicator: (id: string) => {
-        return get().indicators.get(id);
-      },
-
-      getIndicators: () => {
-        const { indicators, indicatorOrder } = get();
-        return indicatorOrder.map((id) => indicators.get(id)).filter((indicator): indicator is BaseIndicator => !!indicator);
-      },
-
-      clearAllIndicators: () => {
-        const { indicators } = get();
-
-        // Clean up all indicators
-        indicators.forEach((indicator) => {
-          indicator.destroy();
-        });
-
-        // Reset the store
-        set({
-          indicators: new Map(),
-          indicatorOrder: [],
-        });
-      },
-
-      setChartInstance: (chart: ChartApiWithPanes | null) => {
-        const { indicators, oscillatorPanes, createdPanes } = get();
-
-        console.log(`INDICATOR STORE: Setting chart instance ${chart ? "provided" : "null"}`);
-
-        // If we're clearing the chart
-        if (!chart) {
-          // Clean up all indicators
-          Object.values(indicators).forEach((indicator) => {
-            try {
-              indicator.destroy();
-            } catch (error) {
-              console.error(`INDICATOR STORE: Error destroying indicator during chart reset:`, error);
-            }
-          });
-
-          // Reset state
-          set({
-            chartInstance: null,
-            createdPanes: {},
-          });
+      removeItem: (name: string) => {
+        if (typeof window === "undefined") {
           return;
         }
-
-        // We have a new chart instance
-        set({ chartInstance: chart });
-
-        // Initialize all indicators with the new chart
-        Object.entries(indicators).forEach(([key, indicator]) => {
-          try {
-            console.log(`INDICATOR STORE: Initializing indicator ${key} with new chart instance`);
-
-            // Get the preferred pane index
-            const preferredPaneIndex = indicator.getPreferredPaneIndex();
-            let paneIndex = preferredPaneIndex;
-
-            // If indicator needs a separate pane
-            if (preferredPaneIndex === -1) {
-              // Get the next available pane index or use an existing one
-              paneIndex = oscillatorPanes[key] || getNextAvailablePaneIndex(oscillatorPanes);
-
-              // Ensure the pane exists
-              if (!ensurePaneExists(chart, paneIndex, createdPanes)) {
-                console.error(`INDICATOR STORE: Failed to create pane ${paneIndex} for indicator ${key}`);
-                return;
-              }
-
-              // Store the pane index for this indicator
-              oscillatorPanes[key] = paneIndex;
-            }
-
-            // Initialize the indicator with the chart and pane index
-            indicator.initialize(chart, { paneIndex });
-          } catch (error) {
-            console.error(`INDICATOR STORE: Error initializing indicator ${key} with new chart:`, error);
-          }
-        });
+        localStorage.removeItem(name);
       },
-
-      updateData: (candles: FormattedCandle[]) => {
-        const { indicators } = get();
-
-        if (candles.length === 0) {
-          console.warn(`INDICATOR STORE: Cannot update indicators with empty candles`);
-          return;
-        }
-
-        // Update all indicators with the new data
-        indicators.forEach((indicator) => {
-          try {
-            indicator.updateData(candles);
-          } catch (error) {
-            console.error(`INDICATOR STORE: Error updating indicator data:`, error);
-          }
-        });
-      },
-
-      toggleVisibility: (key: string) => {
-        const { indicators } = get();
-        const indicator = indicators.get(key);
-
-        if (!indicator) {
-          console.warn(`INDICATOR STORE: Cannot toggle visibility for indicator ${key}, not found`);
-          return;
-        }
-
-        // Toggle visibility
-        const isVisible = indicator.isVisible();
-        indicator.setVisible(!isVisible);
-
-        // Update in our collection
-        set((state) => ({
-          indicators: new Map(state.indicators),
-        }));
-      },
-
-      cleanupUnusedPanes: () => {
-        const { chartInstance, oscillatorPanes, createdPanes } = get();
-
-        if (!chartInstance) {
-          return;
-        }
-
-        // Get all active pane indices
-        const activePaneIndices = new Set<number>(Object.values(oscillatorPanes));
-
-        // Always keep panes 0 and 1 (main chart and volume)
-        activePaneIndices.add(0);
-        activePaneIndices.add(1);
-
-        // Clean up unused panes
-        cleanUpUnusedPanes(chartInstance, activePaneIndices, createdPanes);
-      },
-
-      reset: () => {
-        const { chartInstance, indicators } = get();
-
-        // Clean up all indicators
-        Object.values(indicators).forEach((indicator) => {
-          try {
-            indicator.destroy();
-          } catch (error) {
-            console.error(`INDICATOR STORE: Error destroying indicator during reset:`, error);
-          }
-        });
-
-        // Reset state
-        set({
-          indicators: new Map(),
-          chartInstance: chartInstance, // Keep the chart instance
-          oscillatorPanes: {},
-          createdPanes: {},
-        });
-      },
-    }),
-    {
-      name: "trading-chart-indicators",
-      storage: {
-        getItem: (name) => {
-          try {
-            const value = localStorage.getItem(name);
-            if (!value) return null;
-            return JSON.parse(value);
-          } catch (e) {
-            console.error(`Error retrieving ${name} from localStorage:`, e);
-            return null;
-          }
-        },
-        setItem: (name, value) => {
-          try {
-            // Type-safe extraction
-            const state = value.state;
-            if (!state) {
-              localStorage.setItem(name, JSON.stringify(value));
-              return;
-            }
-
-            // Convert indicators Map to array for serialization
-            const indicators =
-              state.indicators instanceof Map
-                ? Array.from(state.indicators.entries()).map(([id, indicator]) => {
-                    // The indicator should be a BaseIndicator, but use safe access pattern
-                    const baseIndicator = indicator as BaseIndicator;
-                    const config = baseIndicator.getConfig ? baseIndicator.getConfig() : {};
-                    return { id, config };
-                  })
-                : [];
-
-            const serializableState = {
-              state: {
-                indicators,
-                indicatorOrder: state.indicatorOrder || [],
-                chartInstance: null, // Don't serialize chart instance
-                oscillatorPanes: state.oscillatorPanes || {},
-                createdPanes: state.createdPanes || {},
-              },
-              version: value.version,
-            };
-
-            localStorage.setItem(name, JSON.stringify(serializableState));
-          } catch (e) {
-            console.error(`Error storing ${name} in localStorage:`, e);
-          }
-        },
-        removeItem: (name) => {
-          localStorage.removeItem(name);
-        },
-      },
-      onRehydrateStorage: () => (state) => {
-        if (!state) return;
-
-        // Cast state to access indicators safely
-        const serializedState = state as unknown as SerializedState;
-
-        // Regenerate BaseIndicator instances from serialized configs
-        const indicators = new Map<string, BaseIndicator>();
-
-        if (serializedState.indicators && Array.isArray(serializedState.indicators)) {
-          serializedState.indicators.forEach((item: SerializedIndicator) => {
-            try {
-              // Type safety for config
-              if (!item || !item.id || !item.config || !item.config.type) {
-                console.error(`Invalid indicator data:`, item);
-                return;
-              }
-
-              const indicator = createIndicator(item.config.type as string, item.config.parameters);
-
-              indicators.set(item.id, indicator);
-            } catch (error) {
-              console.error(`Failed to rehydrate indicator:`, error);
-            }
-          });
-        }
-
-        // Replace the array with a Map in the original state object
-        // This is a type cast since we're changing the structure
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (state as any).indicators = indicators;
-      },
-    }
-  )
+    },
+    skipHydration: true,
+  })
 );
 
 // Helper function to create and add multiple indicators at once

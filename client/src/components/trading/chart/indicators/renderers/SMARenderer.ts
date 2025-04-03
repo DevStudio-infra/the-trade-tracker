@@ -52,20 +52,44 @@ export class SMARenderer extends IndicatorBase {
         LineSeries,
         {
           color: this.config.color,
-          // We use `any` here because the types in lightweight-charts are inconsistent
-          // between different versions. In v3, lineWidth is a number, but in v4+ it's an object.
-          // Our implementation works correctly at runtime despite the type mismatch.
-          lineWidth: 2 as any,
+          lineWidth: 2,
           lastValueVisible: true,
           priceFormat: {
             type: "price",
-            precision: 4,
-            minMove: 0.0001,
+            precision: 5,
+            minMove: 0.00001,
           },
           title: `SMA (${period})`,
+          priceScaleId: "left",
+          crosshairMarkerVisible: true,
+          crosshairMarkerRadius: 4,
+          priceLineVisible: true,
+          priceLineSource: 1,
+          priceLineWidth: 1,
+          priceLineColor: this.config.color,
+          baseLineVisible: false,
+          lastPriceAnimation: 0,
         },
         paneIndex
       ) as ISeriesApi<"Line">;
+
+      if (this.lineSeries) {
+        // Configure the price scale
+        const priceScale = this.lineSeries.priceScale();
+        priceScale.applyOptions({
+          scaleMargins: {
+            top: 0.1,
+            bottom: 0.1,
+          },
+          visible: true,
+          borderVisible: true,
+          borderColor: "rgba(197, 203, 206, 0.3)",
+          autoScale: true,
+          entireTextOnly: false,
+          alignLabels: true,
+          textColor: "rgba(255, 255, 255, 0.5)",
+        });
+      }
 
       // Store reference for later
       this.mainSeries = this.lineSeries;
@@ -108,6 +132,10 @@ export class SMARenderer extends IndicatorBase {
         priceScale.applyOptions({
           autoScale: true,
           mode: 0,
+          scaleMargins: {
+            top: 0.1,
+            bottom: 0.1,
+          },
         });
       }
     } catch (error) {

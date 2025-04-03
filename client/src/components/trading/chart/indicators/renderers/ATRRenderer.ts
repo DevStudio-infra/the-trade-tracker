@@ -165,9 +165,8 @@ export class ATRRenderer extends IndicatorBase {
       return this.config.parameters.paneIndex as number;
     }
 
-    // CRITICAL FIX: Always use pane 1 (volume pane) for ATR
-    // This ensures all ATR indicators go in the same pane
-    return 1;
+    // CRITICAL FIX: ATR needs its own pane like RSI
+    return -1;
   }
 
   /**

@@ -85,7 +85,7 @@ const createChartOptions = (colors: ChartColorScheme, width: number, height: num
 
 // Add a type definition for chart API with panes support
 interface ChartApiWithPanes extends IChartApi {
-  createPane: (options: { height: number }) => IPaneApi<Time>;
+  addPane: (height: number) => IPaneApi<Time>;
   panes: () => IPaneApi<Time>[];
 }
 
@@ -178,36 +178,80 @@ export function ChartContainer({ onChartCreated, className = "", height = 500, i
           enableResize: true,
         },
       },
+      leftPriceScale: {
+        visible: true,
+        borderColor: colors.borderColor,
+        entireTextOnly: true,
+      },
+      rightPriceScale: {
+        visible: false,
+      },
       height: calculatedHeight, // explicitly set height
+      handleScroll: {
+        mouseWheel: true,
+        pressedMouseMove: true,
+      },
+      handleScale: {
+        mouseWheel: true,
+        pinch: true,
+      },
     };
 
-    // Create chart
-    const chart = createChart(chartContainer, chartOptions);
+    // Create chart with pane support
+    const chart = createChart(chartContainer, {
+      ...chartOptions,
+      layout: {
+        ...chartOptions.layout,
+        background: { type: ColorType.Solid, color: colors.background },
+        textColor: colors.text,
+        fontSize: 12,
+        // Configure panes with separators and allow resizing
+        panes: {
+          separatorColor: colors.borderColor,
+          separatorHoverColor: resolvedTheme === "dark" ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.1)",
+          enableResize: true,
+        },
+      },
+      rightPriceScale: {
+        visible: false,
+      },
+      leftPriceScale: {
+        visible: true,
+        borderColor: colors.borderColor,
+      },
+    }) as ChartApiWithPanes;
 
-    // Cast to enhanced chart API with pane support
-    const chartWithPanes = chart as ChartApiWithPanes;
-
-    // Create an additional pane for indicators like RSI
+    // Create a single additional pane for oscillator indicators
     try {
-      if (typeof chartWithPanes.createPane === "function") {
+      if (typeof chart.addPane === "function") {
         // Create a pane for oscillators (RSI, MACD, etc.)
-        chartWithPanes.createPane({
-          height: 150, // Smaller height for the indicator pane
-        });
-
-        // Create another pane specifically for MACD (pane index 2)
-        const macdPane = chartWithPanes.createPane({
-          height: 150, // Dedicated height for MACD pane
-        });
-
-        console.log("Created dedicated MACD pane:", macdPane);
+        const oscillatorPane = chart.addPane(150);
+        if (oscillatorPane) {
+          // Configure the oscillator pane to use left price scale
+          chart.applyOptions({
+            layout: {
+              panes: {
+                [1]: {
+                  rightPriceScale: {
+                    visible: false,
+                  },
+                  leftPriceScale: {
+                    visible: true,
+                    borderColor: colors.borderColor,
+                  },
+                },
+              },
+            },
+          });
+        }
+        console.log("Created oscillator pane:", oscillatorPane);
       }
     } catch (err) {
-      console.error("Error creating additional panes:", err);
+      console.error("Error creating oscillator pane:", err);
     }
 
     // Add candlestick series to the main pane
-    const candlestickSeries = chartWithPanes.addSeries(CandlestickSeries, {
+    const candlestickSeries = chart.addSeries(CandlestickSeries, {
       upColor: colors.upColor,
       downColor: colors.downColor,
       borderVisible: false,
@@ -218,6 +262,7 @@ export function ChartContainer({ onChartCreated, className = "", height = 500, i
         precision: 5,
         minMove: Math.pow(10, -5),
       },
+      priceScaleId: "left",
     });
 
     // Configure the main price scale for candlesticks
@@ -228,10 +273,11 @@ export function ChartContainer({ onChartCreated, className = "", height = 500, i
       },
       borderVisible: true,
       borderColor: colors.borderColor,
+      visible: true,
     });
 
     // Add volume series with a separate price scale
-    const volumeSeries = chartWithPanes.addSeries(HistogramSeries, {
+    const volumeSeries = chart.addSeries(HistogramSeries, {
       color: colors.volumeUp,
       priceFormat: {
         type: "volume",
@@ -252,7 +298,7 @@ export function ChartContainer({ onChartCreated, className = "", height = 500, i
 
     // Store references
     chartInstanceRef.current = {
-      chart: chartWithPanes,
+      chart: chart,
       candlestickSeries,
       volumeSeries,
     };

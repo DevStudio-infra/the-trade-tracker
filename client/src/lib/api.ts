@@ -130,6 +130,20 @@ export interface Candle {
   volume: number;
 }
 
+export interface Position {
+  tradeId: string;
+  pair: string;
+  side: "BUY" | "SELL";
+  entryPrice: number;
+  currentPrice: number;
+  stopLoss?: number;
+  takeProfit?: number;
+  quantity: number;
+  pnl: number;
+  pnlPercentage: number;
+  openTime: string;
+}
+
 // Helper for implementing retry with exponential backoff
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -427,6 +441,31 @@ export function useApi() {
         message: "An unexpected error occurred",
         status: 500,
       };
+    },
+
+    getCandles: (pair: string) => {
+      // Implementation of getCandles method
+    },
+
+    // Trading positions
+    getPositions: async () => {
+      try {
+        const { data } = await api.get<Position[]>("/broker/positions");
+        return data;
+      } catch (error) {
+        console.error("Error fetching positions:", error);
+        throw error;
+      }
+    },
+
+    closePosition: async (tradeId: string) => {
+      try {
+        const { data } = await api.post(`/broker/positions/${tradeId}/close`);
+        return data;
+      } catch (error) {
+        console.error("Error closing position:", error);
+        throw error;
+      }
     },
   };
 }

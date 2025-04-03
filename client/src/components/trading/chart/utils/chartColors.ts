@@ -1,0 +1,28 @@
+export const chartColors = {
+  light: {
+    background: "#FFFFFF",
+    text: "#333333",
+    gridLines: "#EAEAEA",
+    borderColor: "#DDDDDD",
+    upColor: "#26A69A",
+    downColor: "#EF5350",
+    wickUpColor: "#26A69A",
+    wickDownColor: "#EF5350",
+    volumeUp: "rgba(38, 166, 154, 0.5)",
+    volumeDown: "rgba(239, 83, 80, 0.5)",
+    crosshairColor: "#999999",
+  },
+  dark: {
+    background: "#1E222D",
+    text: "#DDD",
+    gridLines: "#2B2B43",
+    borderColor: "#2B2B43",
+    upColor: "#4CAF50",
+    downColor: "#FF5252",
+    wickUpColor: "#4CAF50",
+    wickDownColor: "#FF5252",
+    volumeUp: "rgba(76, 175, 80, 0.5)",
+    volumeDown: "rgba(255, 82, 82, 0.5)",
+    crosshairColor: "#999999",
+  },
+};

@@ -8,7 +8,7 @@ import { BarChart4 } from "lucide-react";
 interface ChartHeaderProps {
   selectedTimeframe: string;
   onTimeframeChange: (timeframe: string) => void;
-  openIndicatorDialog: (type: IndicatorType) => void;
+  openIndicatorDialog?: (type: IndicatorType) => void;
   activeIndicators?: { id: string; name: string; type: IndicatorType }[];
   onRemoveIndicator?: (id: string) => void;
 }
@@ -27,7 +27,9 @@ export function ChartHeader({ selectedTimeframe, onTimeframeChange, openIndicato
   // Handle indicator selection
   const handleSelectIndicator = (type: string) => {
     console.log("ChartHeader - Selecting indicator type:", type);
-    openIndicatorDialog(type as IndicatorType);
+    if (openIndicatorDialog) {
+      openIndicatorDialog(type as IndicatorType);
+    }
     setIndicatorMenuOpen(false);
   };
 
