@@ -579,7 +579,12 @@ export function TradingChart({ pair }: TradingChartProps) {
       // Fit content and ensure visibility
       if (chartApiRef.current._api) {
         console.log("Fitting content to view");
-        chartApiRef.current._api.timeScale().fitContent();
+        const timeScale = chartApiRef.current._api.timeScale();
+        timeScale.applyOptions({
+          rightOffset: 20,
+          barSpacing: 8,
+        });
+        timeScale.fitContent();
       }
 
       console.log(`Chart update completed: ${updateId}`);

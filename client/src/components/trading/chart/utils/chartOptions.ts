@@ -8,6 +8,13 @@ export const getChartOptions = (isDarkMode: boolean): ChartOptions => {
     width: 0,
     height: 0,
     autoSize: true,
+    kineticScroll: {
+      mouse: true,
+      touch: true,
+    },
+    trackingMode: {
+      exitMode: 1,
+    },
     layout: {
       background: { type: ColorType.Solid, color: colors.background },
       textColor: colors.text,
@@ -57,8 +64,8 @@ export const getChartOptions = (isDarkMode: boolean): ChartOptions => {
       borderColor: colors.borderColor,
       timeVisible: true,
       secondsVisible: false,
-      rightOffset: 12,
-      barSpacing: 6,
+      rightOffset: 20,
+      barSpacing: 8,
       minBarSpacing: 0.5,
       maxBarSpacing: 40,
       fixLeftEdge: false,
@@ -90,11 +97,6 @@ export const getChartOptions = (isDarkMode: boolean): ChartOptions => {
       scaleMargins: {
         top: 0.1,
         bottom: 0.1,
-      },
-      priceFormat: {
-        type: "price",
-        precision: 5,
-        minMove: 0.00001,
       },
     },
     handleScroll: {
@@ -129,11 +131,6 @@ export const getChartOptions = (isDarkMode: boolean): ChartOptions => {
       ticksVisible: true,
       minimumWidth: 0,
       borderColor: colors.borderColor,
-      priceFormat: {
-        type: "price",
-        precision: 5,
-        minMove: 0.00001,
-      },
     },
     leftPriceScale: {
       mode: 0,
@@ -150,9 +147,6 @@ export const getChartOptions = (isDarkMode: boolean): ChartOptions => {
       visible: false,
       ticksVisible: true,
       minimumWidth: 0,
-    },
-    watermark: {
-      visible: false,
     },
   };
 };
