@@ -26,6 +26,8 @@ export interface Strategy {
   timeframes: string[];
   riskParameters: Record<string, unknown>;
   isActive: boolean;
+  isPublic: boolean;
+  userId: string | null;
   createdAt: string;
   performance?: string;
   signals?: number;
@@ -38,6 +40,7 @@ export interface CreateStrategyDto {
   rules: StrategyRules;
   timeframes: string[];
   riskParameters: Record<string, unknown>;
+  isPublic?: boolean;
 }
 
 export interface UpdateStrategyDto {
@@ -47,6 +50,7 @@ export interface UpdateStrategyDto {
   timeframes?: string[];
   riskParameters?: Record<string, unknown>;
   isActive?: boolean;
+  isPublic?: boolean;
 }
 
 export interface StrategyResponse {
@@ -73,11 +77,13 @@ export const strategyService = {
   // Get all strategies
   async getStrategies(): Promise<Strategy[]> {
     try {
+      console.log("Strategy service: Fetching strategies...");
       const response = await api.get<StrategiesResponse>("/strategies");
-      console.log("API response for getStrategies:", response.data);
+      console.log("Strategy service: API response:", response);
+      console.log("Strategy service: Strategies data:", response.data);
       return response.data.data;
     } catch (error) {
-      console.error("Error in getStrategies:", error);
+      console.error("Strategy service: Error in getStrategies:", error);
       throw error;
     }
   },

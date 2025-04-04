@@ -1,7 +1,16 @@
 import axios from "axios";
 import { toast } from "sonner";
+import { api } from "@/lib/api";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+// API response types
+interface APIResponse<T> {
+  success: boolean;
+  data: T;
+  error?: {
+    code: string;
+    message: string;
+  };
+}
 
 // Types
 export interface AIAnalysisRequest {
@@ -13,21 +22,17 @@ export interface AIAnalysisRequest {
 }
 
 export interface AIAnalysisResponse {
-  id: string;
-  signalType: "BUY" | "SELL" | "NO_SIGNAL";
+  signal: "BUY" | "SELL" | "NO_SIGNAL";
   confidence: number;
+  strategy: string;
+  stopLoss: number;
+  takeProfit: number;
+  riskPercentScore: number;
   analysis: {
     marketCondition: string;
-    keyLevels: number[];
-    indicators: Record<string, any>;
+    strategyRulesMet: boolean;
+    filtersPassed: string[];
   };
-  riskAssessment: {
-    stopLoss: number;
-    takeProfit: number;
-    riskRewardRatio: number;
-  };
-  chartImageUrl: string;
-  createdAt: string;
 }
 
 export interface AISignalConfirmationRequest {
@@ -69,10 +74,18 @@ export interface Strategy {
   id: string;
   name: string;
   description: string;
-  rules: any;
+  rules: {
+    entry: Record<string, unknown>;
+    exit: Record<string, unknown>;
+    indicators: Record<string, number | string>;
+    type?: string;
+    market_conditions?: string[];
+  };
   timeframes: string[];
-  riskParameters: any;
+  riskParameters: Record<string, unknown>;
   isActive: boolean;
+  isPublic: boolean;
+  userId: string | null;
 }
 
 export interface BotInstanceConfig {
@@ -87,71 +100,69 @@ export interface BotInstanceConfig {
   };
 }
 
+export interface BotInstance {
+  id: string;
+  userId: string;
+  strategyId: string;
+  pair: string;
+  timeframe: string;
+  isActive: boolean;
+  riskSettings: {
+    maxRiskPercent: number;
+    maxPositions: number;
+    requireConfirmation: boolean;
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateStrategyRequest {
+  name: string;
+  description: string;
+  timeframes: string[];
+  rules: {
+    entry: Record<string, unknown>;
+    exit: Record<string, unknown>;
+    indicators: Record<string, number | string>;
+    type?: string;
+    market_conditions?: string[];
+  };
+  riskParameters: Record<string, unknown>;
+  isPublic?: boolean;
+}
+
 // API Client class
 export class AITradingAPI {
-  private token: string | null = null;
-
-  constructor() {
-    // Check for token in localStorage when in browser environment
-    if (typeof window !== "undefined") {
-      this.token = localStorage.getItem("auth_token");
-    }
-  }
-
-  setToken(token: string) {
-    this.token = token;
-    if (typeof window !== "undefined") {
-      localStorage.setItem("auth_token", token);
-    }
-  }
-
-  private getHeaders() {
-    return {
-      "Content-Type": "application/json",
-      ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
-    };
-  }
-
-  private handleError(error: any, customMessage: string) {
-    console.error(`${customMessage}:`, error);
-    const errorMessage = error.response?.data?.message || error.message || "An unknown error occurred";
-    toast.error(errorMessage);
-    throw error;
-  }
-
   // AI Analysis endpoints
   async analyzeChart(request: AIAnalysisRequest): Promise<AIAnalysisResponse> {
     try {
-      const response = await axios.post(`${API_URL}/api/ai/analyze`, request, {
-        headers: this.getHeaders(),
-      });
-      return response.data;
+      const response = await api.post<APIResponse<AIAnalysisResponse>>("/api/ai/analyze", request);
+      return response.data.data;
     } catch (error) {
-      this.handleError(error, "Failed to analyze chart");
+      console.error("Failed to analyze chart:", error);
+      toast.error("Failed to analyze chart");
       throw error;
     }
   }
 
   async confirmSignal(request: AISignalConfirmationRequest): Promise<AISignalConfirmationResponse> {
     try {
-      const response = await axios.post(`${API_URL}/api/ai/confirm-signal`, request, {
-        headers: this.getHeaders(),
-      });
-      return response.data;
+      const response = await api.post<APIResponse<AISignalConfirmationResponse>>("/api/ai/confirm-signal", request);
+      return response.data.data;
     } catch (error) {
-      this.handleError(error, "Failed to confirm signal");
+      console.error("Failed to confirm signal:", error);
+      toast.error("Failed to confirm signal");
       throw error;
     }
   }
 
   async executeTrade(request: TradeExecutionRequest): Promise<TradeExecutionResponse> {
     try {
-      const response = await axios.post(`${API_URL}/api/trading/execute`, request, {
-        headers: this.getHeaders(),
-      });
-      return response.data;
+      const response = await api.post<APIResponse<TradeExecutionResponse>>("/api/trading/execute", request);
+      return response.data.data;
     } catch (error) {
-      this.handleError(error, "Failed to execute trade");
+      console.error("Failed to execute trade:", error);
+      toast.error("Failed to execute trade");
       throw error;
     }
   }
@@ -159,58 +170,99 @@ export class AITradingAPI {
   // Strategy management
   async getStrategies(): Promise<Strategy[]> {
     try {
-      const response = await axios.get(`${API_URL}/api/strategies`, {
-        headers: this.getHeaders(),
-      });
-      return response.data;
+      console.log("Fetching strategies...");
+      const response = await api.get<APIResponse<Strategy[]>>("/strategies");
+      console.log("Strategies API response:", response);
+      if (!response.data.success) {
+        throw new Error(response.data.error?.message || "Failed to fetch strategies");
+      }
+      return response.data.data;
     } catch (error) {
-      this.handleError(error, "Failed to fetch strategies");
+      console.error("Error fetching strategies:", error);
+      toast.error("Failed to fetch strategies");
+      throw error;
+    }
+  }
+
+  async createStrategy(request: CreateStrategyRequest): Promise<Strategy> {
+    try {
+      const response = await api.post<APIResponse<Strategy>>("/strategies", request);
+
+      if (!response.data.success) {
+        throw new Error(response.data.error?.message || "Failed to create strategy");
+      }
+
+      return response.data.data;
+    } catch (error) {
+      // Handle specific error cases
+      if (axios.isAxiosError(error) && error.response) {
+        if (error.response.status === 400) {
+          const message = error.response.data.error?.message || "Invalid strategy data";
+          console.error("Validation error:", message);
+          toast.error(message);
+          throw new Error(message);
+        } else if (error.response.status === 409) {
+          const message = "A strategy with this name already exists";
+          console.error(message);
+          toast.error(message);
+          throw new Error(message);
+        }
+      }
+      console.error("Failed to create strategy:", error);
+      toast.error("Failed to create strategy");
       throw error;
     }
   }
 
   // Bot instance management
-  async createBotInstance(config: BotInstanceConfig): Promise<any> {
+  async createBotInstance(config: BotInstanceConfig): Promise<BotInstance> {
     try {
-      const response = await axios.post(`${API_URL}/api/bot-instances`, config, {
-        headers: this.getHeaders(),
-      });
-      return response.data;
+      const response = await api.post<APIResponse<BotInstance>>("/api/bot-instances", config);
+      if (!response.data.success) {
+        throw new Error(response.data.error?.message || "Failed to create bot instance");
+      }
+      return response.data.data;
     } catch (error) {
-      this.handleError(error, "Failed to create bot instance");
+      console.error("Failed to create bot instance:", error);
+      toast.error("Failed to create bot instance");
       throw error;
     }
   }
 
-  async getBotInstances(): Promise<any[]> {
+  async getBotInstances(): Promise<BotInstance[]> {
     try {
-      const response = await axios.get(`${API_URL}/api/bot-instances`, {
-        headers: this.getHeaders(),
-      });
-      return response.data;
+      const response = await api.get<APIResponse<BotInstance[]>>("/api/bot-instances");
+      if (!response.data.success) {
+        throw new Error(response.data.error?.message || "Failed to fetch bot instances");
+      }
+      return response.data.data;
     } catch (error) {
-      this.handleError(error, "Failed to fetch bot instances");
+      console.error("Failed to fetch bot instances:", error);
+      toast.error("Failed to fetch bot instances");
       throw error;
     }
   }
 
-  async toggleBotInstance(id: string, isActive: boolean): Promise<any> {
+  async toggleBotInstance(id: string, isActive: boolean): Promise<BotInstance> {
     try {
-      const response = await axios.patch(`${API_URL}/api/bot-instances/${id}`, { isActive }, { headers: this.getHeaders() });
-      return response.data;
+      const response = await api.patch<APIResponse<BotInstance>>(`/api/bot-instances/${id}`, { isActive });
+      if (!response.data.success) {
+        throw new Error(response.data.error?.message || "Failed to toggle bot instance");
+      }
+      return response.data.data;
     } catch (error) {
-      this.handleError(error, "Failed to toggle bot instance");
+      console.error("Failed to toggle bot instance:", error);
+      toast.error("Failed to toggle bot instance");
       throw error;
     }
   }
 
   async deleteBotInstance(id: string): Promise<void> {
     try {
-      await axios.delete(`${API_URL}/api/bot-instances/${id}`, {
-        headers: this.getHeaders(),
-      });
+      await api.delete<APIResponse<void>>(`/api/bot-instances/${id}`);
     } catch (error) {
-      this.handleError(error, "Failed to delete bot instance");
+      console.error("Failed to delete bot instance:", error);
+      toast.error("Failed to delete bot instance");
       throw error;
     }
   }

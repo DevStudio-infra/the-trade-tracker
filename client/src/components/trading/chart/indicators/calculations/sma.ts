@@ -12,34 +12,55 @@ import { FormattedCandle } from "../../../chart/core/ChartTypes";
 export function calculateSMA(candles: FormattedCandle[], period: number) {
   // Handle edge cases
   if (!candles || candles.length === 0 || period <= 0) {
+    console.warn("[SMA] Invalid input parameters:", { candlesLength: candles?.length, period });
     return [];
   }
 
-  // Ensure the period isn't larger than the data set
-  const actualPeriod = Math.min(period, candles.length);
-
-  // Initialize result array
-  const result = [];
-
-  // Calculate SMA for each point where we have enough data
-  for (let i = actualPeriod - 1; i < candles.length; i++) {
-    let sum = 0;
-
-    // Sum the closing prices for the period
-    for (let j = 0; j < actualPeriod; j++) {
-      sum += candles[i - j].close;
-    }
-
-    // Calculate average and add to result
-    const smaValue = sum / actualPeriod;
-
-    result.push({
-      time: candles[i].time,
-      value: smaValue,
-    });
+  // We need at least 'period' number of candles
+  if (candles.length < period) {
+    console.warn("[SMA] Not enough candles for period:", { candlesLength: candles.length, period });
+    return [];
   }
 
-  return result;
+  try {
+    // Initialize result array
+    const result = [];
+
+    // Calculate first SMA
+    let sum = 0;
+    for (let i = 0; i < period; i++) {
+      sum += candles[i].close;
+    }
+
+    // Add first SMA value
+    result.push({
+      time: candles[period - 1].time,
+      value: sum / period,
+    });
+
+    // Calculate subsequent SMAs using a moving window
+    for (let i = period; i < candles.length; i++) {
+      // Remove oldest price and add newest price
+      sum = sum - candles[i - period].close + candles[i].close;
+
+      result.push({
+        time: candles[i].time,
+        value: sum / period,
+      });
+    }
+
+    console.log("[SMA] Calculated SMA values:", {
+      period,
+      points: result.length,
+      firstValue: result[0].value,
+      lastValue: result[result.length - 1].value,
+    });
+
+    return result;
+  } catch (error) {
+    console.error("[SMA] Error calculating SMA:", error);
+    return [];
+  }
 }
 
 /**

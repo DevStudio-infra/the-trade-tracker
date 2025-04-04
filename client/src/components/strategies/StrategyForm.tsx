@@ -9,7 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Lightbulb, HelpCircle, Clock, ArrowRightLeft, TrendingUp, Zap, BarChart3, Settings, Trash2 } from "lucide-react";
+import { Lightbulb, HelpCircle, Clock, ArrowRightLeft, TrendingUp, Zap, BarChart3, Settings, Trash2, Loader2 } from "lucide-react";
 import { Strategy, StrategyRules } from "@/services/strategy";
 import { useToast } from "@/components/ui/use-toast";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -61,11 +61,125 @@ const conditionOptions = {
 };
 
 // Indicator options
-const indicatorOptions = [
-  { value: "rsi", label: "RSI (Relative Strength Index)", configKey: "period", defaultValue: 14, min: 2, max: 50 },
-  { value: "adx", label: "ADX (Average Directional Index)", configKey: "period", defaultValue: 14, min: 3, max: 50 },
-  { value: "moving_average", label: "Moving Average", configKey: "period", defaultValue: 20, min: 5, max: 200 },
+interface IndicatorParameter {
+  period?: number;
+  fastPeriod?: number;
+  slowPeriod?: number;
+  signalPeriod?: number;
+  stdDev?: number;
+  kPeriod?: number;
+  dPeriod?: number;
+  conversionPeriod?: number;
+  basePeriod?: number;
+  spanPeriod?: number;
+  displacement?: number;
+  [key: string]: number | undefined; // Allow indexing with string
+}
+
+interface IndicatorOption {
+  value: string;
+  label: string;
+  configKey: string;
+  defaultValue: number | IndicatorParameter;
+  min: number | IndicatorParameter;
+  max: number | IndicatorParameter;
+  isOscillator: boolean;
+}
+
+const indicatorOptions: IndicatorOption[] = [
+  {
+    value: "SMA",
+    label: "Simple Moving Average (SMA)",
+    configKey: "period",
+    defaultValue: 20,
+    min: 5,
+    max: 200,
+    isOscillator: false,
+  },
+  {
+    value: "EMA",
+    label: "Exponential Moving Average (EMA)",
+    configKey: "period",
+    defaultValue: 20,
+    min: 5,
+    max: 200,
+    isOscillator: false,
+  },
+  {
+    value: "RSI",
+    label: "Relative Strength Index (RSI)",
+    configKey: "period",
+    defaultValue: 14,
+    min: 2,
+    max: 50,
+    isOscillator: true,
+  },
+  {
+    value: "MACD",
+    label: "Moving Average Convergence Divergence (MACD)",
+    configKey: "period",
+    defaultValue: { fastPeriod: 12, slowPeriod: 26, signalPeriod: 9 },
+    min: { fastPeriod: 2, slowPeriod: 5, signalPeriod: 2 },
+    max: { fastPeriod: 50, slowPeriod: 100, signalPeriod: 50 },
+    isOscillator: true,
+  },
+  {
+    value: "BollingerBands",
+    label: "Bollinger Bands",
+    configKey: "period",
+    defaultValue: { period: 20, stdDev: 2 },
+    min: { period: 5, stdDev: 1 },
+    max: { period: 100, stdDev: 5 },
+    isOscillator: false,
+  },
+  {
+    value: "ATR",
+    label: "Average True Range (ATR)",
+    configKey: "period",
+    defaultValue: 14,
+    min: 1,
+    max: 50,
+    isOscillator: true,
+  },
+  {
+    value: "Stochastic",
+    label: "Stochastic Oscillator",
+    configKey: "period",
+    defaultValue: { kPeriod: 14, dPeriod: 3 },
+    min: { kPeriod: 1, dPeriod: 1 },
+    max: { kPeriod: 50, dPeriod: 50 },
+    isOscillator: true,
+  },
+  {
+    value: "Ichimoku",
+    label: "Ichimoku Cloud",
+    configKey: "period",
+    defaultValue: {
+      conversionPeriod: 9,
+      basePeriod: 26,
+      spanPeriod: 52,
+      displacement: 26,
+    },
+    min: {
+      conversionPeriod: 5,
+      basePeriod: 10,
+      spanPeriod: 20,
+      displacement: 10,
+    },
+    max: {
+      conversionPeriod: 30,
+      basePeriod: 60,
+      spanPeriod: 120,
+      displacement: 60,
+    },
+    isOscillator: false,
+  },
 ];
+
+interface IndicatorConfig {
+  type: string;
+  config: IndicatorParameter;
+}
 
 interface StrategyFormProps {
   initialData?: Partial<Strategy>;
@@ -74,6 +188,7 @@ interface StrategyFormProps {
     description: string;
     timeframes: string[];
     isActive: boolean;
+    isPublic: boolean;
     rules?: StrategyRules;
     riskParameters?: Record<string, unknown>;
   }) => Promise<void>;
@@ -103,22 +218,18 @@ export function StrategyForm({ initialData, onSubmit, isSubmitting, submitLabel,
   const [strategyDescription, setStrategyDescription] = useState(initialData?.description || "");
   const [selectedTimeframes, setSelectedTimeframes] = useState<string[]>(initialData?.timeframes || ["1h"]);
   const [isActive, setIsActive] = useState(initialData?.isActive !== undefined ? initialData.isActive : true);
+  const [isPublic, setIsPublic] = useState(initialData?.isPublic ?? false);
   const [strategyType, setStrategyType] = useState(initialData?.rules?.type || "trend-following");
   const [selectedMarketConditions, setSelectedMarketConditions] = useState<string[]>(initialData?.rules?.market_conditions || ["bullish"]);
 
   // Indicators state management
-  const [selectedIndicators, setSelectedIndicators] = useState<
-    Array<{
-      type: string;
-      config: Record<string, number>;
-    }>
-  >(
+  const [selectedIndicators, setSelectedIndicators] = useState<IndicatorConfig[]>(
     initialData?.rules?.indicators
       ? Object.entries(initialData.rules.indicators).map(([key, value]) => ({
           type: key,
-          config: typeof value === "number" ? { period: value } : (value as unknown as Record<string, number>),
+          config: typeof value === "number" ? { period: value } : (value as IndicatorParameter),
         }))
-      : [{ type: "moving_average", config: { period: 20 } }]
+      : [{ type: "SMA", config: { period: 20 } }]
   );
 
   // Get user subscription from the store
@@ -149,6 +260,7 @@ export function StrategyForm({ initialData, onSubmit, isSubmitting, submitLabel,
       setStrategyDescription(initialData.description || "");
       setSelectedTimeframes(initialData.timeframes || ["1h"]);
       setIsActive(initialData.isActive !== undefined ? initialData.isActive : true);
+      setIsPublic(initialData.isPublic ?? false);
 
       // Rules
       if (initialData.rules) {
@@ -160,7 +272,7 @@ export function StrategyForm({ initialData, onSubmit, isSubmitting, submitLabel,
           setSelectedIndicators(
             Object.entries(initialData.rules.indicators).map(([key, value]) => ({
               type: key,
-              config: typeof value === "number" ? { period: value } : (value as unknown as Record<string, number>),
+              config: typeof value === "number" ? { period: value } : (value as IndicatorParameter),
             }))
           );
         }
@@ -234,21 +346,35 @@ export function StrategyForm({ initialData, onSubmit, isSubmitting, submitLabel,
       return;
     }
 
+    // Count oscillators
+    const currentOscillators = selectedIndicators.filter((ind) => indicatorOptions.find((opt) => opt.value === ind.type)?.isOscillator).length;
+
     // Find first indicator not already selected
-    const availableIndicator = indicatorOptions.find((opt) => !selectedIndicators.some((sel) => sel.type === opt.value));
+    const availableIndicator = indicatorOptions.find((opt) => {
+      const notSelected = !selectedIndicators.some((sel) => sel.type === opt.value);
+      const isOscillator = opt.isOscillator;
+      // Only allow one oscillator
+      if (isOscillator && currentOscillators >= 1) {
+        return false;
+      }
+      return notSelected;
+    });
 
     if (availableIndicator) {
+      // For complex parameters (objects), use the defaultValue directly
+      const config = typeof availableIndicator.defaultValue === "object" ? availableIndicator.defaultValue : { [availableIndicator.configKey]: availableIndicator.defaultValue };
+
       setSelectedIndicators([
         ...selectedIndicators,
         {
           type: availableIndicator.value,
-          config: { [availableIndicator.configKey]: availableIndicator.defaultValue },
+          config,
         },
       ]);
     } else {
       toast({
-        title: "All indicators already added",
-        description: "You've already added all available indicators.",
+        title: "Cannot Add Indicator",
+        description: currentOscillators >= 1 ? "Only one oscillator indicator is allowed per strategy." : "You've already added all available indicators.",
       });
     }
   };
@@ -258,16 +384,31 @@ export function StrategyForm({ initialData, onSubmit, isSubmitting, submitLabel,
   };
 
   const updateIndicatorType = (index: number, newType: string) => {
-    const indicatorOption = indicatorOptions.find((opt) => opt.value === newType);
+    const indicatorInfo = indicatorOptions.find((opt) => opt.value === newType);
+    if (!indicatorInfo) return;
 
-    if (!indicatorOption) return;
+    // Check if new type is an oscillator
+    const isNewOscillator = indicatorInfo.isOscillator;
+    const currentOscillators = selectedIndicators.filter((ind, i) => i !== index && indicatorOptions.find((opt) => opt.value === ind.type)?.isOscillator).length;
+
+    if (isNewOscillator && currentOscillators >= 1) {
+      toast({
+        title: "Cannot Change Indicator",
+        description: "Only one oscillator indicator is allowed per strategy.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // For complex parameters (objects), use the defaultValue directly
+    const config = typeof indicatorInfo.defaultValue === "object" ? indicatorInfo.defaultValue : { [indicatorInfo.configKey]: indicatorInfo.defaultValue };
 
     setSelectedIndicators(
       selectedIndicators.map((ind, i) => {
         if (i === index) {
           return {
             type: newType,
-            config: { [indicatorOption.configKey]: indicatorOption.defaultValue },
+            config,
           };
         }
         return ind;
@@ -352,6 +493,7 @@ export function StrategyForm({ initialData, onSubmit, isSubmitting, submitLabel,
         description: strategyDescription,
         timeframes: selectedTimeframes,
         isActive,
+        isPublic,
         rules,
         riskParameters,
       });
@@ -368,7 +510,7 @@ export function StrategyForm({ initialData, onSubmit, isSubmitting, submitLabel,
 
   return (
     <TooltipProvider>
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit} className="space-y-8">
         <Tabs defaultValue="basic" className="w-full">
           <TabsList className="grid w-full grid-cols-2 mb-6">
             <TabsTrigger value="basic">Basic Information</TabsTrigger>
@@ -429,6 +571,24 @@ export function StrategyForm({ initialData, onSubmit, isSubmitting, submitLabel,
                       Strategy Active
                     </Label>
                     <FieldInfoTooltip content="Active strategies can be used in trading bots. Inactive strategies are saved but won't be available for trading." />
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Switch id="isPublic" checked={isPublic} onCheckedChange={setIsPublic} />
+                    <Label htmlFor="isPublic">Make this strategy public</Label>
+                    <HelpCircle className="h-4 w-4 text-slate-400" />
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="cursor-help">Public strategies can be viewed and used by other users</span>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>When a strategy is public:</p>
+                        <ul className="list-disc list-inside mt-2">
+                          <li>Other users can view it</li>
+                          <li>Other users can use it in their bots</li>
+                          <li>You maintain ownership and can edit it</li>
+                        </ul>
+                      </TooltipContent>
+                    </Tooltip>
                   </div>
                 </CardContent>
               </Card>
@@ -575,7 +735,14 @@ export function StrategyForm({ initialData, onSubmit, isSubmitting, submitLabel,
                             </SelectTrigger>
                             <SelectContent>
                               {indicatorOptions.map((option) => (
-                                <SelectItem key={option.value} value={option.value} disabled={selectedIndicators.some((ind) => ind.type === option.value && ind !== indicator)}>
+                                <SelectItem
+                                  key={option.value}
+                                  value={option.value}
+                                  disabled={
+                                    selectedIndicators.some((ind) => ind.type === option.value && ind !== indicator) ||
+                                    (option.isOscillator &&
+                                      selectedIndicators.some((ind, i) => i !== index && indicatorOptions.find((opt) => opt.value === ind.type)?.isOscillator))
+                                  }>
                                   {option.label}
                                 </SelectItem>
                               ))}
@@ -593,21 +760,47 @@ export function StrategyForm({ initialData, onSubmit, isSubmitting, submitLabel,
                         </div>
 
                         <div className="space-y-2">
-                          <div className="flex items-center">
-                            <Label htmlFor={`indicator-${index}-period`}>Period</Label>
-                            <FieldInfoTooltip content="The number of candles used to calculate this indicator." />
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <Input
-                              id={`indicator-${index}-period`}
-                              type="number"
-                              min={indicatorInfo.min}
-                              max={indicatorInfo.max}
-                              value={indicator.config.period || indicatorInfo.defaultValue}
-                              onChange={(e) => updateIndicatorConfig(index, "period", parseInt(e.target.value))}
-                            />
-                            <span className="text-sm text-slate-500 dark:text-slate-400">periods</span>
-                          </div>
+                          {typeof indicatorInfo.defaultValue === "object" ? (
+                            // Render multiple parameter inputs for complex indicators
+                            Object.entries(indicatorInfo.defaultValue as IndicatorParameter).map(([paramKey, defaultValue]) => {
+                              const minValue = (indicatorInfo.min as IndicatorParameter)[paramKey];
+                              const maxValue = (indicatorInfo.max as IndicatorParameter)[paramKey];
+                              return (
+                                <div key={paramKey} className="flex items-center">
+                                  <Label htmlFor={`indicator-${index}-${paramKey}`}>{paramKey}</Label>
+                                  <FieldInfoTooltip content={`Configure the ${paramKey} for this indicator.`} />
+                                  <div className="flex items-center gap-3">
+                                    <Input
+                                      id={`indicator-${index}-${paramKey}`}
+                                      type="number"
+                                      min={minValue}
+                                      max={maxValue}
+                                      value={indicator.config[paramKey] || defaultValue}
+                                      onChange={(e) => updateIndicatorConfig(index, paramKey, parseInt(e.target.value))}
+                                    />
+                                    <span className="text-sm text-slate-500 dark:text-slate-400">periods</span>
+                                  </div>
+                                </div>
+                              );
+                            })
+                          ) : (
+                            // Render single parameter input for simple indicators
+                            <div className="flex items-center">
+                              <Label htmlFor={`indicator-${index}-period`}>Period</Label>
+                              <FieldInfoTooltip content="The number of candles used to calculate this indicator." />
+                              <div className="flex items-center gap-3">
+                                <Input
+                                  id={`indicator-${index}-period`}
+                                  type="number"
+                                  min={indicatorInfo.min}
+                                  max={indicatorInfo.max}
+                                  value={indicator.config.period || indicatorInfo.defaultValue}
+                                  onChange={(e) => updateIndicatorConfig(index, "period", parseInt(e.target.value))}
+                                />
+                                <span className="text-sm text-slate-500 dark:text-slate-400">periods</span>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </div>
                     );
@@ -701,7 +894,7 @@ export function StrategyForm({ initialData, onSubmit, isSubmitting, submitLabel,
           <Button type="submit" className="bg-blue-500 hover:bg-blue-600 text-white dark:bg-blue-600 dark:hover:bg-blue-700" disabled={isSubmitting}>
             {isSubmitting ? (
               <>
-                <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-white border-r-transparent"></div>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 {isEditMode ? "Updating..." : "Creating..."}
               </>
             ) : (

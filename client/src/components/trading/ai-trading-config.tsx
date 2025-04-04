@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -10,27 +10,125 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useTradingStore } from "@/stores/trading-store";
-import { useAITradingApi, Strategy } from "@/lib/ai-trading-api";
+import { useAITradingApi } from "@/lib/ai-trading-api";
 import { toast } from "sonner";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Play, Settings, BrainCircuit, Activity } from "lucide-react";
+import { createIndicator } from "@/components/trading/chart/indicators/indicatorFactory";
+import { useIndicatorStore } from "@/components/trading/chart/indicators/indicatorStore";
+import { IndicatorParameters } from "@/components/trading/chart/core/ChartTypes";
 
 export function AITradingConfig() {
   const { aiTradingConfig, updateAITradingConfig, selectedBroker, selectedPair } = useTradingStore();
-
+  const { addIndicator, clearAllIndicators } = useIndicatorStore();
   const aiTradingApi = useAITradingApi();
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [activeTab, setActiveTab] = useState("analysis");
+  const queryClient = useQueryClient();
 
   // Fetch strategies
   const { data: strategies = [], isLoading: isLoadingStrategies } = useQuery({
     queryKey: ["strategies"],
-    queryFn: aiTradingApi.getStrategies,
+    queryFn: async () => {
+      console.log("AITradingConfig: Fetching strategies...");
+      const result = await aiTradingApi.getStrategies();
+      console.log("AITradingConfig: Strategies fetched:", result);
+      return result;
+    },
     staleTime: 1000 * 60 * 5, // 5 minutes
   });
 
+  // Function to refresh strategies
+  const refreshStrategies = useCallback(() => {
+    console.log("AITradingConfig: Refreshing strategies cache");
+    queryClient.invalidateQueries({ queryKey: ["strategies"] });
+  }, [queryClient]);
+
+  // Load strategy indicators when a strategy is selected
+  const loadStrategyIndicators = useCallback(
+    (strategyId: string | null) => {
+      console.log("AITradingConfig: Loading indicators for strategy:", strategyId);
+      // Clear existing indicators
+      clearAllIndicators();
+      console.log("AITradingConfig: Cleared all existing indicators");
+
+      if (!strategyId) {
+        console.log("AITradingConfig: No strategy ID provided, skipping indicator loading");
+        return;
+      }
+
+      // Find the selected strategy
+      const strategy = strategies.find((s) => s.id === strategyId);
+      console.log("AITradingConfig: Found strategy:", strategy);
+
+      if (!strategy) {
+        console.log("AITradingConfig: Strategy not found, skipping indicator loading");
+        return;
+      }
+
+      if (!strategy.rules?.indicators) {
+        console.log("AITradingConfig: Strategy has no indicators defined, skipping indicator loading");
+        return;
+      }
+
+      console.log("AITradingConfig: Strategy indicators:", strategy.rules.indicators);
+
+      // Add each indicator from the strategy
+      Object.entries(strategy.rules.indicators).forEach(([type, config]) => {
+        try {
+          console.log(`AITradingConfig: Creating indicator of type ${type} with config:`, config);
+
+          // Convert the config to the correct format
+          const params: IndicatorParameters =
+            typeof config === "number" ? { period: config } : typeof config === "string" ? { period: parseInt(config, 10) } : (config as IndicatorParameters);
+          console.log(`AITradingConfig: Converted parameters for ${type}:`, params);
+
+          const indicator = createIndicator(type, params);
+          if (indicator) {
+            console.log(`AITradingConfig: Successfully created indicator of type ${type} with ID:`, indicator.getId());
+            addIndicator(indicator);
+            console.log(`AITradingConfig: Added indicator ${type} to the chart`);
+          } else {
+            console.error(`AITradingConfig: Failed to create indicator of type ${type}`);
+          }
+        } catch (error) {
+          console.error(`AITradingConfig: Error creating indicator ${type}:`, error);
+        }
+      });
+
+      console.log("AITradingConfig: Finished loading all indicators for strategy:", strategyId);
+
+      // Force a chart update to ensure indicators are rendered
+      // This is a workaround for the issue where indicators don't render properly until timeframe is changed
+      setTimeout(() => {
+        console.log("AITradingConfig: Forcing chart update to ensure indicators are rendered");
+        // Trigger a manual refresh of the chart data
+        if (selectedBroker && selectedPair) {
+          console.log("AITradingConfig: Triggering manual chart refresh");
+          // We'll use a custom event to trigger a refresh in the TradingChart component
+          const refreshEvent = new CustomEvent("forceChartRefresh", {
+            detail: {
+              pair: selectedPair,
+              brokerId: selectedBroker.id,
+              timeframe: "1h",
+            },
+          });
+          window.dispatchEvent(refreshEvent);
+        }
+      }, 100);
+    },
+    [strategies, addIndicator, clearAllIndicators, selectedBroker, selectedPair]
+  );
+
+  // Handle strategy selection
+  const handleStrategyChange = (value: string) => {
+    console.log("AITradingConfig: Strategy selected:", value);
+    updateAITradingConfig({ selectedStrategyId: value || null });
+    loadStrategyIndicators(value || null);
+  };
+
   // Run analysis function
-  const runAnalysis = async () => {
+  const runAnalysis = useCallback(async () => {
     if (!selectedBroker || !selectedPair) {
       toast.error("Please select a broker and trading pair first");
       return;
@@ -38,6 +136,7 @@ export function AITradingConfig() {
 
     setIsAnalyzing(true);
     try {
+      console.log("AITradingConfig: Running analysis with config:", aiTradingConfig);
       const response = await aiTradingApi.analyzeChart({
         pair: selectedPair,
         timeframe: "1h", // Default timeframe
@@ -45,40 +144,53 @@ export function AITradingConfig() {
         strategyId: aiTradingConfig.selectedStrategyId || undefined,
         customPrompt: aiTradingConfig.customPrompt || undefined,
       });
+      console.log("AITradingConfig: Analysis response:", response);
 
-      toast.success(`Analysis complete: ${response.signalType} signal with ${response.confidence}% confidence`);
+      // If a new strategy was created, refresh the strategies list
+      if (response.strategy && !strategies.find((s) => s.id === response.strategy)) {
+        console.log("AITradingConfig: New strategy created, refreshing strategies list");
+        refreshStrategies();
+      }
 
-      // If confidence > 70% and execution mode is enabled, confirm and execute
-      if (response.confidence > 70 && !aiTradingConfig.analysisOnly) {
-        const confirmation = await aiTradingApi.confirmSignal({
-          signalId: response.id,
-          higherTimeframe: "4h", // Higher timeframe for confirmation
-        });
+      // Convert indicator configuration
+      const indicators = response.analysis.strategyRulesMet
+        ? [
+            {
+              type: "RSI",
+              parameters: {
+                period: 14,
+                overbought: 70,
+                oversold: 30,
+              },
+            },
+          ]
+        : [];
 
-        if (confirmation.confirmed && confirmation.confidence > 70) {
-          if (aiTradingConfig.confirmationRequired) {
-            // Show confirmation dialog
-            toast.info("Trade signal confirmed. Manual execution required.");
-          } else {
-            // Auto-execute
-            const trade = await aiTradingApi.executeTrade({
-              signalId: response.id,
-              credentialId: selectedBroker.id,
-              riskPercent: aiTradingConfig.riskPercentage,
-            });
-            toast.success(`Trade executed: ${trade.side} ${trade.quantity} ${selectedPair} at ${trade.entryPrice}`);
+      // Clear existing indicators
+      clearAllIndicators();
+
+      // Add new indicators
+      for (const indicator of indicators) {
+        try {
+          console.log("AITradingConfig: Creating indicator:", indicator);
+          const newIndicator = createIndicator(indicator.type, indicator.parameters);
+          if (newIndicator) {
+            console.log("AITradingConfig: Adding indicator to chart:", newIndicator);
+            addIndicator(newIndicator);
           }
-        } else {
-          toast.info("Signal not confirmed on higher timeframe. No trade executed.");
+        } catch (error) {
+          console.error("AITradingConfig: Error creating indicator:", error);
         }
       }
+
+      toast.success(`Analysis complete: ${response.signal} signal with ${response.confidence}% confidence`);
     } catch (error) {
-      console.error("Analysis error:", error);
-      toast.error("Failed to complete analysis");
+      console.error("AITradingConfig: Error running analysis:", error);
+      toast.error("Failed to run analysis");
     } finally {
       setIsAnalyzing(false);
     }
-  };
+  }, [selectedBroker, selectedPair, aiTradingConfig, aiTradingApi, clearAllIndicators, addIndicator, strategies, refreshStrategies]);
 
   // Set up scheduled analysis if enabled
   useEffect(() => {
@@ -121,29 +233,16 @@ export function AITradingConfig() {
             {/* Strategy Selection */}
             <div className="space-y-2">
               <Label htmlFor="strategy">Trading Strategy</Label>
-              <Select
-                value={aiTradingConfig.selectedStrategyId || ""}
-                onValueChange={(value) => updateAITradingConfig({ selectedStrategyId: value || null })}
-                disabled={isLoadingStrategies}>
+              <Select value={aiTradingConfig.selectedStrategyId || ""} onValueChange={handleStrategyChange} disabled={isLoadingStrategies}>
                 <SelectTrigger id="strategy">
-                  <SelectValue placeholder="Select strategy" />
+                  <SelectValue placeholder="Select a strategy" />
                 </SelectTrigger>
                 <SelectContent>
-                  {isLoadingStrategies ? (
-                    <SelectItem value="loading" disabled>
-                      Loading strategies...
+                  {strategies.map((strategy) => (
+                    <SelectItem key={strategy.id} value={strategy.id}>
+                      {strategy.name}
                     </SelectItem>
-                  ) : strategies.length === 0 ? (
-                    <SelectItem value="none" disabled>
-                      No strategies available
-                    </SelectItem>
-                  ) : (
-                    strategies.map((strategy: Strategy) => (
-                      <SelectItem key={strategy.id} value={strategy.id}>
-                        {strategy.name}
-                      </SelectItem>
-                    ))
-                  )}
+                  ))}
                 </SelectContent>
               </Select>
             </div>

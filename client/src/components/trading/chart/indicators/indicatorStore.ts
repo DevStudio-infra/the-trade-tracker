@@ -6,7 +6,7 @@ import { v4 as uuidv4 } from "uuid";
 import { ChartApiWithPanes, IndicatorParameters, indicatorDefaults } from "../core/ChartTypes";
 import { BaseIndicator } from "./base/types";
 import { createIndicator } from "./indicatorFactory";
-import { OscillatorPaneTracker, PaneReferenceTracker, cleanUpUnusedPanes } from "../core/ChartUtils";
+import { OscillatorPaneTracker, PaneReferenceTracker, cleanUpUnusedPanes, getNextAvailablePaneIndex } from "../core/ChartUtils";
 import { FormattedCandle } from "../core/ChartTypes";
 import { ISeriesApi, CandlestickData, Time } from "lightweight-charts";
 
@@ -66,78 +66,99 @@ const createBaseStore: StateCreator<IndicatorState> = (set, get) => ({
   },
 
   addIndicator: (indicator: BaseIndicator) => {
+    console.log(`INDICATOR STORE: Adding indicator ${indicator.getType()} with ID ${indicator.getId()}`);
+
+    const state = get();
     const id = indicator.getId();
-    const type = indicator.getType();
-    const { indicators, chartInstance } = get();
 
-    // Check if this is an oscillator
-    const isOscillator = OSCILLATOR_INDICATORS.includes(type);
-    console.log(`Adding indicator ${type} (${id}), isOscillator=${isOscillator}`);
-
-    if (isOscillator) {
-      // Check if we already have ANY oscillator
-      const existingOscillators = Array.from(indicators.values()).filter((ind) => OSCILLATOR_INDICATORS.includes(ind.getType()));
-
-      if (existingOscillators.length > 0) {
-        const existingOscillator = existingOscillators[0];
-        console.warn(`Cannot add ${type}: Only one oscillator indicator allowed. Please remove ${existingOscillator.getName()} first.`);
-        throw new Error(`Only one oscillator indicator allowed. Please remove ${existingOscillator.getName()} first.`);
-      }
-
-      // Use pane 1 for oscillators (pane 0 is main chart with volume)
-      if (chartInstance) {
-        try {
-          // Initialize the indicator with the chart
-          indicator.initialize(chartInstance, {
-            id: indicator.getId(),
-            type: indicator.getType(),
-            name: indicator.getName(),
-            color: indicator.getConfig().color,
-            visible: indicator.isVisible(),
-            parameters: {
-              paneIndex: 1,
-              priceScaleId: "left",
-            }, // Use pane 1 for oscillators
-          });
-
-          // Create the indicator series in pane 1
-          indicator.createSeries(1);
-
-          // Update tracking
-          get().assignPane(id, 1);
-          console.log(`Added ${type} to pane 1`);
-        } catch (error) {
-          console.error(`Failed to add ${type} to pane 1:`, error);
-        }
-      }
-    } else {
-      // Non-oscillator indicators go in the main pane (0) by default
-      if (chartInstance) {
-        indicator.initialize(chartInstance, {
-          id: indicator.getId(),
-          type: indicator.getType(),
-          name: indicator.getName(),
-          color: indicator.getConfig().color,
-          visible: indicator.isVisible(),
-          parameters: {
-            paneIndex: 0,
-            priceScaleId: "left",
-          },
-        });
-        indicator.createSeries(0);
-      }
-      get().assignPane(id, 0);
+    // Check if chart instance is available
+    if (!state.chartInstance) {
+      console.error("INDICATOR STORE: Cannot add indicator - chart instance is not available");
+      return id;
     }
 
-    set((state: IndicatorState) => {
-      const newIndicators = new Map(state.indicators);
-      newIndicators.set(id, indicator);
-      const newOrder = state.indicatorOrder.includes(id) ? [...state.indicatorOrder] : [...state.indicatorOrder, id];
-      return {
-        indicators: newIndicators,
-        indicatorOrder: newOrder,
-      };
-    });
+    // Check if main series is available
+    if (!state.mainSeries) {
+      console.error("INDICATOR STORE: Cannot add indicator - main series is not available");
+      return id;
+    }
+
+    // Add the indicator to the map
+    state.indicators.set(id, indicator);
+    console.log(`INDICATOR STORE: Added indicator ${indicator.getType()} to the map`);
+
+    // Add to order if not already there
+    if (!state.indicatorOrder.includes(id)) {
+      state.indicatorOrder.push(id);
+      console.log(`INDICATOR STORE: Added indicator ${indicator.getType()} to the order list`);
+    }
+
+    // Determine if this is an overlay or oscillator indicator
+    const isOverlay = isOverlayIndicator(indicator.getType());
+    console.log(`INDICATOR STORE: Indicator ${indicator.getType()} is ${isOverlay ? "an overlay" : "an oscillator"}`);
+
+    // Initialize the indicator with the chart
+    try {
+      // Get the pane index
+      const paneIndex = isOverlay ? 0 : state.getIndicatorPane(id) || getNextAvailablePaneIndex(state.oscillatorPanes);
+      console.log(`INDICATOR STORE: Using pane ${paneIndex} for indicator ${indicator.getType()}`);
+
+      indicator.initialize(state.chartInstance, {
+        id: indicator.getId(),
+        type: indicator.getType(),
+        name: indicator.getName(),
+        color: indicator.getConfig().color,
+        visible: indicator.isVisible(),
+        parameters: {
+          paneIndex,
+          priceScaleId: "left",
+        },
+      });
+      console.log(`INDICATOR STORE: Initialized indicator ${indicator.getType()}`);
+
+      // Create the series in the appropriate pane
+      if (paneIndex !== undefined) {
+        state.assignPane(id, paneIndex);
+        indicator.createSeries(paneIndex);
+        console.log(`INDICATOR STORE: Created series for indicator ${indicator.getType()} in pane ${paneIndex}`);
+
+        // Update the indicator with current data if available
+        if (state.mainSeries) {
+          const data = state.mainSeries.data();
+          if (data && data.length > 0) {
+            console.log(`INDICATOR STORE: Updating indicator ${indicator.getType()} with current data`);
+            const formattedData = data.map((d) => {
+              const candleData = d as CandlestickData<Time>;
+              return {
+                time: candleData.time,
+                open: candleData.open,
+                high: candleData.high,
+                low: candleData.low,
+                close: candleData.close,
+                value: 0,
+              };
+            });
+            indicator.updateData(formattedData);
+            console.log(`INDICATOR STORE: Successfully updated indicator ${indicator.getType()} with current data`);
+          }
+        }
+      } else {
+        console.error(`INDICATOR STORE: Failed to assign pane for oscillator indicator ${indicator.getType()}`);
+      }
+    } catch (error) {
+      console.error(`INDICATOR STORE: Failed to initialize indicator ${indicator.getType()}:`, error);
+    }
+
+    // Update the state
+    set(state);
+    console.log(`INDICATOR STORE: Updated state with new indicator ${indicator.getType()}`);
+
+    // Force a chart update to ensure indicators are rendered
+    if (state.chartInstance) {
+      console.log(`INDICATOR STORE: Forcing chart update to ensure indicators are rendered`);
+      // This will trigger a redraw of the chart
+      state.chartInstance.timeScale().fitContent();
+    }
 
     return id;
   },
@@ -531,14 +552,26 @@ const createBaseStore: StateCreator<IndicatorState> = (set, get) => ({
       return;
     }
 
+    console.log(`INDICATOR STORE: Updating ${indicators.size} indicators with ${candles.length} candles`);
+
     // Update all indicators with the new data
     indicators.forEach((indicator) => {
       try {
+        console.log(`INDICATOR STORE: Updating indicator ${indicator.getType()} (${indicator.getId()})`);
         indicator.updateData(candles);
+        console.log(`INDICATOR STORE: Successfully updated indicator ${indicator.getType()}`);
       } catch (error) {
         console.error(`INDICATOR STORE: Error updating indicator data:`, error);
       }
     });
+
+    // Force a chart update to ensure indicators are rendered
+    const { chartInstance } = get();
+    if (chartInstance) {
+      console.log(`INDICATOR STORE: Forcing chart update to ensure indicators are rendered`);
+      // This will trigger a redraw of the chart
+      chartInstance.timeScale().fitContent();
+    }
   },
 
   toggleVisibility: (key: string) => {

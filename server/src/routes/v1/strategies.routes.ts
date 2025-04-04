@@ -11,8 +11,15 @@ const ragService = new RAGService();
 // Get all strategies
 router.get("/", validateAuth, async (req, res) => {
   try {
+    const userId = (req as AuthenticatedRequest).auth.userId;
+
     const strategies = await prisma.strategy.findMany({
-      where: { isActive: true },
+      where: {
+        OR: [
+          { userId }, // User's own strategies
+          { isActive: true, isPublic: true }, // Public strategies that are active
+        ],
+      },
       orderBy: { name: "asc" },
     });
 
@@ -77,7 +84,7 @@ router.get("/:id", validateAuth, async (req, res) => {
 // Add new strategy (admin only)
 router.post("/", validateAuth, async (req, res) => {
   try {
-    const { name, description, rules, timeframes, riskParameters } = req.body;
+    const { name, description, rules, timeframes, riskParameters, isPublic = false } = req.body;
     const userId = (req as AuthenticatedRequest).auth.userId;
 
     // Create strategy directly with Prisma instead of using RAG
@@ -89,6 +96,8 @@ router.post("/", validateAuth, async (req, res) => {
         timeframes: timeframes,
         riskParameters: riskParameters as any,
         isActive: true,
+        isPublic,
+        userId,
       },
     });
 
@@ -123,10 +132,10 @@ router.post("/", validateAuth, async (req, res) => {
 router.patch("/:id", validateAuth, async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, description, rules, timeframes, riskParameters, isActive } = req.body;
+    const { name, description, rules, timeframes, riskParameters, isActive, isPublic } = req.body;
     const userId = (req as AuthenticatedRequest).auth.userId;
 
-    // Check if strategy exists
+    // Check if strategy exists and belongs to user
     const existingStrategy = await prisma.strategy.findUnique({
       where: { id },
     });
@@ -141,12 +150,24 @@ router.patch("/:id", validateAuth, async (req, res) => {
       });
     }
 
+    // Check if user owns the strategy or if it's a public strategy
+    if (existingStrategy.userId !== userId && !existingStrategy.isPublic) {
+      return res.status(403).json({
+        success: false,
+        error: {
+          code: "STRATEGY_UNAUTHORIZED",
+          message: "You do not have permission to update this strategy",
+        },
+      });
+    }
+
     // Prepare update data
     const updateData: any = {};
     if (name !== undefined) updateData.name = name;
     if (description !== undefined) updateData.description = description;
     if (rules !== undefined) updateData.rules = rules;
     if (isActive !== undefined) updateData.isActive = isActive;
+    if (isPublic !== undefined) updateData.isPublic = isPublic;
 
     // Handle timeframes array if provided
     if (timeframes !== undefined) {

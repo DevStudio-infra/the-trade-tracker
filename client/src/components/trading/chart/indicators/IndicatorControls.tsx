@@ -42,16 +42,31 @@ export const IndicatorControls: React.FC = () => {
   const { getIndicators, removeIndicator, setIndicatorVisibility } = useIndicatorStore();
   const indicators = getIndicators();
   const [editingIndicatorId, setEditingIndicatorId] = useState<string | null>(null);
+  const [indicatorUpdateCounter, setIndicatorUpdateCounter] = useState(0);
+  const [forceUpdate, setForceUpdate] = useState(0);
+
+  // Subscribe to indicator store changes
+  useEffect(() => {
+    // Create a subscription to the indicator store
+    const unsubscribe = useIndicatorStore.subscribe((state) => {
+      console.log("Indicator store changed, size:", state.indicators.size);
+      setForceUpdate((prev) => prev + 1);
+    });
+
+    // Clean up subscription on unmount
+    return () => unsubscribe();
+  }, []);
 
   // Memoize the indicators data to prevent unnecessary re-renders
   const indicatorsData = React.useMemo(() => {
+    console.log("Recalculating indicatorsData, forceUpdate:", forceUpdate);
     return indicators.map((ind) => ({
       id: ind.getId(),
       type: ind.getType(),
       name: ind.getName(),
       isOscillator: OSCILLATOR_INDICATORS.includes(ind.getType()),
     }));
-  }, [indicators]);
+  }, [indicators, indicatorUpdateCounter, forceUpdate]);
 
   // Memoize the active oscillator check
   const activeOscillator = React.useMemo(() => {
@@ -63,7 +78,7 @@ export const IndicatorControls: React.FC = () => {
     });
     console.log("Active oscillator:", oscillator?.getName());
     return oscillator;
-  }, [indicators]);
+  }, [indicators, forceUpdate]);
 
   // Log only when indicators actually change
   useEffect(() => {
@@ -71,12 +86,33 @@ export const IndicatorControls: React.FC = () => {
     console.log("Total indicators:", indicators.length);
   }, [indicatorsData, indicators.length]);
 
+  // Add a useEffect to listen for changes in the indicators
+  useEffect(() => {
+    // Force a re-render when indicators change
+    setIndicatorUpdateCounter((prev) => prev + 1);
+  }, [indicators.length]);
+
+  // Add a direct check for indicator changes
+  useEffect(() => {
+    // Log the current indicators for debugging
+    console.log(
+      "Indicators changed:",
+      indicators.map((ind) => ind.getName())
+    );
+
+    // Force a re-render
+    setForceUpdate((prev) => prev + 1);
+  }, [indicators]);
+
   const handleRemoveIndicator = React.useCallback(
     (id: string) => {
       console.log(`Removing indicator: ${id}`);
       removeIndicator(id);
+      // Force a re-render by incrementing the counter
+      setIndicatorUpdateCounter((prev) => prev + 1);
+      setForceUpdate((prev) => prev + 1);
     },
-    [removeIndicator]
+    [removeIndicator, setIndicatorUpdateCounter, setForceUpdate]
   );
 
   const handleToggleVisibility = React.useCallback(
@@ -86,20 +122,29 @@ export const IndicatorControls: React.FC = () => {
         const newVisibility = !indicator.isVisible();
         console.log(`Toggling visibility for ${indicator.getName()}: ${newVisibility}`);
         setIndicatorVisibility(id, newVisibility);
+        // Force a re-render by incrementing the counter
+        setIndicatorUpdateCounter((prev) => prev + 1);
+        setForceUpdate((prev) => prev + 1);
       }
     },
-    [getIndicators, setIndicatorVisibility]
+    [getIndicators, setIndicatorVisibility, setIndicatorUpdateCounter, setForceUpdate]
   );
 
-  const handleAddIndicator = React.useCallback((type: string) => {
-    console.log(`Attempting to add indicator: ${type}`);
-    try {
-      useIndicatorStore.getState().createAndAddIndicator(type);
-      console.log(`Successfully added ${type} indicator`);
-    } catch (error) {
-      console.error(`Error adding indicator ${type}:`, error);
-    }
-  }, []);
+  const handleAddIndicator = React.useCallback(
+    (type: string) => {
+      console.log(`Attempting to add indicator: ${type}`);
+      try {
+        useIndicatorStore.getState().createAndAddIndicator(type);
+        console.log(`Successfully added ${type} indicator`);
+        // Force a re-render by incrementing the counter
+        setIndicatorUpdateCounter((prev) => prev + 1);
+        setForceUpdate((prev) => prev + 1);
+      } catch (error) {
+        console.error(`Error adding indicator ${type}:`, error);
+      }
+    },
+    [setIndicatorUpdateCounter, setForceUpdate]
+  );
 
   // Memoize the available indicators list
   const availableIndicatorsList = React.useMemo(() => {
@@ -116,7 +161,7 @@ export const IndicatorControls: React.FC = () => {
         isDisabled,
       };
     });
-  }, [activeOscillator]);
+  }, [activeOscillator, forceUpdate]);
 
   return (
     <div className="p-2 border-b border-gray-200 dark:border-gray-800">
@@ -151,7 +196,7 @@ export const IndicatorControls: React.FC = () => {
       </div>
 
       <div className="mt-2 space-y-1">
-        {indicatorsData.map(({ id, type, name }) => {
+        {indicatorsData.map(({ id }) => {
           const indicator = indicators.find((ind) => ind.getId() === id);
           if (!indicator) return null;
 

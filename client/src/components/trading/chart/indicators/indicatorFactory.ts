@@ -25,9 +25,11 @@ export function createIndicator(type: string, params?: IndicatorParameters): Bas
 
   // Get default parameters for this indicator type
   const defaultParams = indicatorDefaults[type as keyof typeof indicatorDefaults] || {};
+  console.log(`INDICATOR FACTORY: Default parameters for ${type}:`, defaultParams);
 
   // Merge default parameters with provided parameters
   const mergedParams = { ...defaultParams.defaultParameters, ...params };
+  console.log(`INDICATOR FACTORY: Merged parameters for ${type}:`, mergedParams);
 
   // Create instance based on type
   let indicator: BaseIndicator;
@@ -36,94 +38,99 @@ export function createIndicator(type: string, params?: IndicatorParameters): Bas
   console.log(`INDICATOR FACTORY: Creating ${type} indicator with ID ${id}`);
   console.log(`INDICATOR FACTORY: Parameters:`, mergedParams);
 
-  switch (type) {
-    case "MACD":
-      indicator = new MACDRenderer({
-        type: "MACD",
-        id,
-        parameters: mergedParams,
-        name: `MACD (${mergedParams.fastPeriod || 12}, ${mergedParams.slowPeriod || 26}, ${mergedParams.signalPeriod || 9})`,
-        color: (mergedParams.color as string) || "#4CAF50",
-      });
-      break;
+  try {
+    switch (type) {
+      case "MACD":
+        indicator = new MACDRenderer({
+          type: "MACD",
+          id,
+          parameters: mergedParams,
+          name: `MACD (${mergedParams.fastPeriod || 12}, ${mergedParams.slowPeriod || 26}, ${mergedParams.signalPeriod || 9})`,
+          color: (mergedParams.color as string) || "#4CAF50",
+        });
+        break;
 
-    case "SMA":
-      indicator = new SMARenderer({
-        type: type as IndicatorType,
-        id,
-        parameters: mergedParams,
-        name: `SMA (${mergedParams.period || 20})`,
-        color: (mergedParams.color as string) || "#2196F3",
-      });
-      break;
+      case "SMA":
+        indicator = new SMARenderer({
+          type: type as IndicatorType,
+          id,
+          parameters: mergedParams,
+          name: `SMA (${mergedParams.period || 20})`,
+          color: (mergedParams.color as string) || "#2196F3",
+        });
+        break;
 
-    case "EMA":
-      indicator = new EMARenderer({
-        type: type as IndicatorType,
-        id,
-        parameters: mergedParams,
-        name: `EMA (${mergedParams.period || 20})`,
-        color: (mergedParams.color as string) || "#FF9800",
-      });
-      break;
+      case "EMA":
+        indicator = new EMARenderer({
+          type: type as IndicatorType,
+          id,
+          parameters: mergedParams,
+          name: `EMA (${mergedParams.period || 20})`,
+          color: (mergedParams.color as string) || "#FF9800",
+        });
+        break;
 
-    case "RSI":
-      indicator = new RSIRenderer({
-        type: type as IndicatorType,
-        id,
-        parameters: mergedParams,
-        name: `RSI (${mergedParams.period || 14})`,
-        color: (mergedParams.color as string) || "#9C27B0",
-      });
-      break;
+      case "RSI":
+        indicator = new RSIRenderer({
+          type: type as IndicatorType,
+          id,
+          parameters: mergedParams,
+          name: `RSI (${mergedParams.period || 14})`,
+          color: (mergedParams.color as string) || "#9C27B0",
+        });
+        break;
 
-    case "BollingerBands":
-      indicator = new BollingerBandsRenderer({
-        type: type as IndicatorType,
-        id,
-        parameters: mergedParams,
-        name: `Bollinger Bands (${mergedParams.period || 20}, ${mergedParams.stdDev || 2})`,
-        color: (mergedParams.color as string) || "#E91E63",
-      });
-      break;
+      case "BollingerBands":
+        indicator = new BollingerBandsRenderer({
+          type: type as IndicatorType,
+          id,
+          parameters: mergedParams,
+          name: `Bollinger Bands (${mergedParams.period || 20}, ${mergedParams.stdDev || 2})`,
+          color: (mergedParams.color as string) || "#E91E63",
+        });
+        break;
 
-    case "ATR":
-      indicator = new ATRRenderer({
-        type: type as IndicatorType,
-        id,
-        parameters: mergedParams,
-        name: `ATR (${mergedParams.period || 14})`,
-        color: (mergedParams.color as string) || "#795548",
-      });
-      break;
+      case "ATR":
+        indicator = new ATRRenderer({
+          type: type as IndicatorType,
+          id,
+          parameters: mergedParams,
+          name: `ATR (${mergedParams.period || 14})`,
+          color: (mergedParams.color as string) || "#795548",
+        });
+        break;
 
-    case "Stochastic":
-      indicator = new StochasticRenderer({
-        type: type as IndicatorType,
-        id,
-        parameters: mergedParams,
-        name: `Stochastic (${mergedParams.kPeriod || 14}, ${mergedParams.dPeriod || 3})`,
-        color: (mergedParams.color as string) || "#607D8B",
-      });
-      break;
+      case "Stochastic":
+        indicator = new StochasticRenderer({
+          type: type as IndicatorType,
+          id,
+          parameters: mergedParams,
+          name: `Stochastic (${mergedParams.kPeriod || 14}, ${mergedParams.dPeriod || 3})`,
+          color: (mergedParams.color as string) || "#607D8B",
+        });
+        break;
 
-    case "Ichimoku":
-      indicator = new IchimokuRenderer({
-        id: id,
-        type: type as IndicatorType,
-        name: `Ichimoku Cloud`,
-        color: (mergedParams.color as string) || "#607D8B",
-        parameters: mergedParams,
-        visible: true,
-      });
-      break;
+      case "Ichimoku":
+        indicator = new IchimokuRenderer({
+          id: id,
+          type: type as IndicatorType,
+          name: `Ichimoku Cloud`,
+          color: (mergedParams.color as string) || "#607D8B",
+          parameters: mergedParams,
+          visible: true,
+        });
+        break;
 
-    default:
-      throw new Error(`Unsupported indicator type: ${type}`);
+      default:
+        throw new Error(`Unsupported indicator type: ${type}`);
+    }
+
+    console.log(`INDICATOR FACTORY: Successfully created ${type} indicator with ID ${id}`);
+    return indicator;
+  } catch (error) {
+    console.error(`INDICATOR FACTORY: Error creating ${type} indicator:`, error);
+    throw error;
   }
-
-  // Return the new indicator
-  return indicator;
 }
 
 /**

@@ -9,15 +9,19 @@ datasource db {
 
 model Strategy {
   id             String        @id @default(uuid())
-  name           String        @unique
+  name           String
   description    String
   rules          Json
   timeframes     String[]
   riskParameters Json
   isActive       Boolean       @default(true)
+  isPublic       Boolean       @default(false)
+  userId         String?
   createdAt      DateTime      @default(now()) @map("created_at")
   botInstances   BotInstance[]
+  user           User?         @relation(fields: [userId], references: [id])
 
+  @@unique([name, userId])
   @@map("strategies")
 }
 
@@ -131,6 +135,7 @@ model User {
   trades               Trade[]
   onboarding           UserOnboarding?
   watchlist_items      WatchlistItem[]
+  strategies           Strategy[]
 
   @@map("users")
 }

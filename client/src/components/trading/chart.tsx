@@ -213,6 +213,34 @@ export function TradingChart({ pair }: TradingChartProps) {
     fetchChartData(currentParams);
   }, [pair, selectedTimeframe, selectedBroker?.id, isManualRefresh]);
 
+  // Listen for force refresh events
+  useEffect(() => {
+    const handleForceRefresh = (event: CustomEvent) => {
+      console.log("TradingChart: Received force refresh event", event.detail);
+      const { pair: eventPair, brokerId, timeframe } = event.detail;
+
+      // Only refresh if the event is for the current pair
+      if (eventPair === pair && brokerId === selectedBroker?.id) {
+        console.log("TradingChart: Forcing chart refresh for current pair");
+        setIsManualRefresh(true);
+
+        // Update the timeframe if it's different
+        if (timeframe && timeframe !== selectedTimeframe) {
+          console.log(`TradingChart: Updating timeframe from ${selectedTimeframe} to ${timeframe}`);
+          setSelectedTimeframe(timeframe);
+        }
+      }
+    };
+
+    // Add event listener
+    window.addEventListener("forceChartRefresh", handleForceRefresh as EventListener);
+
+    // Clean up
+    return () => {
+      window.removeEventListener("forceChartRefresh", handleForceRefresh as EventListener);
+    };
+  }, [pair, selectedBroker?.id, selectedTimeframe]);
+
   // Initialize chart when container is available
   useLayoutEffect(() => {
     console.log("=== Chart Initialization Start ===");

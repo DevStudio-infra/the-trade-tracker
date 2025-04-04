@@ -54,23 +54,61 @@ export function calculateEMAFromValues(values: number[], period: number): number
 export function calculateEMA(candles: FormattedCandle[], period: number) {
   // Handle edge cases
   if (!candles || candles.length === 0 || period <= 0) {
+    console.warn("[EMA] Invalid input parameters:", { candlesLength: candles?.length, period });
     return [];
   }
 
   // We need at least 'period' number of candles
   if (candles.length < period) {
+    console.warn("[EMA] Not enough candles for period:", { candlesLength: candles.length, period });
     return [];
   }
 
-  // Extract closing prices
-  const prices = candles.map((candle) => candle.close);
+  try {
+    // Calculate initial SMA for the first EMA value
+    let sum = 0;
+    for (let i = 0; i < period; i++) {
+      sum += candles[i].close;
+    }
+    let prevEma = sum / period;
 
-  // Calculate EMA values
-  const emaValues = calculateEMAFromValues(prices, period);
+    // Calculate the smoothing factor
+    const alpha = 2 / (period + 1);
 
-  // Map EMA values back to time series starting from the period point
-  return emaValues.map((value, index) => ({
-    time: candles[index + period - 1].time,
-    value,
-  }));
+    // Initialize result array with first EMA (which is the SMA)
+    const result = [
+      {
+        time: candles[period - 1].time,
+        value: prevEma,
+      },
+    ];
+
+    // Calculate EMA for remaining candles using the correct formula:
+    // EMA = α × price + (1 − α) × previous EMA
+    // where α = 2/(period + 1)
+    for (let i = period; i < candles.length; i++) {
+      const currentPrice = candles[i].close;
+      const ema = currentPrice * alpha + prevEma * (1 - alpha);
+
+      result.push({
+        time: candles[i].time,
+        value: ema,
+      });
+
+      // Update previous EMA for next calculation
+      prevEma = ema;
+    }
+
+    console.log("[EMA] Calculated EMA values:", {
+      period,
+      points: result.length,
+      firstValue: result[0].value,
+      lastValue: result[result.length - 1].value,
+    });
+
+    return result;
+  } catch (error) {
+    console.error("[EMA] Error calculating EMA:", error);
+    return [];
+  }
 }
