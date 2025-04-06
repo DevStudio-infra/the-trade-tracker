@@ -15,6 +15,11 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AxiosError } from "axios";
 import * as ReactDOM from "react-dom";
 
+// Add WatchlistItem type
+interface WatchlistItem {
+  symbol: string;
+}
+
 interface TradingPairSelectProps {
   value: string | null;
   onChange: (value: string | null) => void;
@@ -186,14 +191,9 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
   const { data: watchlist = [], isLoading: isLoadingWatchlist } = useQuery({
     queryKey: ["watchlist"],
     queryFn: api.getWatchlist,
-    staleTime: 1000 * 60 * 10, // 10 minutes - increased to reduce refreshes
-    // Only refetch when the component is mounted and visible
-    refetchOnMount: true,
-    refetchOnWindowFocus: false, // Disable auto refetching when window gets focus
-    retry: 2, // Retry twice on failure
-    onError: (error) => {
-      console.error("Error fetching watchlist:", error);
-      toast.error("Failed to load watchlist");
+    staleTime: 1000 * 60 * 10, // 10 minutes
+    onSuccess: (data) => {
+      console.log("Watchlist query success:", data);
     },
   });
 
@@ -207,16 +207,22 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
   });
 
   // Extract just the symbols for easier checking
-  const favorites = React.useMemo(() => watchlist.map((item) => item.symbol), [watchlist]);
+  const favorites = React.useMemo(() => {
+    console.log("Recalculating favorites from watchlist:", watchlist);
+    return watchlist.map((item) => item.symbol);
+  }, [watchlist]);
 
   // Add a specific query for complete watchlist pair data
   const { data: watchlistPairsData = [], isLoading: isLoadingWatchlistPairs } = useQuery({
     queryKey: ["watchlist-pairs-data"],
     queryFn: async () => {
-      if (!favorites.length) return [];
+      if (!favorites.length) {
+        console.log("No favorites to fetch pairs data for");
+        return [];
+      }
 
       try {
-        // Use the direct search API with multiple symbols
+        console.log("Fetching pairs data for favorites:", favorites);
         const allPairsData = await Promise.all(
           favorites.map((symbol) =>
             api
@@ -225,8 +231,9 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
               .catch(() => null)
           )
         );
-
-        return allPairsData.filter(Boolean) as TradingPair[];
+        const filteredData = allPairsData.filter(Boolean) as TradingPair[];
+        console.log("Fetched watchlist pairs data:", filteredData);
+        return filteredData;
       } catch (error) {
         console.error("Error fetching watchlist pairs data:", error);
         return [];
@@ -267,13 +274,79 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
     enabled: open && selectedCategory !== "WATCHLIST",
   });
 
+  // Remove from watchlist mutation
+  const removeFromWatchlistMutation = useMutation({
+    mutationFn: (symbol: string) => {
+      console.log("Starting remove mutation for symbol:", symbol);
+      return api.removeFromWatchlist(symbol);
+    },
+    onMutate: async (symbol) => {
+      console.log("Optimistically removing symbol:", symbol);
+
+      // Cancel any outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ["watchlist"] });
+      await queryClient.cancelQueries({ queryKey: ["watchlist-pairs-data"] });
+
+      // Snapshot the previous values
+      const previousWatchlist = queryClient.getQueryData(["watchlist"]);
+      const previousPairsData = queryClient.getQueryData(["watchlist-pairs-data"]);
+
+      console.log("Previous state:", {
+        watchlist: previousWatchlist,
+        pairsData: previousPairsData,
+      });
+
+      // Optimistically update the watchlist
+      queryClient.setQueryData(["watchlist"], (old: any[] = []) => {
+        const newData = old.filter((item) => item.symbol !== symbol);
+        console.log("Updated watchlist data:", newData);
+        return newData;
+      });
+
+      // Optimistically update the pairs data
+      queryClient.setQueryData(["watchlist-pairs-data"], (old: TradingPair[] = []) => {
+        const newData = old.filter((item) => item.symbol !== symbol);
+        console.log("Updated pairs data:", newData);
+        return newData;
+      });
+
+      return { previousWatchlist, previousPairsData };
+    },
+    onError: (err, symbol, context) => {
+      console.error("Error removing from watchlist:", err);
+      // Revert back to the previous state
+      queryClient.setQueryData(["watchlist"], context?.previousWatchlist);
+      queryClient.setQueryData(["watchlist-pairs-data"], context?.previousPairsData);
+      toast.error("Failed to remove from watchlist");
+    },
+    onSuccess: (_, symbol) => {
+      console.log("Successfully removed symbol:", symbol);
+      toast.success("Removed from watchlist");
+    },
+    onSettled: () => {
+      console.log("Refetching queries after mutation settled");
+      // Always refetch after error or success to ensure consistency
+      queryClient.invalidateQueries({ queryKey: ["watchlist"] });
+      queryClient.invalidateQueries({ queryKey: ["watchlist-pairs-data"] });
+    },
+  });
+
   // Add to watchlist mutation
   const addToWatchlistMutation = useMutation({
     mutationFn: (symbol: string) => api.addToWatchlist(symbol, connectionId || undefined),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["watchlist"] });
-      queryClient.invalidateQueries({ queryKey: ["watchlist-pairs-data"] });
-      toast.success("Added to watchlist");
+    onSuccess: (_, symbol) => {
+      // Optimistically update the local data if we have the pair info
+      const pair = pairs.find((p) => p.symbol === symbol);
+      if (pair) {
+        queryClient.setQueryData<WatchlistItem[]>(["watchlist"], (old = []) => [...old, { symbol }]);
+
+        queryClient.setQueryData<TradingPair[]>(["watchlist-pairs-data"], (old = []) => [...old, pair]);
+      }
+
+      // Then invalidate to ensure consistency
+      return Promise.all([queryClient.invalidateQueries({ queryKey: ["watchlist"] }), queryClient.invalidateQueries({ queryKey: ["watchlist-pairs-data"] })]).then(() => {
+        toast.success("Added to watchlist");
+      });
     },
     onError: (error: AxiosError) => {
       if (error.response?.status === 403) {
@@ -281,19 +354,6 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
       } else {
         toast.error("Failed to add to watchlist");
       }
-    },
-  });
-
-  // Remove from watchlist mutation
-  const removeFromWatchlistMutation = useMutation({
-    mutationFn: (symbol: string) => api.removeFromWatchlist(symbol),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["watchlist"] });
-      queryClient.invalidateQueries({ queryKey: ["watchlist-pairs-data"] });
-      toast.success("Removed from watchlist");
-    },
-    onError: () => {
-      toast.error("Failed to remove from watchlist");
     },
   });
 
@@ -372,19 +432,23 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
     return grouped;
   }, []);
 
-  // Get pairs to display
+  // Get pairs to display with logging
   const displayPairs = React.useMemo(() => {
-    // When searching, just use the search results
+    console.log("Calculating displayPairs:", {
+      searching,
+      selectedCategory,
+      watchlistPairsData,
+      pairs,
+    });
+
     if (searching) {
       return pairs;
     }
 
-    // For watchlist, use the dedicated watchlist pairs data from our query
     if (selectedCategory === "WATCHLIST") {
       return watchlistPairsData;
     }
 
-    // For other categories, use regular pairs with category filtering
     const grouped = groupAndSortPairs(pairs);
     return grouped[selectedCategory] || [];
   }, [searching, selectedCategory, pairs, watchlistPairsData, groupAndSortPairs]);
@@ -477,24 +541,34 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
   );
 
   // Toggle favorite status for a pair
-  const toggleFavorite = (symbol: string, event: React.MouseEvent) => {
-    event.stopPropagation(); // Prevent triggering the parent button click
+  const toggleFavorite = React.useCallback(
+    (symbol: string, event: React.MouseEvent) => {
+      event.stopPropagation();
+      console.log("Toggle favorite called for symbol:", symbol, "Current favorites:", favorites);
 
-    if (favorites.includes(symbol)) {
-      // Remove from favorites
-      removeFromWatchlistMutation.mutate(symbol);
-    } else {
-      // Add to favorites if under limit
-      if (favorites.length >= favoriteLimit) {
-        toast.error(`You've reached your limit of ${favoriteLimit} pairs with your ${subscriptionPlan} plan.`);
-        return;
+      if (favorites.includes(symbol)) {
+        console.log("Removing from favorites:", symbol);
+        removeFromWatchlistMutation.mutate(symbol);
+      } else {
+        console.log("Adding to favorites:", symbol);
+        if (favorites.length >= favoriteLimit) {
+          toast.error(`You've reached your limit of ${favoriteLimit} pairs with your ${subscriptionPlan} plan.`);
+          return;
+        }
+        addToWatchlistMutation.mutate(symbol);
       }
-      addToWatchlistMutation.mutate(symbol);
-    }
-  };
+    },
+    [favorites, favoriteLimit, subscriptionPlan, removeFromWatchlistMutation, addToWatchlistMutation]
+  );
+
+  // Fix the TypeScript error by checking for isLoading instead of isPending
+  const isMutating = addToWatchlistMutation.isLoading || removeFromWatchlistMutation.isLoading;
 
   // Handle the display of the watchlist in the results area
-  const isCurrentCategoryLoading = ((isLoadingWatchlist || isLoadingWatchlistPairs) && selectedCategory === "WATCHLIST") || (isCategoryLoading && selectedCategory !== "WATCHLIST");
+  const isCurrentCategoryLoading =
+    (selectedCategory === "WATCHLIST" && isLoadingWatchlist) ||
+    (selectedCategory === "WATCHLIST" && favorites.length > 0 && isLoadingWatchlistPairs) ||
+    (isCategoryLoading && selectedCategory !== "WATCHLIST");
 
   return (
     <>
@@ -608,8 +682,9 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
               <div className="flex flex-col items-center justify-center py-12 text-center">
                 {selectedCategory === "WATCHLIST" ? (
                   <>
-                    <p className="text-slate-500 dark:text-slate-400">No favorite pairs yet</p>
-                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">Add pairs to your watchlist by clicking the star icon</p>
+                    <Star className="h-8 w-8 text-slate-300 dark:text-slate-600 mb-2" />
+                    <p className="text-slate-500 dark:text-slate-400">Your watchlist is empty</p>
+                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">Add pairs to your watchlist by clicking the star icon on any trading pair</p>
                   </>
                 ) : searching ? (
                   <>
@@ -661,10 +736,10 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
                       <button
                         className={cn(
                           "p-1 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500",
-                          addToWatchlistMutation.isPending || removeFromWatchlistMutation.isPending ? "opacity-50 cursor-not-allowed" : "hover:bg-slate-100 dark:hover:bg-slate-800"
+                          isMutating ? "opacity-50 cursor-not-allowed" : "hover:bg-slate-100 dark:hover:bg-slate-800"
                         )}
                         onClick={(e) => toggleFavorite(pair.symbol, e)}
-                        disabled={addToWatchlistMutation.isPending || removeFromWatchlistMutation.isPending}
+                        disabled={isMutating}
                         aria-label={favorites.includes(pair.symbol) ? "Remove from favorites" : "Add to favorites"}>
                         <Star className={cn("h-5 w-5", favorites.includes(pair.symbol) ? "text-yellow-500 fill-yellow-500" : "text-slate-300 dark:text-slate-600")} />
                       </button>
