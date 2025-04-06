@@ -48,8 +48,8 @@ export class SMARenderer extends IndicatorBase {
       console.log(`[SMA] Creating SMA series for ${this.config.id} in pane ${paneIndex}`);
 
       // Create the SMA line series directly using the chart's addSeries method
-      this.lineSeries = this.chart.addSeries(
-        LineSeries,
+      this.lineSeries = this.createStandardSeries(
+        LineSeries as unknown as new () => ISeriesApi<"Line">,
         {
           color: this.config.color,
           lineWidth: 2,
@@ -60,7 +60,7 @@ export class SMARenderer extends IndicatorBase {
             minMove: 0.00001,
           },
           title: `SMA (${period})`,
-          priceScaleId: "left",
+          priceScaleId: paneIndex === 0 ? "right" : "left", // Share price scale with main chart
           crosshairMarkerVisible: true,
           crosshairMarkerRadius: 4,
           priceLineVisible: true,
@@ -72,24 +72,6 @@ export class SMARenderer extends IndicatorBase {
         },
         paneIndex
       ) as ISeriesApi<"Line">;
-
-      if (this.lineSeries) {
-        // Configure the price scale
-        const priceScale = this.lineSeries.priceScale();
-        priceScale.applyOptions({
-          scaleMargins: {
-            top: 0.1,
-            bottom: 0.1,
-          },
-          visible: true,
-          borderVisible: true,
-          borderColor: "rgba(197, 203, 206, 0.3)",
-          autoScale: true,
-          entireTextOnly: false,
-          alignLabels: true,
-          textColor: "rgba(255, 255, 255, 0.5)",
-        });
-      }
 
       // Store reference for later
       this.mainSeries = this.lineSeries;
@@ -137,6 +119,22 @@ export class SMARenderer extends IndicatorBase {
             bottom: 0.1,
           },
         });
+
+        // Apply fixed scale range to match main chart
+        if (this.config.paneIndex === 0) {
+          this.lineSeries.applyOptions({
+            autoscaleInfoProvider: () => ({
+              priceRange: {
+                minValue: Math.min(...candles.map((c) => c.low)),
+                maxValue: Math.max(...candles.map((c) => c.high)),
+              },
+              margins: {
+                above: 0.1,
+                below: 0.1,
+              },
+            }),
+          });
+        }
       }
     } catch (error) {
       console.error(`[SMA] Error updating SMA data for ${this.config.id}:`, error);

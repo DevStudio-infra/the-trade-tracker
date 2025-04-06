@@ -1,11 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { Slider } from "@/components/ui/slider";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -13,17 +11,27 @@ import { useTradingStore } from "@/stores/trading-store";
 import { useAITradingApi } from "@/lib/ai-trading-api";
 import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Play, Settings, BrainCircuit, Activity } from "lucide-react";
+import { BrainCircuit, Power, ChevronRight } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Separator } from "@/components/ui/separator";
+import { Select as TimeframeSelect } from "@/components/ui/select";
 import { createIndicator } from "@/components/trading/chart/indicators/indicatorFactory";
 import { useIndicatorStore } from "@/components/trading/chart/indicators/indicatorStore";
 import { IndicatorParameters } from "@/components/trading/chart/core/ChartTypes";
+
+// Update AITradingConfig type
+declare module "@/stores/trading-store" {
+  interface AITradingConfig {
+    timeframe?: string;
+  }
+}
 
 export function AITradingConfig() {
   const { aiTradingConfig, updateAITradingConfig, selectedBroker, selectedPair } = useTradingStore();
   const { addIndicator, clearAllIndicators } = useIndicatorStore();
   const aiTradingApi = useAITradingApi();
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [activeTab, setActiveTab] = useState("analysis");
+  const [isTogglingService, setIsTogglingService] = useState(false);
   const queryClient = useQueryClient();
 
   // Fetch strategies
@@ -38,13 +46,23 @@ export function AITradingConfig() {
     staleTime: 1000 * 60 * 5, // 5 minutes
   });
 
-  // Function to refresh strategies
-  const refreshStrategies = useCallback(() => {
-    console.log("AITradingConfig: Refreshing strategies cache");
-    queryClient.invalidateQueries({ queryKey: ["strategies"] });
-  }, [queryClient]);
+  // Fetch active bot status
+  const { data: activeBotStatus } = useQuery({
+    queryKey: ["trading-bot-status"],
+    queryFn: async () => {
+      try {
+        const response = await fetch("/api/trading-bots/status");
+        if (!response.ok) throw new Error("Failed to fetch bot status");
+        return await response.json();
+      } catch (error) {
+        console.error("Error fetching bot status:", error);
+        return null;
+      }
+    },
+    refetchInterval: 30000, // Refresh every 30 seconds
+  });
 
-  // Load strategy indicators when a strategy is selected
+  // Load strategy indicators
   const loadStrategyIndicators = useCallback(
     (strategyId: string | null) => {
       console.log("AITradingConfig: Loading indicators for strategy:", strategyId);
@@ -99,293 +117,172 @@ export function AITradingConfig() {
       console.log("AITradingConfig: Finished loading all indicators for strategy:", strategyId);
 
       // Force a chart update to ensure indicators are rendered
-      // This is a workaround for the issue where indicators don't render properly until timeframe is changed
       setTimeout(() => {
         console.log("AITradingConfig: Forcing chart update to ensure indicators are rendered");
-        // Trigger a manual refresh of the chart data
         if (selectedBroker && selectedPair) {
           console.log("AITradingConfig: Triggering manual chart refresh");
-          // We'll use a custom event to trigger a refresh in the TradingChart component
           const refreshEvent = new CustomEvent("forceChartRefresh", {
             detail: {
               pair: selectedPair,
               brokerId: selectedBroker.id,
-              timeframe: "1h",
+              timeframe: aiTradingConfig.timeframe || "1h",
             },
           });
           window.dispatchEvent(refreshEvent);
         }
       }, 100);
     },
-    [strategies, addIndicator, clearAllIndicators, selectedBroker, selectedPair]
+    [strategies, addIndicator, clearAllIndicators, selectedBroker, selectedPair, aiTradingConfig.timeframe]
   );
 
-  // Handle strategy selection
+  // Toggle trading bot
+  const toggleTradingBot = async () => {
+    if (!selectedBroker || !selectedPair || !aiTradingConfig.selectedStrategyId) {
+      toast.error("Please select a broker, trading pair, and strategy first");
+      return;
+    }
+
+    setIsTogglingService(true);
+    try {
+      const response = await fetch("/api/trading-bots/toggle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          enabled: !activeBotStatus?.isRunning,
+          strategyId: aiTradingConfig.selectedStrategyId,
+          pair: selectedPair,
+          brokerId: selectedBroker.id,
+          timeframe: aiTradingConfig.timeframe || "1h",
+        }),
+      });
+
+      if (!response.ok) throw new Error("Failed to toggle bot service");
+
+      toast.success(activeBotStatus?.isRunning ? "Trading bot stopped" : "Trading bot started");
+      queryClient.invalidateQueries({ queryKey: ["trading-bot-status"] });
+    } catch (error) {
+      console.error("Error toggling bot service:", error);
+      toast.error("Failed to toggle trading bot");
+    } finally {
+      setIsTogglingService(false);
+    }
+  };
+
+  // Handle strategy selection with indicator loading
   const handleStrategyChange = (value: string) => {
     console.log("AITradingConfig: Strategy selected:", value);
     updateAITradingConfig({ selectedStrategyId: value || null });
     loadStrategyIndicators(value || null);
   };
 
-  // Run analysis function
-  const runAnalysis = useCallback(async () => {
-    if (!selectedBroker || !selectedPair) {
-      toast.error("Please select a broker and trading pair first");
-      return;
-    }
+  // Handle timeframe selection
+  const handleTimeframeChange = (value: string) => {
+    updateAITradingConfig({ timeframe: value });
+  };
 
-    setIsAnalyzing(true);
-    try {
-      console.log("AITradingConfig: Running analysis with config:", aiTradingConfig);
-      const response = await aiTradingApi.analyzeChart({
-        pair: selectedPair,
-        timeframe: "1h", // Default timeframe
-        credentialId: selectedBroker.id,
-        strategyId: aiTradingConfig.selectedStrategyId || undefined,
-        customPrompt: aiTradingConfig.customPrompt || undefined,
-      });
-      console.log("AITradingConfig: Analysis response:", response);
-
-      // If a new strategy was created, refresh the strategies list
-      if (response.strategy && !strategies.find((s) => s.id === response.strategy)) {
-        console.log("AITradingConfig: New strategy created, refreshing strategies list");
-        refreshStrategies();
-      }
-
-      // Convert indicator configuration
-      const indicators = response.analysis.strategyRulesMet
-        ? [
-            {
-              type: "RSI",
-              parameters: {
-                period: 14,
-                overbought: 70,
-                oversold: 30,
-              },
-            },
-          ]
-        : [];
-
-      // Clear existing indicators
-      clearAllIndicators();
-
-      // Add new indicators
-      for (const indicator of indicators) {
-        try {
-          console.log("AITradingConfig: Creating indicator:", indicator);
-          const newIndicator = createIndicator(indicator.type, indicator.parameters);
-          if (newIndicator) {
-            console.log("AITradingConfig: Adding indicator to chart:", newIndicator);
-            addIndicator(newIndicator);
-          }
-        } catch (error) {
-          console.error("AITradingConfig: Error creating indicator:", error);
-        }
-      }
-
-      toast.success(`Analysis complete: ${response.signal} signal with ${response.confidence}% confidence`);
-    } catch (error) {
-      console.error("AITradingConfig: Error running analysis:", error);
-      toast.error("Failed to run analysis");
-    } finally {
-      setIsAnalyzing(false);
-    }
-  }, [selectedBroker, selectedPair, aiTradingConfig, aiTradingApi, clearAllIndicators, addIndicator, strategies, refreshStrategies]);
-
-  // Set up scheduled analysis if enabled
-  useEffect(() => {
-    let interval: NodeJS.Timeout | null = null;
-
-    if (aiTradingConfig.scheduledAnalysis && !aiTradingConfig.backgroundService) {
-      interval = setInterval(() => {
-        runAnalysis();
-      }, aiTradingConfig.analysisInterval * 60 * 1000);
-    }
-
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [aiTradingConfig.scheduledAnalysis, aiTradingConfig.backgroundService, aiTradingConfig.analysisInterval, selectedBroker, selectedPair]);
+  const isConfigured = selectedBroker && selectedPair && aiTradingConfig.selectedStrategyId && aiTradingConfig.timeframe;
+  const botStatus = activeBotStatus?.isRunning ? "active" : isTogglingService ? "toggling" : "inactive";
 
   return (
     <Card className="w-full">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <BrainCircuit className="w-5 h-5" />
-          AI Trading
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <BrainCircuit className="h-5 w-5" />
+            AI Trading
+          </div>
+          {activeBotStatus?.isRunning && (
+            <Badge variant="outline" className="animate-pulse bg-green-500/10 text-green-500 border-green-500/20">
+              Bot Active
+            </Badge>
+          )}
         </CardTitle>
-        <CardDescription>Configure AI-powered trading analysis and execution</CardDescription>
+        <CardDescription>Configure and activate automated trading</CardDescription>
       </CardHeader>
-      <CardContent>
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid grid-cols-2 mb-4">
-            <TabsTrigger value="analysis">
-              <Activity className="w-4 h-4 mr-2" />
-              Analysis
-            </TabsTrigger>
-            <TabsTrigger value="settings">
-              <Settings className="w-4 h-4 mr-2" />
-              Settings
-            </TabsTrigger>
-          </TabsList>
 
-          <TabsContent value="analysis" className="space-y-4">
-            {/* Strategy Selection */}
-            <div className="space-y-2">
-              <Label htmlFor="strategy">Trading Strategy</Label>
-              <Select value={aiTradingConfig.selectedStrategyId || ""} onValueChange={handleStrategyChange} disabled={isLoadingStrategies}>
-                <SelectTrigger id="strategy">
-                  <SelectValue placeholder="Select a strategy" />
-                </SelectTrigger>
-                <SelectContent>
-                  {strategies.map((strategy) => (
-                    <SelectItem key={strategy.id} value={strategy.id}>
-                      {strategy.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+      <CardContent className="space-y-6">
+        {/* Strategy Selection */}
+        <div className="space-y-2">
+          <Label>Trading Strategy</Label>
+          <Select
+            value={aiTradingConfig.selectedStrategyId || ""}
+            onValueChange={handleStrategyChange}
+            disabled={isLoadingStrategies || botStatus === "active" || botStatus === "toggling"}>
+            <SelectTrigger>
+              <SelectValue placeholder="Select a strategy..." />
+            </SelectTrigger>
+            <SelectContent>
+              {strategies.map((strategy) => (
+                <SelectItem key={strategy.id} value={strategy.id}>
+                  {strategy.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
 
-            {/* Custom Prompt */}
-            <div className="space-y-2">
-              <Label htmlFor="prompt">Custom Instructions (Optional)</Label>
-              <Input
-                id="prompt"
-                placeholder="Add custom instructions for AI analysis"
-                value={aiTradingConfig.customPrompt}
-                onChange={(e) => updateAITradingConfig({ customPrompt: e.target.value })}
-              />
-            </div>
+        {/* Timeframe Selection */}
+        <div className="space-y-2">
+          <Label>Trading Timeframe</Label>
+          <TimeframeSelect value={aiTradingConfig.timeframe || ""} onValueChange={handleTimeframeChange} disabled={botStatus === "active" || botStatus === "toggling"}>
+            <SelectTrigger>
+              <SelectValue placeholder="Select timeframe..." />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="1m">1 Minute</SelectItem>
+              <SelectItem value="5m">5 Minutes</SelectItem>
+              <SelectItem value="15m">15 Minutes</SelectItem>
+              <SelectItem value="30m">30 Minutes</SelectItem>
+              <SelectItem value="1h">1 Hour</SelectItem>
+              <SelectItem value="4h">4 Hours</SelectItem>
+              <SelectItem value="1d">1 Day</SelectItem>
+            </SelectContent>
+          </TimeframeSelect>
+        </div>
 
-            {/* Execution Mode */}
-            <div className="flex items-center justify-between">
-              <div>
-                <Label htmlFor="execution-mode" className="block">
-                  Execution Mode
-                </Label>
-                <p className="text-sm text-muted-foreground">{aiTradingConfig.analysisOnly ? "Analysis only" : "Analysis + Trade Execution"}</p>
+        {/* Custom Instructions */}
+        <div className="space-y-2">
+          <Label>Custom Instructions (Optional)</Label>
+          <Input
+            placeholder="Add custom instructions for the trading bot..."
+            value={aiTradingConfig.customPrompt || ""}
+            onChange={(e) => updateAITradingConfig({ customPrompt: e.target.value })}
+            disabled={botStatus === "active" || botStatus === "toggling"}
+          />
+        </div>
+
+        <Separator className="my-6" />
+
+        {/* Bot Activation */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label>Automated Trading</Label>
+              <div className="text-sm text-muted-foreground">
+                {botStatus === "active" ? "Bot is actively trading" : botStatus === "toggling" ? "Updating bot status..." : "Start automated trading"}
               </div>
-              <Switch id="execution-mode" checked={!aiTradingConfig.analysisOnly} onCheckedChange={(checked) => updateAITradingConfig({ analysisOnly: !checked })} />
             </div>
+            <Switch checked={botStatus === "active"} onCheckedChange={toggleTradingBot} disabled={!isConfigured || botStatus === "toggling"} />
+          </div>
 
-            {/* Action Buttons */}
-            <div className="pt-4">
-              <Button onClick={runAnalysis} disabled={isAnalyzing || !selectedBroker || !selectedPair} className="w-full">
-                {isAnalyzing ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Analyzing...
-                  </>
-                ) : (
-                  <>
-                    <Play className="w-4 h-4 mr-2" />
-                    Run Analysis
-                  </>
-                )}
-              </Button>
-            </div>
-          </TabsContent>
+          {botStatus === "active" && (
+            <Alert>
+              <Power className="h-4 w-4" />
+              <AlertDescription className="flex items-center justify-between">
+                <span>Trading bot is active and running in the background</span>
+                <Button variant="link" className="h-auto p-0" onClick={() => (window.location.href = "/trading/bots")}>
+                  View Details <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
+              </AlertDescription>
+            </Alert>
+          )}
 
-          <TabsContent value="settings" className="space-y-4">
-            {/* Scheduled Analysis */}
-            <div className="flex items-center justify-between">
-              <div>
-                <Label htmlFor="scheduled" className="block">
-                  Scheduled Analysis
-                </Label>
-                <p className="text-sm text-muted-foreground">Run analysis automatically on schedule</p>
-              </div>
-              <Switch id="scheduled" checked={aiTradingConfig.scheduledAnalysis} onCheckedChange={(checked) => updateAITradingConfig({ scheduledAnalysis: checked })} />
-            </div>
-
-            {aiTradingConfig.scheduledAnalysis && (
-              <>
-                {/* Analysis Interval */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="interval">Analysis Interval (minutes)</Label>
-                    <span className="text-sm text-muted-foreground">{aiTradingConfig.analysisInterval} min</span>
-                  </div>
-                  <Slider
-                    id="interval"
-                    min={5}
-                    max={240}
-                    step={5}
-                    value={[aiTradingConfig.analysisInterval]}
-                    onValueChange={(values) => updateAITradingConfig({ analysisInterval: values[0] })}
-                  />
-                </div>
-
-                {/* Background Service */}
-                <div className="flex items-center justify-between">
-                  <div>
-                    <Label htmlFor="background" className="block">
-                      Background Service
-                    </Label>
-                    <p className="text-sm text-muted-foreground">
-                      {aiTradingConfig.backgroundService ? "Run on server (even when browser is closed)" : "Run in browser (stops when page is closed)"}
-                    </p>
-                  </div>
-                  <Switch id="background" checked={aiTradingConfig.backgroundService} onCheckedChange={(checked) => updateAITradingConfig({ backgroundService: checked })} />
-                </div>
-              </>
-            )}
-
-            {!aiTradingConfig.analysisOnly && (
-              <>
-                {/* Risk Percentage */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="risk">Risk per Trade (%)</Label>
-                    <span className="text-sm text-muted-foreground">{aiTradingConfig.riskPercentage}%</span>
-                  </div>
-                  <Slider
-                    id="risk"
-                    min={0.1}
-                    max={5}
-                    step={0.1}
-                    value={[aiTradingConfig.riskPercentage]}
-                    onValueChange={(values) => updateAITradingConfig({ riskPercentage: values[0] })}
-                  />
-                </div>
-
-                {/* Max Open Positions */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="positions">Max Open Positions</Label>
-                    <span className="text-sm text-muted-foreground">{aiTradingConfig.maxOpenPositions}</span>
-                  </div>
-                  <Slider
-                    id="positions"
-                    min={1}
-                    max={10}
-                    step={1}
-                    value={[aiTradingConfig.maxOpenPositions]}
-                    onValueChange={(values) => updateAITradingConfig({ maxOpenPositions: values[0] })}
-                  />
-                </div>
-
-                {/* Confirmation Required */}
-                <div className="flex items-center justify-between">
-                  <div>
-                    <Label htmlFor="confirmation" className="block">
-                      Require Confirmation
-                    </Label>
-                    <p className="text-sm text-muted-foreground">
-                      {aiTradingConfig.confirmationRequired ? "Manual confirmation required before execution" : "Execute trades automatically without confirmation"}
-                    </p>
-                  </div>
-                  <Switch
-                    id="confirmation"
-                    checked={aiTradingConfig.confirmationRequired}
-                    onCheckedChange={(checked) => updateAITradingConfig({ confirmationRequired: checked })}
-                  />
-                </div>
-              </>
-            )}
-          </TabsContent>
-        </Tabs>
+          {!isConfigured && (
+            <Alert variant="destructive">
+              <AlertDescription>Please select a broker, trading pair, strategy, and timeframe to activate automated trading.</AlertDescription>
+            </Alert>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
