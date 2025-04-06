@@ -297,7 +297,7 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
       });
 
       // Optimistically update the watchlist
-      queryClient.setQueryData(["watchlist"], (old: any[] = []) => {
+      queryClient.setQueryData<WatchlistItem[]>(["watchlist"], (old: WatchlistItem[] = []) => {
         const newData = old.filter((item) => item.symbol !== symbol);
         console.log("Updated watchlist data:", newData);
         return newData;

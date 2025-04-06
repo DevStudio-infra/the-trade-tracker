@@ -69,7 +69,7 @@ export class RSIRenderer extends IndicatorBase {
       // Create RSI line with a specific price scale ID
       const rsiPriceScaleId = `rsi-${this.config.id}`;
       this.rsiSeries = this.createStandardSeries(
-        LineSeries,
+        LineSeries as unknown as new () => ISeriesApi<"Line">,
         {
           color: rsiColor,
           lineWidth: 2,
@@ -91,7 +91,7 @@ export class RSIRenderer extends IndicatorBase {
 
       // Create overbought level line (typically at 70)
       this.overboughtSeries = this.createStandardSeries(
-        LineSeries,
+        LineSeries as unknown as new () => ISeriesApi<"Line">,
         {
           color: upperLineColor,
           lineWidth: 1,
@@ -111,7 +111,7 @@ export class RSIRenderer extends IndicatorBase {
 
       // Create oversold level line (typically at 30)
       this.oversoldSeries = this.createStandardSeries(
-        LineSeries,
+        LineSeries as unknown as new () => ISeriesApi<"Line">,
         {
           color: lowerLineColor,
           lineWidth: 1,
@@ -131,7 +131,7 @@ export class RSIRenderer extends IndicatorBase {
 
       // Create middle line (at 50)
       this.middleSeries = this.createStandardSeries(
-        LineSeries,
+        LineSeries as unknown as new () => ISeriesApi<"Line">,
         {
           color: middleLineColor,
           lineWidth: 1,
@@ -171,7 +171,7 @@ export class RSIRenderer extends IndicatorBase {
         if (panes && panes[paneIndex]) {
           const pane = panes[paneIndex];
           if (pane.hasOwnProperty("rightPriceScale")) {
-            // @ts-ignore
+            // @ts-expect-error rightPriceScale() exists at runtime but is not in type definitions
             pane.rightPriceScale().applyOptions({ visible: false });
           }
         }
