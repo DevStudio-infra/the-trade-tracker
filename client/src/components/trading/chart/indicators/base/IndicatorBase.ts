@@ -1,10 +1,8 @@
 "use client";
 
-import { IChartApi, ISeriesApi, SeriesType, LineSeries, HistogramSeries, DeepPartial, SeriesOptionsCommon, LineStyleOptions, HistogramStyleOptions } from "lightweight-charts";
+import { ISeriesApi, SeriesType, SeriesDefinition, SeriesPartialOptionsMap } from "lightweight-charts";
 import { ChartApiWithPanes, FormattedCandle, IndicatorConfig, IndicatorParameters, IndicatorType, indicatorDefaults } from "../../../chart/core/ChartTypes";
-import { BaseIndicator, BaseIndicatorOptions, SeriesConstructor, SeriesCreationOptions } from "./types";
-
-type StandardSeriesOptions = DeepPartial<SeriesOptionsCommon & (LineStyleOptions | HistogramStyleOptions)>;
+import { BaseIndicator, BaseIndicatorOptions } from "./types";
 
 /**
  * Base class for all indicators
@@ -209,17 +207,21 @@ export abstract class IndicatorBase implements BaseIndicator {
   /**
    * Create a standard series with common configuration
    */
-  protected createStandardSeries<T extends SeriesType>(seriesConstructor: SeriesConstructor<T>, options: SeriesPartialOptionsMap[T], paneIndex: number): ISeriesApi<T> | null {
+  protected createStandardSeries<T extends SeriesType>(seriesConstructor: SeriesDefinition<T>, options: SeriesPartialOptionsMap[T], paneIndex: number): ISeriesApi<T> | null {
     if (!this.chart) return null;
 
     try {
+      // For main chart pane (pane 0), use the same price scale as the main series
+      const priceScaleId = paneIndex === 0 ? "right" : options.priceScaleId || "left";
+
       // Create the series
       const series = this.chart.addSeries(
         seriesConstructor,
         {
           ...options,
-          priceScaleId: "left", // Force left price scale for all indicators
-        },
+          priceScaleId,
+          overlay: paneIndex === 0,
+        } as SeriesPartialOptionsMap[T],
         paneIndex
       );
 
@@ -235,10 +237,11 @@ export abstract class IndicatorBase implements BaseIndicator {
           borderColor: "rgba(197, 203, 206, 0.3)",
           visible: true,
           autoScale: true,
+          mode: paneIndex === 0 ? 0 : 1,
         });
       }
 
-      return series;
+      return series as ISeriesApi<T>;
     } catch (error) {
       console.error(`Error creating series:`, error);
       return null;
