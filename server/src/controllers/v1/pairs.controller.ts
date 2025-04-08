@@ -22,7 +22,22 @@ export async function getPairsByCategory(req: Request, res: Response) {
 
   try {
     logger.info(`Getting pairs for category: ${category}`);
+
+    // Check database connection first
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+    } catch (dbError) {
+      logger.error(`Database connection error while getting pairs for category ${category}:`, dbError instanceof Error ? dbError.message : "Unknown error");
+      return res.status(503).json({ error: "Database connection error", details: dbError instanceof Error ? dbError.message : "Unknown error" });
+    }
+
     const pairs = await pairsCache.getPairsByCategory(category);
+
+    if (!pairs || pairs.length === 0) {
+      logger.warn(`No pairs found for category: ${category}`);
+    } else {
+      logger.debug(`Retrieved ${pairs.length} pairs for category: ${category}`);
+    }
 
     return res.status(200).json({
       category,
@@ -30,8 +45,10 @@ export async function getPairsByCategory(req: Request, res: Response) {
       pairs,
     });
   } catch (error) {
-    logger.error(`Error getting pairs for category ${category}:`, error);
-    return res.status(500).json({ error: "Failed to fetch trading pairs" });
+    logger.error(`Error getting pairs for category ${category}:`, error instanceof Error ? error.message : "Unknown error", {
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    return res.status(500).json({ error: "Failed to fetch trading pairs", details: error instanceof Error ? error.message : "Unknown error" });
   }
 }
 
@@ -47,7 +64,18 @@ export async function searchPairs(req: Request, res: Response) {
 
   try {
     logger.info(`Searching pairs with query: ${q}`);
+
+    // Check database connection first
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+    } catch (dbError) {
+      logger.error(`Database connection error while searching pairs:`, dbError instanceof Error ? dbError.message : "Unknown error");
+      return res.status(503).json({ error: "Database connection error", details: dbError instanceof Error ? dbError.message : "Unknown error" });
+    }
+
     const pairs = await pairsCache.searchPairs(q);
+
+    logger.debug(`Found ${pairs.length} pairs matching query: ${q}`);
 
     return res.status(200).json({
       query: q,
@@ -55,8 +83,10 @@ export async function searchPairs(req: Request, res: Response) {
       pairs,
     });
   } catch (error) {
-    logger.error(`Error searching pairs with query ${q}:`, error);
-    return res.status(500).json({ error: "Failed to search trading pairs" });
+    logger.error(`Error searching pairs with query ${q}:`, error instanceof Error ? error.message : "Unknown error", {
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    return res.status(500).json({ error: "Failed to search trading pairs", details: error instanceof Error ? error.message : "Unknown error" });
   }
 }
 
@@ -67,19 +97,31 @@ export async function getCategories(req: Request, res: Response) {
   try {
     logger.info("Getting all categories");
 
+    // Check database connection first
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+    } catch (dbError) {
+      logger.error("Database connection error while getting categories:", dbError instanceof Error ? dbError.message : "Unknown error");
+      return res.status(503).json({ error: "Database connection error", details: dbError instanceof Error ? dbError.message : "Unknown error" });
+    }
+
     const categories = await prisma.capitalComPair.findMany({
       select: { category: true },
       distinct: ["category"],
       where: { isActive: true },
     });
 
+    logger.debug(`Found ${categories.length} unique categories`);
+
     return res.status(200).json({
       count: categories.length,
       categories: categories.map((c) => c.category),
     });
   } catch (error) {
-    logger.error("Error getting categories:", error);
-    return res.status(500).json({ error: "Failed to fetch categories" });
+    logger.error("Error getting categories:", error instanceof Error ? error.message : "Unknown error", {
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    return res.status(500).json({ error: "Failed to fetch categories", details: error instanceof Error ? error.message : "Unknown error" });
   }
 }
 
@@ -126,10 +168,14 @@ export async function validatePairs(req: Request, res: Response) {
       const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
       logger.info(`Manual validation and cache refresh completed in ${totalTime}s`);
     } catch (error) {
-      logger.error("Error during manual validation:", error);
+      logger.error("Error during manual validation:", error instanceof Error ? error.message : "Unknown error", {
+        stack: error instanceof Error ? error.stack : undefined,
+      });
     }
   } catch (error) {
-    logger.error("Error handling manual validation request:", error);
+    logger.error("Error handling manual validation request:", error instanceof Error ? error.message : "Unknown error", {
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     return res.status(500).json({ error: "Internal server error" });
   }
 }

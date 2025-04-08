@@ -51,8 +51,14 @@ export function AITradingConfig() {
     queryKey: ["trading-bot-status"],
     queryFn: async () => {
       try {
-        const response = await fetch("/api/trading-bots/status");
-        if (!response.ok) throw new Error("Failed to fetch bot status");
+        const response = await fetch("/api/trading/bot/status");
+        if (!response.ok) {
+          if (response.status === 404) {
+            // Return null for 404 to indicate no active bot
+            return null;
+          }
+          throw new Error(`Failed to fetch bot status: ${response.statusText}`);
+        }
         return await response.json();
       } catch (error) {
         console.error("Error fetching bot status:", error);
@@ -144,25 +150,60 @@ export function AITradingConfig() {
 
     setIsTogglingService(true);
     try {
-      const response = await fetch("/api/trading-bots/toggle", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          enabled: !activeBotStatus?.isRunning,
-          strategyId: aiTradingConfig.selectedStrategyId,
-          pair: selectedPair,
-          brokerId: selectedBroker.id,
-          timeframe: aiTradingConfig.timeframe || "1h",
-        }),
-      });
+      // Determine if we need to start or stop the bot
+      const isStarting = !activeBotStatus?.isRunning;
 
-      if (!response.ok) throw new Error("Failed to toggle bot service");
+      // Create new bot if starting
+      if (isStarting) {
+        const response = await fetch("/api/trading/bot", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            strategyId: aiTradingConfig.selectedStrategyId,
+            pair: selectedPair,
+            timeframe: aiTradingConfig.timeframe || "1h",
+            riskSettings: {
+              maxPositionSize: 1.0, // Default values - you may want to make these configurable
+              maxDailyLoss: 2.0,
+              maxDrawdown: 5.0,
+              stopLossPercent: 1.0,
+              takeProfitRatio: 2.0,
+            },
+          }),
+        });
 
-      toast.success(activeBotStatus?.isRunning ? "Trading bot stopped" : "Trading bot started");
+        if (!response.ok) {
+          throw new Error(`Failed to create bot: ${response.statusText}`);
+        }
+
+        const botData = await response.json();
+
+        // Start the bot
+        const startResponse = await fetch(`/api/trading/bot/${botData.id}/start`, {
+          method: "POST",
+        });
+
+        if (!startResponse.ok) {
+          throw new Error(`Failed to start bot: ${startResponse.statusText}`);
+        }
+      } else {
+        // Stop the bot if it exists
+        if (activeBotStatus?.id) {
+          const stopResponse = await fetch(`/api/trading/bot/${activeBotStatus.id}/stop`, {
+            method: "POST",
+          });
+
+          if (!stopResponse.ok) {
+            throw new Error(`Failed to stop bot: ${stopResponse.statusText}`);
+          }
+        }
+      }
+
+      toast.success(isStarting ? "Trading bot started" : "Trading bot stopped");
       queryClient.invalidateQueries({ queryKey: ["trading-bot-status"] });
     } catch (error) {
       console.error("Error toggling bot service:", error);
-      toast.error("Failed to toggle trading bot");
+      toast.error(error instanceof Error ? error.message : "Failed to toggle trading bot");
     } finally {
       setIsTogglingService(false);
     }

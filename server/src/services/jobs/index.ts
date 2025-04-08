@@ -1,5 +1,6 @@
 import { createLogger } from "../../utils/logger";
 import { startMonthlyPairsValidationJob } from "./monthly-pairs-validation.job";
+import { startAutomatedTradingPollingJob } from "./automated-trading-polling.job";
 
 const logger = createLogger("jobs");
 
@@ -12,6 +13,9 @@ export function initializeJobs() {
   try {
     // Start monthly pairs validation job
     startMonthlyPairsValidationJob();
+
+    // Start automated trading polling job
+    startAutomatedTradingPollingJob();
 
     logger.info("All scheduled jobs initialized successfully");
   } catch (error) {

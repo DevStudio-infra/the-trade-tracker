@@ -1,7 +1,7 @@
 import { prisma } from "../../lib/prisma";
 import { createLogger } from "../../utils/logger";
 import { BrokerService } from "../broker/broker.service";
-import { RedisService } from "../cache/redis.service";
+import { RedisService, PositionMetadata } from "../redis/redis.service";
 
 const logger = createLogger("trade-execution-service");
 
@@ -20,6 +20,17 @@ export interface PositionSizeCalculation {
   potentialLoss: number;
   potentialProfit: number;
   riskRewardRatio: number;
+}
+
+export interface TradePosition {
+  tradeId: string;
+  pair: string;
+  side: "BUY" | "SELL";
+  entryPrice: number;
+  stopLoss: number;
+  takeProfit: number;
+  quantity: number;
+  openTime: string;
 }
 
 export class TradeExecutionService {
@@ -106,9 +117,9 @@ export class TradeExecutionService {
           riskPercent: riskPercent,
           riskReward: positionSize.riskRewardRatio,
           metadata: {
-            orderResult,
+            orderResult: JSON.parse(JSON.stringify(orderResult)),
             strategy: signal.botInstance.strategy.name,
-            positionCalculation: positionSize,
+            positionCalculation: JSON.parse(JSON.stringify(positionSize)),
           },
           createdAt: new Date(),
         },
@@ -124,8 +135,15 @@ export class TradeExecutionService {
         },
       });
 
-      // 9. Add to active positions cache
-      await this.redisService.setActivePosition(userId, trade.id, {
+      // 9. Store position metadata
+      const metadata: PositionMetadata = {
+        positionCalculation: positionSize,
+        orderResult,
+      };
+      await this.redisService.setPositionMetadata(trade.id, metadata);
+
+      // 10. Add to active positions cache
+      const position: TradePosition = {
         tradeId: trade.id,
         pair: signal.pair,
         side: signal.signalType as "BUY" | "SELL",
@@ -134,7 +152,8 @@ export class TradeExecutionService {
         takeProfit: positionSize.takeProfit,
         quantity: positionSize.quantity,
         openTime: new Date().toISOString(),
-      });
+      };
+      await this.redisService.setActivePosition(trade.id, position);
 
       logger.info({
         message: "Trade executed successfully",
@@ -188,7 +207,12 @@ export class TradeExecutionService {
       const currentPrice = await this.brokerService.getCurrentPrice(trade.pair);
 
       // 3. Calculate profit/loss
-      const isLong = trade.metadata.orderResult.side === "BUY";
+      const metadata = await this.redisService.getPositionMetadata(tradeId);
+      if (!metadata?.orderResult) {
+        throw new Error(`No order metadata found for trade: ${tradeId}`);
+      }
+
+      const isLong = metadata.orderResult.side === "BUY";
       const entryPrice = parseFloat(trade.entryPrice.toString());
       const quantity = parseFloat(trade.quantity.toString());
       const priceDifference = isLong ? currentPrice - entryPrice : entryPrice - currentPrice;
@@ -198,32 +222,24 @@ export class TradeExecutionService {
       await this.brokerService.closePosition(trade.id);
 
       // 5. Update the trade record
-      const updatedTrade = await prisma.trade.update({
+      await prisma.trade.update({
         where: { id: tradeId },
         data: {
+          closedAt: new Date(),
           exitPrice: currentPrice,
           profitLoss,
-          closedAt: new Date(),
         },
       });
 
-      // 6. Remove from active positions cache
-      await this.redisService.removeActivePosition(userId, tradeId);
-
-      logger.info({
-        message: "Position closed successfully",
-        userId,
-        tradeId,
-        profitLoss,
-      });
+      // 6. Remove from active positions and metadata
+      await this.redisService.removeActivePosition(tradeId);
+      await this.redisService.removePositionMetadata(tradeId);
 
       return {
         tradeId,
-        pair: trade.pair,
-        entryPrice,
         exitPrice: currentPrice,
         profitLoss,
-        closedAt: updatedTrade.closedAt,
+        status: "CLOSED",
       };
     } catch (error) {
       logger.error({
@@ -289,61 +305,12 @@ export class TradeExecutionService {
   }
 
   /**
-   * Get user's open positions
+   * Get all open positions for a user
    */
-  async getOpenPositions(userId: string): Promise<any[]> {
+  async getOpenPositions(userId: string): Promise<TradePosition[]> {
     try {
-      // 1. Get positions from Redis cache
-      const cachedPositions = await this.redisService.getActivePositions(userId);
-
-      if (cachedPositions && cachedPositions.length > 0) {
-        return cachedPositions;
-      }
-
-      // 2. If not in cache, fall back to database
-      const trades = await prisma.trade.findMany({
-        where: {
-          userId,
-          closedAt: null,
-        },
-        orderBy: {
-          createdAt: "desc",
-        },
-      });
-
-      // 3. Transform trades to positions format
-      const positions = await Promise.all(
-        trades.map(async (trade) => {
-          const currentPrice = await this.brokerService.getCurrentPrice(trade.pair);
-          const entryPrice = parseFloat(trade.entryPrice.toString());
-          const quantity = parseFloat(trade.quantity.toString());
-          const isLong = trade.metadata.orderResult.side === "BUY";
-          const priceDifference = isLong ? currentPrice - entryPrice : entryPrice - currentPrice;
-          const pnl = priceDifference * quantity;
-          const pnlPercentage = (pnl / entryPrice) * 100;
-
-          return {
-            tradeId: trade.id,
-            pair: trade.pair,
-            side: trade.metadata.orderResult.side,
-            entryPrice,
-            currentPrice,
-            stopLoss: trade.metadata.positionCalculation.stopLoss,
-            takeProfit: trade.metadata.positionCalculation.takeProfit,
-            quantity,
-            pnl,
-            pnlPercentage,
-            openTime: trade.createdAt.toISOString(),
-          };
-        })
-      );
-
-      // 4. Cache the positions
-      if (positions.length > 0) {
-        await Promise.all(positions.map((position) => this.redisService.setActivePosition(userId, position.tradeId, position)));
-      }
-
-      return positions;
+      const positions = await this.redisService.getActivePositions();
+      return Object.values(positions) as TradePosition[];
     } catch (error) {
       logger.error({
         message: "Error getting open positions",

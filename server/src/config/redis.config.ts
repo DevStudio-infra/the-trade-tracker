@@ -7,6 +7,8 @@ const logger = createLogger("redis-config");
 let redisConnectionFailed = false;
 let lastConnectionAttempt = 0;
 const RETRY_INTERVAL = 60000; // 1 minute between retries when down
+const MAX_RETRIES = 10; // Maximum number of retries
+let retryCount = 0;
 
 // TTL values in seconds for different timeframes
 export const TTL = {
@@ -22,26 +24,210 @@ export const TTL = {
 // Redis key patterns
 export const REDIS_KEYS = {
   CANDLES: (symbol: string, timeframe: string) => `candles:${symbol}:${timeframe}`,
+  ACTIVE_POSITIONS: "active_positions",
+  TRADE_METADATA: (tradeId: string) => `trade:${tradeId}:metadata`,
 };
 
-// Check if required environment variables are provided
-const hasRedisConfig = process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN;
+// Redis wrapper class that handles both real and mock implementations
+class RedisWrapper {
+  private client: Redis;
+  private isMock: boolean;
+  private isConnected: boolean;
+
+  constructor(client: Redis, isMock: boolean = false) {
+    this.client = client;
+    this.isMock = isMock;
+    this.isConnected = false;
+  }
+
+  private async ensureConnection(): Promise<boolean> {
+    if (this.isMock) return true;
+    if (this.isConnected) return true;
+
+    const now = Date.now();
+    if (now - lastConnectionAttempt < RETRY_INTERVAL) {
+      return false;
+    }
+
+    lastConnectionAttempt = now;
+    try {
+      const result = await this.ping();
+      this.isConnected = result === "PONG";
+      if (this.isConnected) {
+        retryCount = 0;
+        redisConnectionFailed = false;
+        logger.info("Redis connection restored");
+      }
+      return this.isConnected;
+    } catch (error) {
+      this.isConnected = false;
+      retryCount++;
+      logger.error({
+        message: "Redis connection check failed",
+        retryCount,
+        maxRetries: MAX_RETRIES,
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+      return false;
+    }
+  }
+
+  async get<T>(key: string): Promise<T | null> {
+    if (!(await this.ensureConnection())) return null;
+    try {
+      if (this.isMock) {
+        logger.debug(`Mock Redis: GET ${key}`);
+        return null;
+      }
+      return await this.client.get(key);
+    } catch (error) {
+      this.isConnected = false;
+      logger.error(`Error getting key ${key}:`, error instanceof Error ? error.message : "Unknown error");
+      return null;
+    }
+  }
+
+  async set(key: string, value: string): Promise<"OK" | null> {
+    if (!(await this.ensureConnection())) return null;
+    try {
+      if (this.isMock) {
+        logger.debug(`Mock Redis: SET ${key}`);
+        return "OK";
+      }
+      const result = await this.client.set(key, value);
+      return result === "OK" ? "OK" : null;
+    } catch (error) {
+      this.isConnected = false;
+      logger.error(`Error setting key ${key}:`, error instanceof Error ? error.message : "Unknown error");
+      return null;
+    }
+  }
+
+  async setex(key: string, ttl: number, value: string): Promise<"OK" | null> {
+    if (!(await this.ensureConnection())) return null;
+    try {
+      if (this.isMock) {
+        logger.debug(`Mock Redis: SETEX ${key} ${ttl}`);
+        return "OK";
+      }
+      const result = await this.client.setex(key, ttl, value);
+      return result === "OK" ? "OK" : null;
+    } catch (error) {
+      this.isConnected = false;
+      logger.error(`Error setting key ${key} with TTL:`, error instanceof Error ? error.message : "Unknown error");
+      return null;
+    }
+  }
+
+  async del(key: string): Promise<number> {
+    if (!(await this.ensureConnection())) return 0;
+    try {
+      if (this.isMock) {
+        logger.debug(`Mock Redis: DEL ${key}`);
+        return 1;
+      }
+      return await this.client.del(key);
+    } catch (error) {
+      this.isConnected = false;
+      logger.error(`Error deleting key ${key}:`, error instanceof Error ? error.message : "Unknown error");
+      return 0;
+    }
+  }
+
+  async setnx(key: string, value: string): Promise<number> {
+    if (!(await this.ensureConnection())) return 0;
+    try {
+      if (this.isMock) {
+        logger.debug(`Mock Redis: SETNX ${key}`);
+        return 0;
+      }
+      return await this.client.setnx(key, value);
+    } catch (error) {
+      this.isConnected = false;
+      logger.error(`Error setting key ${key} if not exists:`, error instanceof Error ? error.message : "Unknown error");
+      return 0;
+    }
+  }
+
+  async expire(key: string, seconds: number): Promise<number> {
+    if (!(await this.ensureConnection())) return 0;
+    try {
+      if (this.isMock) {
+        logger.debug(`Mock Redis: EXPIRE ${key} ${seconds}`);
+        return 1;
+      }
+      return await this.client.expire(key, seconds);
+    } catch (error) {
+      this.isConnected = false;
+      logger.error(`Error setting expiry for key ${key}:`, error instanceof Error ? error.message : "Unknown error");
+      return 0;
+    }
+  }
+
+  async ping(): Promise<"PONG" | null> {
+    try {
+      if (this.isMock) {
+        logger.debug("Mock Redis: PING");
+        return "PONG";
+      }
+      const result = await this.client.ping();
+      return result === "PONG" ? "PONG" : null;
+    } catch (error) {
+      this.isConnected = false;
+      logger.error("Error pinging Redis:", error instanceof Error ? error.message : "Unknown error");
+      return null;
+    }
+  }
+
+  async keys(pattern: string): Promise<string[]> {
+    if (!(await this.ensureConnection())) return [];
+    try {
+      if (this.isMock) {
+        logger.debug(`Mock Redis: KEYS ${pattern}`);
+        return [];
+      }
+      return await this.client.keys(pattern);
+    } catch (error) {
+      this.isConnected = false;
+      logger.error(`Error getting keys with pattern ${pattern}:`, error instanceof Error ? error.message : "Unknown error");
+      return [];
+    }
+  }
+
+  pipeline() {
+    if (this.isMock) {
+      logger.debug("Mock Redis: Creating pipeline");
+      return {
+        get: () => this,
+        set: () => this,
+        setex: () => this,
+        del: () => this,
+        exec: async () => [],
+      };
+    }
+    return this.client.pipeline();
+  }
+}
 
 // Create Redis client with fallback handling
-let redis: Redis;
+let redisClient: RedisWrapper;
 
 try {
-  if (hasRedisConfig) {
-    redis = new Redis({
-      url: process.env.UPSTASH_REDIS_REST_URL!,
-      token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-      // Simplified retry configuration that matches upstash/redis options
+  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+    const client = new Redis({
+      url: process.env.UPSTASH_REDIS_REST_URL,
+      token: process.env.UPSTASH_REDIS_REST_TOKEN,
       retry: {
-        retries: 3,
-        backoff: (retryCount) => Math.min(1000 * Math.pow(2, retryCount), 3000),
+        retries: MAX_RETRIES,
+        backoff: (retryCount) => Math.min(1000 * Math.pow(2, retryCount), 10000),
       },
     });
-    logger.info("Redis client initialized with configuration from environment variables");
+    redisClient = new RedisWrapper(client);
+    logger.info({
+      message: "Redis client initialized",
+      url: process.env.UPSTASH_REDIS_REST_URL,
+      maxRetries: MAX_RETRIES,
+    });
   } else {
     throw new Error("Missing Redis configuration environment variables");
   }
@@ -49,362 +235,50 @@ try {
   logger.error({
     message: "Failed to initialize Redis client",
     error: error instanceof Error ? error.message : "Unknown error",
+    stack: error instanceof Error ? error.stack : undefined,
   });
-  // Create a mock Redis client that does nothing but log
-  redis = {} as Redis;
+  // Create a mock Redis client
+  redisClient = new RedisWrapper(new Redis({ url: "mock://localhost", token: "mock" }), true);
   redisConnectionFailed = true;
 }
 
 // Initialize Redis connection
 export async function initRedis(): Promise<void> {
-  if (redisConnectionFailed) {
-    logger.warn("Skipping Redis initialization due to previous failures");
+  if (redisConnectionFailed && retryCount >= MAX_RETRIES) {
+    logger.warn({
+      message: "Skipping Redis initialization due to maximum retries reached",
+      retryCount,
+      maxRetries: MAX_RETRIES,
+    });
     return;
   }
 
   try {
-    // Test the connection
-    await redis.ping();
-    logger.info("Upstash Redis connection test successful");
-    redisConnectionFailed = false;
-  } catch (error) {
-    redisConnectionFailed = true;
-    logger.error({
-      message: "Error connecting to Upstash Redis",
-      error: error instanceof Error ? error.message : "Unknown error",
-    });
-    // We'll continue without Redis rather than crashing the application
-    logger.warn("The application will continue without Redis caching support");
-  }
-}
-
-// Helper to check if we should attempt a Redis operation
-function shouldAttemptRedisOperation(): boolean {
-  const now = Date.now();
-
-  // If connection failed previously, only retry at intervals
-  if (redisConnectionFailed) {
-    if (now - lastConnectionAttempt < RETRY_INTERVAL) {
-      return false;
-    }
-    // Update last attempt time
-    lastConnectionAttempt = now;
-    logger.info("Attempting Redis connection after previous failure");
-  }
-
-  // Ensure we're returning a proper boolean by checking if both variables are strings
-  return !!process.env.UPSTASH_REDIS_REST_URL && !!process.env.UPSTASH_REDIS_REST_TOKEN;
-}
-
-// Helper function to set candle data with appropriate TTL
-export async function setCandleData(symbol: string, timeframe: keyof typeof TTL, candles: unknown[]): Promise<void> {
-  if (!shouldAttemptRedisOperation()) {
-    // Skip silently if Redis is down
-    return;
-  }
-
-  try {
-    const key = REDIS_KEYS.CANDLES(symbol, timeframe);
-
-    // Validate candles data before storing
-    if (!Array.isArray(candles)) {
-      logger.error({
-        message: "Invalid candles data (not an array)",
-        type: typeof candles,
-        symbol,
-        timeframe,
-      });
-      return; // Don't throw, just return
-    }
-
-    // Serialize data safely
-    let serializedData: string;
-    try {
-      serializedData = JSON.stringify(candles);
-
-      // Log sample for debugging
-      logger.debug({
-        message: "Serializing candles data",
-        symbol,
-        timeframe,
-        candlesCount: candles.length,
-        sample: candles.length > 0 ? JSON.stringify(candles[0]).substring(0, 500) : "empty array",
-        serializedLength: serializedData.length,
-      });
-    } catch (serializeError) {
-      logger.error({
-        message: "Failed to serialize candles data",
-        error: serializeError instanceof Error ? serializeError.message : "Unknown error",
-        symbol,
-        timeframe,
-      });
-      return; // Don't throw, just return
-    }
-
-    // Store in Redis with error handling
-    try {
-      await redis.setex(key, TTL[timeframe], serializedData);
-
-      // Reset connection state on successful operation
-      if (redisConnectionFailed) {
-        logger.info("Redis connection restored");
-        redisConnectionFailed = false;
-      }
-
-      logger.info({
-        message: "Successfully cached candles data",
-        symbol,
-        timeframe,
-        ttl: TTL[timeframe],
-        candlesCount: candles.length,
-      });
-    } catch (redisError) {
-      redisConnectionFailed = true;
-      logger.error({
-        message: "Redis operation failed when caching candles",
-        error: redisError instanceof Error ? redisError.message : "Unknown error",
-        symbol,
-        timeframe,
-      });
-    }
-  } catch (error) {
-    logger.error({
-      message: "Error in setCandleData",
-      error: error instanceof Error ? error.message : "Unknown error",
-      symbol,
-      timeframe,
-    });
-    // Don't throw, continue without caching
-  }
-}
-
-// Helper function to get candle data
-export async function getCandleData<T>(symbol: string, timeframe: string): Promise<T | null> {
-  if (!shouldAttemptRedisOperation()) {
-    // Return null if Redis is down
-    return null;
-  }
-
-  try {
-    const key = REDIS_KEYS.CANDLES(symbol, timeframe);
-
-    // Execute Redis get with timeout handling
-    const data = await Promise.race([
-      redis.get<string>(key),
-      new Promise<null>((resolve) => {
-        setTimeout(() => {
-          logger.warn({
-            message: "Redis get operation timed out",
-            symbol,
-            timeframe,
-          });
-          resolve(null);
-        }, 5000); // 5 second timeout
-      }),
-    ]);
-
-    // Reset connection state on successful operation
-    if (data !== null && redisConnectionFailed) {
-      logger.info("Redis connection restored");
+    const result = await redisClient.ping();
+    if (result === "PONG") {
+      logger.info("Upstash Redis connection test successful");
       redisConnectionFailed = false;
-    }
-
-    logger.debug({
-      message: "Redis cache lookup",
-      symbol,
-      timeframe,
-      found: data !== null,
-      dataLength: data ? data.length : 0,
-    });
-
-    if (!data) {
-      return null;
-    }
-
-    // Parse the JSON data with error handling
-    try {
-      const parsedData = JSON.parse(data) as T;
-
-      // Validate parsed data
-      if (Array.isArray(parsedData)) {
-        logger.info({
-          message: "Successfully retrieved candles from cache",
-          symbol,
-          timeframe,
-          itemCount: parsedData.length,
-        });
-      } else {
-        logger.warn({
-          message: "Retrieved non-array data from cache",
-          symbol,
-          timeframe,
-          dataType: typeof parsedData,
-        });
-      }
-
-      return parsedData;
-    } catch (parseError) {
-      // If we can't parse the data, log the error and return null
-      logger.error({
-        message: "Failed to parse cached data",
-        error: parseError instanceof Error ? parseError.message : "Unknown error",
-        symbol,
-        timeframe,
-        dataSample: typeof data === "string" ? data.substring(0, 1000) : `Non-string data type: ${typeof data}`,
-      });
-
-      // Try to delete the corrupted data, but don't fail if that doesn't work
-      try {
-        await redis.del(key);
-        logger.info({
-          message: "Deleted corrupted cache entry",
-          symbol,
-          timeframe,
-        });
-      } catch (deleteError) {
-        logger.warn({
-          message: "Failed to delete corrupted cache entry",
-          error: deleteError instanceof Error ? deleteError.message : "Unknown error",
-          symbol,
-          timeframe,
-        });
-      }
-
-      return null;
+      retryCount = 0;
+    } else {
+      throw new Error("Redis ping failed");
     }
   } catch (error) {
     redisConnectionFailed = true;
+    retryCount++;
     logger.error({
-      message: "Error retrieving candles from cache",
+      message: "Redis initialization failed",
+      retryCount,
+      maxRetries: MAX_RETRIES,
       error: error instanceof Error ? error.message : "Unknown error",
-      symbol,
-      timeframe,
+      stack: error instanceof Error ? error.stack : undefined,
     });
-    return null;
   }
 }
 
-// Helper function to get multiple candle data sets
-export async function getMultipleCandleData<T>(symbols: string[], timeframes: string[]): Promise<(T | null)[]> {
-  if (!shouldAttemptRedisOperation()) {
-    // Return array of nulls if Redis is down
-    return Array(symbols.length * timeframes.length).fill(null);
-  }
-
-  try {
-    const pipeline = redis.pipeline();
-
-    for (const symbol of symbols) {
-      for (const timeframe of timeframes) {
-        const key = REDIS_KEYS.CANDLES(symbol, timeframe);
-        pipeline.get(key);
-      }
-    }
-
-    // Execute pipeline with timeout handling
-    const results = await Promise.race([
-      pipeline.exec(),
-      new Promise<any[]>((resolve) => {
-        setTimeout(() => {
-          logger.warn("Redis pipeline operation timed out");
-          resolve(Array(symbols.length * timeframes.length).fill(null));
-        }, 5000); // 5 second timeout
-      }),
-    ]);
-
-    // Reset connection state on successful operation
-    if (redisConnectionFailed) {
-      logger.info("Redis connection restored");
-      redisConnectionFailed = false;
-    }
-
-    return results.map((result) => {
-      if (result) {
-        try {
-          return JSON.parse(result as string);
-        } catch (e) {
-          logger.error({
-            message: "Failed to parse data from pipeline result",
-            error: e instanceof Error ? e.message : "Unknown error",
-          });
-          return null;
-        }
-      }
-      return null;
-    });
-  } catch (error) {
-    redisConnectionFailed = true;
-    logger.error({
-      message: "Error executing Redis pipeline",
-      error: error instanceof Error ? error.message : "Unknown error",
-    });
-    return Array(symbols.length * timeframes.length).fill(null);
-  }
+// Helper function to determine if Redis operations should be attempted
+export function shouldAttemptRedisOperation(): boolean {
+  return !redisConnectionFailed || retryCount < MAX_RETRIES;
 }
 
-// Helper function to set multiple candle data sets
-export async function setMultipleCandleData(
-  candleData: Array<{
-    symbol: string;
-    timeframe: keyof typeof TTL;
-    candles: unknown[];
-  }>
-): Promise<void> {
-  if (!shouldAttemptRedisOperation()) {
-    // Skip silently if Redis is down
-    return;
-  }
-
-  try {
-    const pipeline = redis.pipeline();
-
-    for (const { symbol, timeframe, candles } of candleData) {
-      try {
-        const key = REDIS_KEYS.CANDLES(symbol, timeframe);
-        const serialized = JSON.stringify(candles);
-        pipeline.setex(key, TTL[timeframe], serialized);
-      } catch (serializeError) {
-        logger.error({
-          message: "Failed to serialize candle data for pipeline",
-          error: serializeError instanceof Error ? serializeError.message : "Unknown error",
-          symbol,
-          timeframe,
-        });
-        // Continue with other items
-      }
-    }
-
-    // Execute pipeline with timeout handling
-    await Promise.race([
-      pipeline.exec(),
-      new Promise<void>((resolve) => {
-        setTimeout(() => {
-          logger.warn("Redis pipeline setex operation timed out");
-          resolve();
-        }, 5000); // 5 second timeout
-      }),
-    ]);
-
-    // Reset connection state on successful operation
-    if (redisConnectionFailed) {
-      logger.info("Redis connection restored");
-      redisConnectionFailed = false;
-    }
-
-    logger.info({
-      message: "Successfully cached multiple candle data sets",
-      count: candleData.length,
-    });
-  } catch (error) {
-    redisConnectionFailed = true;
-    logger.error({
-      message: "Error setting multiple candle data sets",
-      error: error instanceof Error ? error.message : "Unknown error",
-      count: candleData.length,
-    });
-    // Don't throw, just log
-  }
-}
-
-// Export Redis instance
-export { redis };
+// Export the Redis client
+export const redis = redisClient;

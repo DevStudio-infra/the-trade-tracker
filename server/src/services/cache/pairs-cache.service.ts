@@ -1,172 +1,204 @@
-import { PrismaClient, CapitalComPair } from "@prisma/client";
-import redis from "../redis/client";
+import { redis, TTL } from "../../config/redis.config";
 import { createLogger } from "../../utils/logger";
+import { PrismaClient } from "@prisma/client";
 
 const logger = createLogger("pairs-cache-service");
 
+export interface TradingPair {
+  symbol: string;
+  displayName: string;
+  type: string;
+  category: string;
+  isActive: boolean;
+}
+
 export class PairsCacheService {
-  private readonly CACHE_DURATION = 30 * 24 * 60 * 60; // 30 days in seconds
+  private readonly PAIRS_KEY_PREFIX = "trading:pairs";
+  private readonly CATEGORY_KEY_PREFIX = "trading:category";
   private readonly prisma: PrismaClient;
 
   constructor(prisma: PrismaClient) {
     this.prisma = prisma;
   }
 
-  /**
-   * Get pairs by category with caching
-   */
-  async getPairsByCategory(category: string): Promise<CapitalComPair[]> {
-    const cacheKey = `capital:pairs:${category}`;
+  private getCategoryKey(category: string): string {
+    return `${this.CATEGORY_KEY_PREFIX}:${category.toLowerCase()}`;
+  }
 
+  async getPairsByCategory(category: string): Promise<TradingPair[]> {
     try {
-      // Try Redis first
-      const cached = await redis.get(cacheKey);
-      if (cached) {
-        logger.debug(`Cache hit for ${cacheKey}`);
-        return JSON.parse(cached);
+      // Try to get from cache first
+      const cacheKey = this.getCategoryKey(category);
+      logger.debug(`Attempting to get pairs from cache for category ${category} with key ${cacheKey}`);
+
+      const cachedData = await redis.get<string>(cacheKey);
+
+      if (cachedData) {
+        logger.info(`Cache hit for category ${category}`);
+        try {
+          const parsedData = JSON.parse(cachedData);
+          if (!Array.isArray(parsedData)) {
+            logger.error(`Invalid cache data format for category ${category}. Expected array, got:`, typeof parsedData);
+            // Invalid cache data, clear it
+            await redis.del(cacheKey);
+            return this.fetchFromDatabase(category);
+          }
+          return parsedData;
+        } catch (parseError) {
+          logger.error(`Error parsing cached data for category ${category}:`, parseError instanceof Error ? parseError.message : "Unknown error");
+          // Invalid cache data, clear it
+          await redis.del(cacheKey);
+          return this.fetchFromDatabase(category);
+        }
       }
 
-      logger.debug(`Cache miss for ${cacheKey}, fetching from database`);
+      return this.fetchFromDatabase(category);
+    } catch (error) {
+      logger.error(`Error getting pairs for category ${category}:`, error instanceof Error ? error.message : "Unknown error");
+      return [];
+    }
+  }
 
-      // Cache miss - get from Prisma
+  private async fetchFromDatabase(category: string): Promise<TradingPair[]> {
+    try {
+      logger.info(`Cache miss for category ${category}, fetching from database`);
+
+      // Check database connection first
+      try {
+        await this.prisma.$queryRaw`SELECT 1`;
+      } catch (dbError) {
+        logger.error(`Database connection error for category ${category}:`, dbError instanceof Error ? dbError.message : "Unknown error");
+        throw new Error("Database connection failed");
+      }
+
       const pairs = await this.prisma.capitalComPair.findMany({
         where: {
-          category,
+          category: category,
           isActive: true,
         },
-        orderBy: {
-          displayName: "asc",
+        select: {
+          symbol: true,
+          displayName: true,
+          type: true,
+          category: true,
+          isActive: true,
         },
       });
 
-      // Update cache
-      await this.setCache(cacheKey, pairs);
+      logger.debug(`Found ${pairs.length} pairs in database for category ${category}`);
+
+      // Cache the results
+      await this.cachePairsByCategory(category, pairs);
 
       return pairs;
     } catch (error) {
-      logger.error(`Error getting pairs for category ${category}:`, error);
-
-      // Fallback to database if cache fails
-      return this.prisma.capitalComPair.findMany({
-        where: {
-          category,
-          isActive: true,
-        },
-        orderBy: {
-          displayName: "asc",
-        },
-      });
+      logger.error(`Error fetching from database for category ${category}:`, error instanceof Error ? error.message : "Unknown error");
+      throw error; // Propagate error to main handler
     }
   }
 
-  /**
-   * Search pairs across all categories
-   */
-  async searchPairs(query: string): Promise<CapitalComPair[]> {
-    const cacheKey = `capital:search:${query.toLowerCase()}`;
-
+  async searchPairs(query: string): Promise<TradingPair[]> {
     try {
-      // Try Redis first
-      const cached = await redis.get(cacheKey);
-      if (cached) {
-        logger.debug(`Cache hit for search: ${query}`);
-        return JSON.parse(cached);
-      }
+      const searchTerm = query.toLowerCase();
+      logger.debug(`Searching pairs with term: ${searchTerm}`);
 
-      logger.debug(`Cache miss for search: ${query}, fetching from database`);
-
-      // Cache miss - get from Prisma
+      // Search in database
       const pairs = await this.prisma.capitalComPair.findMany({
         where: {
-          AND: [
-            { isActive: true },
-            {
-              OR: [{ symbol: { contains: query, mode: "insensitive" } }, { displayName: { contains: query, mode: "insensitive" } }],
-            },
+          isActive: true,
+          OR: [
+            { symbol: { contains: searchTerm, mode: "insensitive" } },
+            { displayName: { contains: searchTerm, mode: "insensitive" } },
           ],
         },
-        orderBy: { displayName: "asc" },
+        select: {
+          symbol: true,
+          displayName: true,
+          type: true,
+          category: true,
+          isActive: true,
+        },
+        take: 50, // Limit results
       });
 
-      // Cache search results for a shorter period (1 day)
-      await this.setCache(cacheKey, pairs, 24 * 60 * 60);
-
+      logger.debug(`Found ${pairs.length} pairs matching search term: ${searchTerm}`);
       return pairs;
     } catch (error) {
-      logger.error(`Error searching pairs for query ${query}:`, error);
-
-      // Fallback to database if cache fails
-      return this.prisma.capitalComPair.findMany({
-        where: {
-          AND: [
-            { isActive: true },
-            {
-              OR: [{ symbol: { contains: query, mode: "insensitive" } }, { displayName: { contains: query, mode: "insensitive" } }],
-            },
-          ],
-        },
-        orderBy: { displayName: "asc" },
-      });
+      logger.error(`Error searching pairs with query ${query}:`, error instanceof Error ? error.message : "Unknown error");
+      return [];
     }
   }
 
-  /**
-   * Refresh the cache for a specific category
-   */
-  async refreshCategory(category: string): Promise<void> {
-    logger.info(`Refreshing cache for category: ${category}`);
-
+  private async cachePairsByCategory(category: string, pairs: TradingPair[]): Promise<void> {
     try {
-      const pairs = await this.prisma.capitalComPair.findMany({
-        where: {
-          category,
-          isActive: true,
-        },
-      });
+      const cacheKey = this.getCategoryKey(category);
+      const data = JSON.stringify(pairs);
+      logger.debug(`Caching ${pairs.length} pairs for category ${category} with key ${cacheKey}`);
 
-      await this.setCache(`capital:pairs:${category}`, pairs);
-      logger.info(`Cache refreshed for ${category} with ${pairs.length} pairs`);
+      const result = await redis.setex(cacheKey, TTL["1h"], data);
+      if (result === "OK") {
+        logger.info(`Successfully cached ${pairs.length} pairs for category ${category}`);
+      } else {
+        logger.error(`Failed to cache pairs for category ${category}, Redis returned:`, result);
+      }
     } catch (error) {
-      logger.error(`Error refreshing cache for category ${category}:`, error);
-      throw error;
+      logger.error(`Error caching pairs for category ${category}:`, error instanceof Error ? error.message : "Unknown error");
     }
   }
 
-  /**
-   * Refresh all categories in the cache
-   */
   async refreshAllCategories(): Promise<void> {
-    logger.info("Refreshing cache for all categories");
-
     try {
-      // Get all distinct categories
+      logger.info("Starting refresh of all categories");
+
+      // Get all categories
       const categories = await this.prisma.capitalComPair.findMany({
         select: { category: true },
         distinct: ["category"],
+        where: { isActive: true },
       });
 
-      // Refresh each category
-      for (const { category } of categories) {
-        await this.refreshCategory(category);
-      }
+      logger.debug(`Found ${categories.length} categories to refresh`);
 
-      logger.info(`Cache refreshed for all ${categories.length} categories`);
+      // Refresh cache for each category
+      await Promise.all(
+        categories.map(async ({ category }) => {
+          try {
+            const pairs = await this.getPairsByCategory(category);
+            await this.cachePairsByCategory(category, pairs);
+          } catch (error) {
+            logger.error(`Error refreshing category ${category}:`, error instanceof Error ? error.message : "Unknown error");
+          }
+        })
+      );
+
+      logger.info(`Successfully refreshed cache for ${categories.length} categories`);
     } catch (error) {
-      logger.error("Error refreshing all categories:", error);
-      throw error;
+      logger.error("Error refreshing categories cache:", error instanceof Error ? error.message : "Unknown error");
     }
   }
 
-  /**
-   * Helper method to set cache with error handling
-   */
-  private async setCache(key: string, data: any, duration = this.CACHE_DURATION): Promise<void> {
+  async clearCache(): Promise<void> {
     try {
-      await redis.set(key, JSON.stringify(data), "EX", duration);
-      logger.debug(`Cache set for ${key} with expiration ${duration}s`);
+      // Get all category keys
+      const pattern = `${this.CATEGORY_KEY_PREFIX}:*`;
+      logger.debug(`Getting all cache keys with pattern: ${pattern}`);
+
+      const keys = await redis.keys(pattern);
+      logger.debug(`Found ${keys.length} keys to clear`);
+
+      // Delete each key individually since our wrapper doesn't support multi-key deletion
+      for (const key of keys) {
+        try {
+          await redis.del(key);
+          logger.debug(`Successfully deleted key: ${key}`);
+        } catch (error) {
+          logger.error(`Error deleting key ${key}:`, error instanceof Error ? error.message : "Unknown error");
+        }
+      }
+
+      logger.info(`Successfully cleared cache for ${keys.length} categories`);
     } catch (error) {
-      logger.error(`Error setting cache for ${key}:`, error);
-      // Don't throw, just log the error
+      logger.error("Error clearing pairs cache:", error instanceof Error ? error.message : "Unknown error");
     }
   }
 }
