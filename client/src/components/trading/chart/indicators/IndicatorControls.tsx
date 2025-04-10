@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, forwardRef } from "react";
+import React, { useState, forwardRef, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -37,131 +37,64 @@ const SettingsButton = forwardRef<HTMLButtonElement, React.ComponentProps<typeof
 ));
 SettingsButton.displayName = "SettingsButton";
 
-export const IndicatorControls: React.FC = () => {
-  console.log("IndicatorControls rendering");
+export const IndicatorControls: React.FC = React.memo(() => {
   const { getIndicators, removeIndicator, setIndicatorVisibility } = useIndicatorStore();
-  const indicators = getIndicators();
   const [editingIndicatorId, setEditingIndicatorId] = useState<string | null>(null);
-  const [indicatorUpdateCounter, setIndicatorUpdateCounter] = useState(0);
-  const [forceUpdate, setForceUpdate] = useState(0);
 
-  // Subscribe to indicator store changes
-  useEffect(() => {
-    // Create a subscription to the indicator store
-    const unsubscribe = useIndicatorStore.subscribe((state) => {
-      console.log("Indicator store changed, size:", state.indicators.size);
-      setForceUpdate((prev) => prev + 1);
-    });
+  // Get indicators once and memoize the result
+  const indicators = useMemo(() => getIndicators(), [getIndicators]);
 
-    // Clean up subscription on unmount
-    return () => unsubscribe();
-  }, []);
-
-  // Memoize the indicators data to prevent unnecessary re-renders
-  const indicatorsData = React.useMemo(() => {
-    console.log("Recalculating indicatorsData, forceUpdate:", forceUpdate);
+  // Memoize the indicators data
+  const indicatorsData = useMemo(() => {
     return indicators.map((ind) => ({
       id: ind.getId(),
       type: ind.getType(),
       name: ind.getName(),
       isOscillator: OSCILLATOR_INDICATORS.includes(ind.getType()),
+      config: ind.getConfig(),
+      isVisible: ind.isVisible(),
     }));
-  }, [indicators, indicatorUpdateCounter, forceUpdate]);
-
-  // Memoize the active oscillator check
-  const activeOscillator = React.useMemo(() => {
-    const oscillator = indicators.find((indicator) => {
-      const type = indicator.getType();
-      const isOscillator = OSCILLATOR_INDICATORS.includes(type);
-      console.log(`Checking indicator ${indicator.getName()} (${type}): isOscillator=${isOscillator}`);
-      return isOscillator;
-    });
-    console.log("Active oscillator:", oscillator?.getName());
-    return oscillator;
-  }, [indicators, forceUpdate]);
-
-  // Log only when indicators actually change
-  useEffect(() => {
-    console.log("Current indicators:", indicatorsData);
-    console.log("Total indicators:", indicators.length);
-  }, [indicatorsData, indicators.length]);
-
-  // Add a useEffect to listen for changes in the indicators
-  useEffect(() => {
-    // Force a re-render when indicators change
-    setIndicatorUpdateCounter((prev) => prev + 1);
-  }, [indicators.length]);
-
-  // Add a direct check for indicator changes
-  useEffect(() => {
-    // Log the current indicators for debugging
-    console.log(
-      "Indicators changed:",
-      indicators.map((ind) => ind.getName())
-    );
-
-    // Force a re-render
-    setForceUpdate((prev) => prev + 1);
   }, [indicators]);
 
-  const handleRemoveIndicator = React.useCallback(
+  // Memoize the active oscillator check
+  const activeOscillator = useMemo(() => {
+    return indicators.find((indicator) => OSCILLATOR_INDICATORS.includes(indicator.getType()));
+  }, [indicators]);
+
+  // Memoize handlers
+  const handleRemoveIndicator = useCallback(
     (id: string) => {
-      console.log(`Removing indicator: ${id}`);
       removeIndicator(id);
-      // Force a re-render by incrementing the counter
-      setIndicatorUpdateCounter((prev) => prev + 1);
-      setForceUpdate((prev) => prev + 1);
     },
-    [removeIndicator, setIndicatorUpdateCounter, setForceUpdate]
+    [removeIndicator]
   );
 
-  const handleToggleVisibility = React.useCallback(
+  const handleToggleVisibility = useCallback(
     (id: string) => {
-      const indicator = getIndicators().find((ind) => ind.getId() === id);
+      const indicator = indicators.find((ind) => ind.getId() === id);
       if (indicator) {
-        const newVisibility = !indicator.isVisible();
-        console.log(`Toggling visibility for ${indicator.getName()}: ${newVisibility}`);
-        setIndicatorVisibility(id, newVisibility);
-        // Force a re-render by incrementing the counter
-        setIndicatorUpdateCounter((prev) => prev + 1);
-        setForceUpdate((prev) => prev + 1);
+        setIndicatorVisibility(id, !indicator.isVisible());
       }
     },
-    [getIndicators, setIndicatorVisibility, setIndicatorUpdateCounter, setForceUpdate]
+    [indicators, setIndicatorVisibility]
   );
 
-  const handleAddIndicator = React.useCallback(
-    (type: string) => {
-      console.log(`Attempting to add indicator: ${type}`);
-      try {
-        useIndicatorStore.getState().createAndAddIndicator(type);
-        console.log(`Successfully added ${type} indicator`);
-        // Force a re-render by incrementing the counter
-        setIndicatorUpdateCounter((prev) => prev + 1);
-        setForceUpdate((prev) => prev + 1);
-      } catch (error) {
-        console.error(`Error adding indicator ${type}:`, error);
-      }
-    },
-    [setIndicatorUpdateCounter, setForceUpdate]
-  );
+  const handleAddIndicator = useCallback((type: string) => {
+    try {
+      useIndicatorStore.getState().createAndAddIndicator(type);
+    } catch (error) {
+      console.error(`Error adding indicator ${type}:`, error);
+    }
+  }, []);
 
   // Memoize the available indicators list
-  const availableIndicatorsList = React.useMemo(() => {
+  const availableIndicatorsList = useMemo(() => {
     return Object.entries(AVAILABLE_INDICATORS).map(([type, name]) => {
       const isOscillator = OSCILLATOR_INDICATORS.includes(type);
       const isDisabled = isOscillator && activeOscillator !== undefined;
-
-      console.log(`Rendering button for ${type}: isOscillator=${isOscillator}, isDisabled=${isDisabled}`);
-
-      return {
-        type,
-        name,
-        isOscillator,
-        isDisabled,
-      };
+      return { type, name, isOscillator, isDisabled };
     });
-  }, [activeOscillator, forceUpdate]);
+  }, [activeOscillator]);
 
   return (
     <div className="p-2 border-b border-gray-200 dark:border-gray-800">
@@ -169,10 +102,7 @@ export const IndicatorControls: React.FC = () => {
         <h3 className="text-sm font-medium">Active Indicators</h3>
         <Dialog>
           <DialogTrigger asChild>
-            <Button variant="outline" size="sm" className="h-8">
-              <Plus className="h-4 w-4 mr-1" />
-              Add Indicator
-            </Button>
+            <AddIndicatorButton />
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
@@ -196,42 +126,31 @@ export const IndicatorControls: React.FC = () => {
       </div>
 
       <div className="mt-2 space-y-1">
-        {indicatorsData.map(({ id }) => {
-          const indicator = indicators.find((ind) => ind.getId() === id);
-          if (!indicator) return null;
-
-          const config = indicator.getConfig();
-          const isVisible = indicator.isVisible();
-
-          return (
-            <div key={id} className={`flex items-center justify-between p-2 rounded ${isVisible ? "bg-gray-100 dark:bg-gray-800" : "bg-gray-50 dark:bg-gray-900 opacity-50"}`}>
-              <div className="flex items-center">
-                <div className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: config.color || "#888" }} />
-                <span className="text-sm">{config.name}</span>
-              </div>
-              <div className="flex items-center space-x-1">
-                <Button variant="ghost" size="sm" onClick={() => handleToggleVisibility(id)} className={`h-7 w-7 p-0 ${!isVisible ? "text-gray-400" : ""}`}>
-                  <span className="sr-only">{isVisible ? "Hide" : "Show"}</span>
-                  {isVisible ? "👁️" : "👁️‍🗨️"}
-                </Button>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
-                      <Settings className="h-4 w-4" />
-                      <span className="sr-only">Settings</span>
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => setEditingIndicatorId(id)}>Edit</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => handleRemoveIndicator(id)} className="text-red-600 dark:text-red-400">
-                      Remove
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
+        {indicatorsData.map(({ id, name, config, isVisible }) => (
+          <div key={id} className={`flex items-center justify-between p-2 rounded ${isVisible ? "bg-gray-100 dark:bg-gray-800" : "bg-gray-50 dark:bg-gray-900 opacity-50"}`}>
+            <div className="flex items-center">
+              <div className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: config.color || "#888" }} />
+              <span className="text-sm">{name}</span>
             </div>
-          );
-        })}
+            <div className="flex items-center space-x-1">
+              <Button variant="ghost" size="sm" onClick={() => handleToggleVisibility(id)} className={`h-7 w-7 p-0 ${!isVisible ? "text-gray-400" : ""}`}>
+                <span className="sr-only">{isVisible ? "Hide" : "Show"}</span>
+                {isVisible ? "👁️" : "👁️‍🗨️"}
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <SettingsButton />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setEditingIndicatorId(id)}>Edit</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleRemoveIndicator(id)} className="text-red-600 dark:text-red-400">
+                    Remove
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+        ))}
       </div>
 
       {editingIndicatorId && (
@@ -246,4 +165,6 @@ export const IndicatorControls: React.FC = () => {
       )}
     </div>
   );
-};
+});
+
+IndicatorControls.displayName = "IndicatorControls";

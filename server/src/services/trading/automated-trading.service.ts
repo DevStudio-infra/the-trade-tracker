@@ -1,244 +1,199 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, BotInstance } from "@prisma/client";
 import { createLogger } from "../../utils/logger";
-import { RiskManagementService } from "./risk-management.service";
-import { TradeExecutionService } from "./trade-execution.service";
-import { ChartGeneratorService } from "../chart/chart-generator.service";
-import { AIService, ChartAnalysis } from "../ai/ai.service";
-import { RedisService } from "../redis/redis.service";
 
 const logger = createLogger("automated-trading-service");
 const prisma = new PrismaClient();
 
 interface BotConfig {
-  userId: string;
-  strategyId: string;
   pair: string;
   timeframe: string;
+  strategyId: string;
   riskSettings: {
-    maxPositionSize: number;
-    maxDailyLoss: number;
-    maxDrawdown: number;
+    maxRiskPerTrade: number;
     stopLossPercent: number;
-    takeProfitRatio: number;
+    takeProfitPercent: number;
   };
 }
 
 interface BotStatus {
   id: string;
-  active: boolean;
-  lastCheck: Date;
+  isActive: boolean;
+  lastCheck: Date | null;
   lastTrade: Date | null;
   dailyStats: {
-    trades: number;
+    tradesExecuted: number;
     winRate: number;
-    pnl: number;
+    profitLoss: number;
   };
-  errors: Array<{
-    timestamp: Date;
-    message: string;
-  }>;
+  errors: string[];
 }
 
 export class AutomatedTradingService {
-  constructor(
-    private readonly riskManager: RiskManagementService,
-    private readonly tradeExecutor: TradeExecutionService,
-    private readonly chartGenerator: ChartGeneratorService,
-    private readonly aiService: AIService,
-    private readonly redisService: RedisService
-  ) {}
-
-  async createBot(config: BotConfig): Promise<string> {
+  async createBot(userId: string, config: BotConfig): Promise<BotInstance> {
     try {
-      const bot = await prisma.tradingBot.create({
+      const bot = await prisma.botInstance.create({
         data: {
-          userId: config.userId,
-          strategyId: config.strategyId,
+          userId,
           pair: config.pair,
           timeframe: config.timeframe,
+          strategyId: config.strategyId,
           riskSettings: config.riskSettings,
-          active: false,
-          metadata: {
-            lastCheck: new Date(),
-            lastTrade: null,
-            dailyStats: {
-              trades: 0,
-              winRate: 0,
-              pnl: 0,
-            },
-            errors: [],
-          },
+          isActive: true,
         },
       });
 
-      logger.info(`Created new trading bot: ${bot.id}`);
-      return bot.id;
+      logger.info(`Created new bot instance for user ${userId}`, { botId: bot.id });
+      return bot;
     } catch (error) {
-      logger.error("Error creating trading bot:", error);
-      throw new Error("Failed to create trading bot");
+      logger.error("Error creating bot instance:", error);
+      throw new Error("Failed to create bot instance");
     }
   }
 
-  async startBot(botId: string): Promise<BotStatus> {
+  async startBot(botId: string): Promise<void> {
     try {
-      const bot = await prisma.tradingBot.findUnique({
+      await prisma.botInstance.update({
         where: { id: botId },
+        data: { isActive: true },
       });
 
-      if (!bot) {
-        throw new Error("Bot not found");
-      }
-
-      // Check market conditions before starting
-      const marketConditions = await this.riskManager.checkMarketConditions(bot.pair);
-      if (!marketConditions.safe) {
-        throw new Error(`Unsafe market conditions: ${marketConditions.reason}`);
-      }
-
-      const updatedBot = await prisma.tradingBot.update({
-        where: { id: botId },
-        data: {
-          active: true,
-          metadata: {
-            ...bot.metadata,
-            lastCheck: new Date(),
-          },
-        },
-      });
-
-      return this.mapBotStatus(updatedBot);
+      logger.info(`Started bot instance ${botId}`);
     } catch (error) {
       logger.error(`Error starting bot ${botId}:`, error);
-      throw error;
+      throw new Error("Failed to start bot");
     }
   }
 
-  async stopBot(botId: string): Promise<BotStatus> {
+  async stopBot(botId: string): Promise<void> {
     try {
-      const bot = await prisma.tradingBot.update({
+      await prisma.botInstance.update({
         where: { id: botId },
-        data: { active: false },
+        data: { isActive: false },
       });
 
-      return this.mapBotStatus(bot);
+      logger.info(`Stopped bot instance ${botId}`);
     } catch (error) {
       logger.error(`Error stopping bot ${botId}:`, error);
-      throw error;
+      throw new Error("Failed to stop bot");
     }
   }
 
-  async getBotStatus(botId: string): Promise<BotStatus> {
+  async getBotStatus(botId: string): Promise<BotStatus | null> {
     try {
-      const bot = await prisma.tradingBot.findUnique({
+      const bot = await prisma.botInstance.findUnique({
         where: { id: botId },
-      });
-
-      if (!bot) {
-        throw new Error("Bot not found");
-      }
-
-      return this.mapBotStatus(bot);
-    } catch (error) {
-      logger.error(`Error getting bot status ${botId}:`, error);
-      throw error;
-    }
-  }
-
-  async analyzeTradingPair(botId: string): Promise<ChartAnalysis> {
-    try {
-      const bot = await prisma.tradingBot.findUnique({
-        where: { id: botId },
-        include: { strategy: true },
-      });
-
-      if (!bot || !bot.active) {
-        throw new Error("Bot not found or inactive");
-      }
-
-      // Generate chart with indicators
-      const chart = await this.chartGenerator.generateChart(bot.pair, bot.timeframe);
-
-      // Analyze chart using AI
-      const analysis = await this.aiService.analyzeChart(chart, bot.strategy.rules);
-
-      // Validate against risk parameters
-      if (analysis.shouldTrade) {
-        const isValid = await this.riskManager.validateTrade({
-          botId: bot.id,
-          direction: analysis.direction,
-          entryPrice: analysis.entryPrice,
-          positionSize: analysis.positionSize,
-          riskSettings: bot.riskSettings as any,
-        });
-
-        if (!isValid) {
-          analysis.shouldTrade = false;
-        }
-      }
-
-      return analysis;
-    } catch (error) {
-      logger.error(`Error analyzing trading pair for bot ${botId}:`, error);
-      throw error;
-    }
-  }
-
-  async executeTrade(botId: string, analysis: ChartAnalysis): Promise<void> {
-    try {
-      const bot = await prisma.tradingBot.findUnique({
-        where: { id: botId },
-      });
-
-      if (!bot || !bot.active) {
-        throw new Error("Bot not found or inactive");
-      }
-
-      // Final market condition check before execution
-      const marketConditions = await this.riskManager.checkMarketConditions(bot.pair);
-      if (!marketConditions.safe) {
-        throw new Error(`Unsafe market conditions: ${marketConditions.reason}`);
-      }
-
-      // Execute trade
-      await this.tradeExecutor.executeTrade({
-        userId: bot.userId,
-        pair: bot.pair,
-        direction: analysis.direction,
-        quantity: analysis.positionSize,
-        entryPrice: analysis.entryPrice,
-        stopLoss: await this.riskManager.calculateStopLoss(analysis.entryPrice, analysis.direction, (bot.riskSettings as any).stopLossPercent),
-        takeProfit: await this.riskManager.calculateTakeProfit(analysis.entryPrice, analysis.direction, (bot.riskSettings as any).takeProfitRatio),
-        metadata: {
-          botId: bot.id,
-          confidence: analysis.confidence,
-          riskScore: analysis.riskScore,
-        },
-      });
-
-      // Update bot status
-      await prisma.tradingBot.update({
-        where: { id: botId },
-        data: {
-          metadata: {
-            ...bot.metadata,
-            lastTrade: new Date(),
+        include: {
+          trades: {
+            where: {
+              createdAt: {
+                gte: new Date(new Date().setHours(0, 0, 0, 0)),
+              },
+            },
+            orderBy: {
+              createdAt: "desc",
+            },
           },
         },
       });
+
+      if (!bot) return null;
+
+      // Filter trades with valid profitLoss values
+      const winningTrades = bot.trades.filter((t) => t.profitLoss && t.profitLoss.toNumber() > 0);
+      const totalPL = bot.trades.reduce((sum, t) => {
+        const profit = t.profitLoss ? t.profitLoss.toNumber() : 0;
+        return sum + profit;
+      }, 0);
+
+      return {
+        id: bot.id,
+        isActive: bot.isActive,
+        lastCheck: bot.updatedAt,
+        lastTrade: bot.trades.length > 0 ? bot.trades[0].createdAt : null,
+        dailyStats: {
+          tradesExecuted: bot.trades.length,
+          winRate: bot.trades.length ? (winningTrades.length / bot.trades.length) * 100 : 0,
+          profitLoss: totalPL,
+        },
+        errors: [], // TODO: Implement error tracking
+      };
     } catch (error) {
-      logger.error(`Error executing trade for bot ${botId}:`, error);
-      throw error;
+      logger.error(`Error fetching bot status ${botId}:`, error);
+      throw new Error("Failed to fetch bot status");
     }
   }
 
-  private mapBotStatus(bot: any): BotStatus {
-    return {
-      id: bot.id,
-      active: bot.active,
-      lastCheck: bot.metadata.lastCheck,
-      lastTrade: bot.metadata.lastTrade,
-      dailyStats: bot.metadata.dailyStats,
-      errors: bot.metadata.errors,
-    };
+  async getAllUserBots(userId: string): Promise<BotStatus[]> {
+    try {
+      const bots = await prisma.botInstance.findMany({
+        where: { userId },
+        include: {
+          trades: {
+            where: {
+              createdAt: {
+                gte: new Date(new Date().setHours(0, 0, 0, 0)),
+              },
+            },
+            orderBy: {
+              createdAt: "desc",
+            },
+          },
+        },
+      });
+
+      return bots.map((bot) => {
+        // Filter trades with valid profitLoss values
+        const winningTrades = bot.trades.filter((t) => t.profitLoss && t.profitLoss.toNumber() > 0);
+        const totalPL = bot.trades.reduce((sum, t) => {
+          const profit = t.profitLoss ? t.profitLoss.toNumber() : 0;
+          return sum + profit;
+        }, 0);
+
+        return {
+          id: bot.id,
+          isActive: bot.isActive,
+          lastCheck: bot.updatedAt,
+          lastTrade: bot.trades.length > 0 ? bot.trades[0].createdAt : null,
+          dailyStats: {
+            tradesExecuted: bot.trades.length,
+            winRate: bot.trades.length ? (winningTrades.length / bot.trades.length) * 100 : 0,
+            profitLoss: totalPL,
+          },
+          errors: [], // TODO: Implement error tracking
+        };
+      });
+    } catch (error) {
+      logger.error(`Error fetching bots for user ${userId}:`, error);
+      throw new Error("Failed to fetch user bots");
+    }
+  }
+
+  async getBotLogs(botId: string): Promise<any[]> {
+    // TODO: Implement bot logging system
+    return [];
+  }
+
+  /**
+   * Get all active bots
+   */
+  async getAllActiveBots() {
+    try {
+      const bots = await prisma.botInstance.findMany({
+        where: { isActive: true },
+        include: {
+          trades: {
+            orderBy: {
+              createdAt: "desc",
+            },
+            take: 1,
+          },
+        },
+      });
+
+      return bots;
+    } catch (error) {
+      logger.error("Error fetching active bots:", error);
+      throw new Error("Failed to fetch active bots");
+    }
   }
 }

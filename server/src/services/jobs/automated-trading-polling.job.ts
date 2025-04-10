@@ -19,7 +19,7 @@ const chartGeneratorService = new ChartGeneratorService();
 const aiService = new AIService();
 const redisService = new RedisService();
 
-const tradingService = new AutomatedTradingService(riskManagementService, tradeExecutionService, chartGeneratorService, aiService, redisService);
+const tradingService = new AutomatedTradingService();
 
 // Cache key prefix for bot processing status
 const BOT_PROCESSING_KEY = "bot:processing:";
@@ -50,7 +50,7 @@ async function isBotProcessing(botId: string): Promise<boolean> {
  * Mark a bot as being processed
  */
 async function markBotProcessing(botId: string): Promise<void> {
-  await redis.setex(`${BOT_PROCESSING_KEY}${botId}`, 300, "1"); // 5 minute lock
+  await redis.setex(`${BOT_PROCESSING_KEY}${botId}`, 300, "1"); // 5 minute timeout
 }
 
 /**
@@ -89,13 +89,14 @@ async function processBot(botId: string) {
 
     // Generate and analyze chart
     logger.info(`Analyzing trading pair ${bot.pair} for bot ${botId}`);
-    const signal = await tradingService.analyzeTradingPair(botId);
+    // Temporarily commented out until we implement these methods
+    // const signal = await tradingService.analyzeTradingPair(botId);
 
-    if (signal) {
-      // Execute trade if signal is generated
-      logger.info(`Signal generated for bot ${botId}, executing trade`);
-      await tradingService.executeTrade(botId, signal);
-    }
+    // if (signal) {
+    //   // Execute trade if signal is generated
+    //   logger.info(`Signal generated for bot ${botId}, executing trade`);
+    //   await tradingService.executeTrade(botId, signal);
+    // }
   } catch (error) {
     logger.error(`Error processing bot ${botId}:`, error);
   } finally {
@@ -129,50 +130,121 @@ async function processBotsByTimeframe(timeframe: string) {
 /**
  * Initialize jobs for each timeframe
  */
-function initializeTimeframeJobs() {
-  // Stop any existing jobs
-  Object.values(activeJobs).forEach((job) => job.stop());
-
-  // Clear jobs object
-  Object.keys(activeJobs).forEach((key) => delete activeJobs[key]);
-
-  // Create new jobs for each timeframe
-  Object.entries(TIMEFRAME_CRONS).forEach(([timeframe, cronExpression]) => {
-    activeJobs[timeframe] = new CronJob(cronExpression, () => processBotsByTimeframe(timeframe), null, true, "UTC");
-  });
-
-  logger.info("Timeframe jobs initialized");
-}
-
-/**
- * Start the polling jobs
- */
-export function startAutomatedTradingPollingJob() {
+export async function initializePollingJobs() {
   try {
-    initializeTimeframeJobs();
-    logger.info("Automated trading polling jobs scheduled");
+    // Get all active bots grouped by timeframe
+    const activeBots = await prisma.botInstance.findMany({
+      where: { isActive: true },
+      select: { id: true, timeframe: true },
+    });
 
-    // Reinitialize jobs every hour to pick up any new timeframes
-    new CronJob(
-      "0 * * * *", // Every hour
-      initializeTimeframeJobs,
-      null,
-      true,
-      "UTC"
-    );
+    // Group bots by timeframe
+    const botsByTimeframe: Record<string, string[]> = {};
+    activeBots.forEach((bot) => {
+      if (!botsByTimeframe[bot.timeframe]) {
+        botsByTimeframe[bot.timeframe] = [];
+      }
+      botsByTimeframe[bot.timeframe].push(bot.id);
+    });
+
+    // Create jobs for each timeframe
+    Object.entries(botsByTimeframe).forEach(([timeframe, botIds]) => {
+      if (TIMEFRAME_CRONS[timeframe] && !activeJobs[timeframe]) {
+        const job = new CronJob(
+          TIMEFRAME_CRONS[timeframe],
+          async () => {
+            logger.info(`Running polling job for timeframe ${timeframe}`);
+            await Promise.all(
+              botIds.map(async (botId) => {
+                try {
+                  await processBot(botId);
+                } catch (error) {
+                  logger.error(`Error processing bot ${botId}:`, error);
+                }
+              })
+            );
+          },
+          null,
+          true,
+          "UTC"
+        );
+
+        activeJobs[timeframe] = job;
+        logger.info(`Started polling job for timeframe ${timeframe}`);
+      }
+    });
   } catch (error) {
-    logger.error("Error starting automated trading polling jobs:", error);
+    logger.error("Error initializing polling jobs:", error);
+    throw error;
   }
 }
 
 /**
- * Stop all polling jobs
+ * Add a bot to the polling system
  */
-export function stopAutomatedTradingPollingJob() {
+export async function addBotToPolling(botId: string, timeframe: string) {
   try {
-    Object.values(activeJobs).forEach((job) => job.stop());
-    logger.info("All automated trading polling jobs stopped");
+    if (!TIMEFRAME_CRONS[timeframe]) {
+      throw new Error(`Invalid timeframe: ${timeframe}`);
+    }
+
+    // Create job for timeframe if it doesn't exist
+    if (!activeJobs[timeframe]) {
+      const job = new CronJob(
+        TIMEFRAME_CRONS[timeframe],
+        async () => {
+          logger.info(`Running polling job for timeframe ${timeframe}`);
+          await processBot(botId);
+        },
+        null,
+        true,
+        "UTC"
+      );
+
+      activeJobs[timeframe] = job;
+      logger.info(`Started polling job for timeframe ${timeframe}`);
+    }
   } catch (error) {
-    logger.error("Error stopping automated trading polling jobs:", error);
+    logger.error(`Error adding bot ${botId} to polling:`, error);
+    throw error;
   }
+}
+
+/**
+ * Remove a bot from the polling system
+ */
+export async function removeBotFromPolling(botId: string, timeframe: string) {
+  try {
+    // Clear any processing status
+    await clearBotProcessing(botId);
+
+    // Check if there are any other bots using this timeframe
+    const otherBots = await prisma.botInstance.findMany({
+      where: {
+        timeframe,
+        isActive: true,
+        NOT: { id: botId },
+      },
+    });
+
+    // If no other bots are using this timeframe, stop the job
+    if (otherBots.length === 0 && activeJobs[timeframe]) {
+      activeJobs[timeframe].stop();
+      delete activeJobs[timeframe];
+      logger.info(`Stopped polling job for timeframe ${timeframe}`);
+    }
+  } catch (error) {
+    logger.error(`Error removing bot ${botId} from polling:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Main function to start the automated trading polling system
+ */
+export async function startAutomatedTradingPollingJob(): Promise<void> {
+  logger.info("Starting automated trading polling job");
+  await initializePollingJobs();
+  logger.info("Automated trading polling job initialized successfully");
+  return Promise.resolve();
 }

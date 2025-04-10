@@ -5,28 +5,33 @@ import { startAutomatedTradingPollingJob } from "./automated-trading-polling.job
 const logger = createLogger("jobs");
 
 /**
- * Initialize and start all scheduled jobs
+ * Initialize all scheduled jobs
  */
-export function initializeJobs() {
-  logger.info("Initializing scheduled jobs");
-
+export async function initializeJobs(): Promise<void> {
   try {
+    logger.info("Initializing scheduled jobs...");
+
     // Start monthly pairs validation job
     startMonthlyPairsValidationJob();
 
-    // Start automated trading polling job
-    startAutomatedTradingPollingJob();
+    // Start automated trading polling
+    await startAutomatedTradingPollingJob();
 
     logger.info("All scheduled jobs initialized successfully");
   } catch (error) {
     logger.error("Error initializing scheduled jobs:", error);
+    throw error;
   }
 }
 
 /**
- * Call this function when the application starts
+ * Start all scheduled jobs
  */
-export function startScheduledJobs() {
-  logger.info("Starting scheduled jobs");
-  initializeJobs();
+export async function startScheduledJobs(): Promise<void> {
+  try {
+    await initializeJobs();
+  } catch (error) {
+    logger.error("Failed to start scheduled jobs:", error);
+    throw error;
+  }
 }

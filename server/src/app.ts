@@ -94,6 +94,7 @@ app.use("/v1/strategies", strategyRouter);
 app.use("/v1/webhooks", webhookRouter);
 app.use("/v1/pairs", pairsRouter);
 app.use("/v1/candles", candlesRouter);
+app.use("/v1/trading/bot", require("./routes/trading/bot.routes").default);
 
 // Error handling
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
@@ -126,5 +127,14 @@ server.listen(PORT, "0.0.0.0", async () => {
   }
 
   // Start scheduled jobs
-  startScheduledJobs();
+  try {
+    await startScheduledJobs();
+    logger.info("Scheduled jobs started successfully");
+  } catch (jobsError) {
+    logger.error({
+      message: "Failed to start scheduled jobs",
+      error: jobsError instanceof Error ? jobsError.message : "Unknown error",
+    });
+    // Continue without scheduled jobs rather than crashing
+  }
 });

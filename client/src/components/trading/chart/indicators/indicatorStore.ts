@@ -83,82 +83,40 @@ const createBaseStore: StateCreator<IndicatorState> = (set, get) => ({
       return id;
     }
 
+    // Get the current event to check for skipIndicatorCheck
+    const event = window.event as CustomEvent;
+    const skipCheck = event?.detail?.skipIndicatorCheck;
+
     // Add the indicator to the map
     state.indicators.set(id, indicator);
-    console.log(`INDICATOR STORE: Added indicator ${indicator.getType()} to the map`);
 
     // Add to order if not already there
     if (!state.indicatorOrder.includes(id)) {
       state.indicatorOrder.push(id);
-      console.log(`INDICATOR STORE: Added indicator ${indicator.getType()} to the order list`);
     }
 
     // Determine if this is an overlay or oscillator indicator
     const isOverlay = isOverlayIndicator(indicator.getType());
-    console.log(`INDICATOR STORE: Indicator ${indicator.getType()} is ${isOverlay ? "an overlay" : "an oscillator"}`);
+    const isOscillator = OSCILLATOR_INDICATORS.includes(indicator.getType());
 
-    // Initialize the indicator with the chart
-    try {
-      // Get the pane index
-      const paneIndex = isOverlay ? 0 : state.getIndicatorPane(id) || getNextAvailablePaneIndex(state.oscillatorPanes);
-      console.log(`INDICATOR STORE: Using pane ${paneIndex} for indicator ${indicator.getType()}`);
+    // Only perform oscillator checks if not skipping
+    if (!skipCheck && isOscillator) {
+      // Check for existing oscillators
+      const existingOscillators = Array.from(state.indicators.values()).filter((ind) => OSCILLATOR_INDICATORS.includes(ind.getType()) && ind.getId() !== id);
 
-      indicator.initialize(state.chartInstance, {
-        id: indicator.getId(),
-        type: indicator.getType(),
-        name: indicator.getName(),
-        color: indicator.getConfig().color,
-        visible: indicator.isVisible(),
-        parameters: {
-          paneIndex,
-          priceScaleId: "left",
-        },
-      });
-      console.log(`INDICATOR STORE: Initialized indicator ${indicator.getType()}`);
-
-      // Create the series in the appropriate pane
-      if (paneIndex !== undefined) {
-        state.assignPane(id, paneIndex);
-        indicator.createSeries(paneIndex);
-        console.log(`INDICATOR STORE: Created series for indicator ${indicator.getType()} in pane ${paneIndex}`);
-
-        // Update the indicator with current data if available
-        if (state.mainSeries) {
-          const data = state.mainSeries.data();
-          if (data && data.length > 0) {
-            console.log(`INDICATOR STORE: Updating indicator ${indicator.getType()} with current data`);
-            const formattedData = data.map((d) => {
-              const candleData = d as CandlestickData<Time>;
-              return {
-                time: candleData.time,
-                open: candleData.open,
-                high: candleData.high,
-                low: candleData.low,
-                close: candleData.close,
-                value: 0,
-              };
-            });
-            indicator.updateData(formattedData);
-            console.log(`INDICATOR STORE: Successfully updated indicator ${indicator.getType()} with current data`);
-          }
-        }
-      } else {
-        console.error(`INDICATOR STORE: Failed to assign pane for oscillator indicator ${indicator.getType()}`);
+      if (existingOscillators.length > 0) {
+        // Remove the indicator we just added
+        state.indicators.delete(id);
+        state.indicatorOrder = state.indicatorOrder.filter((i) => i !== id);
+        throw new Error(`Only one oscillator indicator is allowed at a time`);
       }
-    } catch (error) {
-      console.error(`INDICATOR STORE: Failed to initialize indicator ${indicator.getType()}:`, error);
     }
 
-    // Update the state
-    set(state);
-    console.log(`INDICATOR STORE: Updated state with new indicator ${indicator.getType()}`);
-
-    // Force a chart update to ensure indicators are rendered
-    if (state.chartInstance) {
-      console.log(`INDICATOR STORE: Forcing chart update to ensure indicators are rendered`);
-      // This will trigger a redraw of the chart
-      state.chartInstance.timeScale().fitContent();
-    }
+    // Update the store state
+    set({
+      indicators: new Map(state.indicators),
+      indicatorOrder: [...state.indicatorOrder],
+    });
 
     return id;
   },
