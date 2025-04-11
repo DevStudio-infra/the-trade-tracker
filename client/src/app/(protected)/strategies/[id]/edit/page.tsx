@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useToast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, AlertCircle } from "lucide-react";
-import { strategyService, Strategy, UpdateStrategyDto } from "@/services/strategy";
+import { strategyService, Strategy, UpdateStrategyDto, StrategyRules } from "@/services/strategy";
 import { StrategyForm } from "@/components/strategies/StrategyForm";
 
 export default function EditStrategyPage({ params }: { params: { id: string } }) {
@@ -46,7 +46,15 @@ export default function EditStrategyPage({ params }: { params: { id: string } })
   }, [params.id, toast]);
 
   // Handle form submission
-  const handleSubmit = async (formData: { name: string; description: string; timeframes: string[]; isActive: boolean }) => {
+  const handleSubmit = async (formData: {
+    name: string;
+    description: string;
+    timeframes: string[];
+    isActive: boolean;
+    isPublic: boolean;
+    rules?: StrategyRules;
+    riskParameters?: Record<string, unknown>;
+  }) => {
     setSubmitError(null);
 
     try {

@@ -4,6 +4,7 @@ import { createServer } from "http";
 import { createLogger } from "./utils/logger";
 import botRoutes from "./routes/trading/bot.routes";
 import { startScheduledJobs } from "./services/jobs";
+import { startAutomatedTradingPollingJob } from "./services/jobs/automated-trading-polling.job";
 
 const logger = createLogger("server");
 const app = express();
@@ -14,7 +15,7 @@ app.use(
   cors({
     origin: "*",
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "Accept"],
+    allowedHeaders: ["Content-Type", "Authorization", "Accept", "dev-auth"],
   })
 );
 
@@ -66,6 +67,11 @@ async function startServer() {
   try {
     // Start scheduled jobs
     await startScheduledJobs();
+
+    // Explicitly initialize the automated trading polling job
+    logger.info("Initializing automated trading polling jobs");
+    await startAutomatedTradingPollingJob();
+    logger.info("Automated trading polling initialized successfully");
 
     // Log registered routes
     logger.info("Registered routes:", {

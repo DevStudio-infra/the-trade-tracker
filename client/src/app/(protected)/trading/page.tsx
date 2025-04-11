@@ -6,6 +6,7 @@ import { PositionsList } from "@/components/trading/positions-list";
 import { TradingPairSelect } from "@/components/trading/pair-select";
 import { BrokerSelect } from "@/components/trading/broker-select";
 import { AITradingConfig } from "@/components/trading/ai-trading-config";
+import { CreateTradingBot } from "@/components/trading/create-trading-bot";
 import { useSettings } from "@/hooks/useSettings";
 import { useTradingStore } from "@/stores/trading-store";
 import { useEffect, useState, useRef, useCallback } from "react";
@@ -284,9 +285,12 @@ export default function TradingPage() {
                 <TradingChart pair={selectedPair} />
               </div>
               <div className="space-y-6">
-                <AITradingConfig />
+                <CreateTradingBot />
                 <PositionsList />
               </div>
+            </div>
+            <div className="mt-6">
+              <AITradingConfig showOnlyActiveBots={true} />
             </div>
           </TabsContent>
         </Tabs>

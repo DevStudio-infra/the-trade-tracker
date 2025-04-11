@@ -9,14 +9,28 @@ import { useTradingStore } from "@/stores/trading-store";
 import { useAITradingApi } from "@/lib/ai-trading-api";
 import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { BrainCircuit, Loader2, Play, Activity } from "lucide-react";
+import { AlertCircle, BrainCircuit, Loader2, Trash2, StopCircle, PlayCircle, RefreshCcw } from "lucide-react";
 import { createIndicator } from "@/components/trading/chart/indicators/indicatorFactory";
 import { useIndicatorStore } from "@/components/trading/chart/indicators/indicatorStore";
 import { IndicatorParameters } from "@/components/trading/chart/core/ChartTypes";
-import { cn } from "@/lib/utils";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Table } from "@/components/ui/table";
 import { formatDistanceToNow } from "date-fns";
+import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 // Update AITradingConfig type
 declare module "@/stores/trading-store" {
@@ -42,29 +56,64 @@ interface BotStatus {
   errors: string[];
 }
 
+// Add Trade interface
+interface Trade {
+  id: string;
+  pair: string;
+  entryPrice: number;
+  exitPrice?: number;
+  profitLoss?: number;
+  createdAt: string;
+  closedAt?: string;
+  type: "BUY" | "SELL";
+  status: "OPEN" | "CLOSED";
+}
+
+// Add AIEvaluation interface
+interface AIEvaluation {
+  id: string;
+  signalId: string;
+  botInstanceId: string;
+  evalType: string;
+  chartImageUrl: string;
+  promptUsed: string;
+  llmResponse: LLMResponse;
+  createdAt: string;
+}
+
+// Add LLMResponse interface
+interface LLMResponse {
+  decision: string;
+  confidence: number;
+  reasoning: string;
+}
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
-export function AITradingConfig() {
+interface AITradingConfigProps {
+  showOnlyActiveBots?: boolean;
+}
+
+export function AITradingConfig({ showOnlyActiveBots = false }: AITradingConfigProps) {
   const { aiTradingConfig, updateAITradingConfig, selectedBroker, selectedPair } = useTradingStore();
   const { addIndicator, clearAllIndicators } = useIndicatorStore();
   const aiTradingApi = useAITradingApi();
-  const [isTogglingService, setIsTogglingService] = useState(false);
-  const [riskSettings] = useState({
-    maxRiskPerTrade: 1.0,
-    maxDailyLoss: 2.0,
-    maxDrawdown: 5.0,
-    stopLossPercent: 1.0,
-    takeProfitPercent: 2.0,
-  });
+  const [isDeleting, setIsDeleting] = useState<string | null>(null);
   const queryClient = useQueryClient();
+  const [strategy, setStrategy] = useState("");
+  const [timeframe, setTimeframe] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
+  const [isTogglingBot, setIsTogglingBot] = useState(false);
+  const [error, setError] = useState("");
+  const [botToDelete, setBotToDelete] = useState<string | null>(null);
+  const [selectedBot, setSelectedBot] = useState<BotStatus | null>(null);
+  const [showBotDetails, setShowBotDetails] = useState(false);
 
   // Fetch strategies
   const { data: strategies = [], isLoading: isLoadingStrategies } = useQuery({
     queryKey: ["strategies"],
     queryFn: async () => {
-      console.log("AITradingConfig: Fetching strategies...");
       const result = await aiTradingApi.getStrategies();
-      console.log("AITradingConfig: Strategies fetched:", result);
       return result;
     },
     staleTime: 1000 * 60 * 5, // 5 minutes
@@ -84,28 +133,17 @@ export function AITradingConfig() {
     staleTime: 2000,
   });
 
-  // Selected strategy details
-  const selectedStrategy = strategies.find((s) => s.id === aiTradingConfig.selectedStrategyId);
-
   // Load strategy indicators
   const loadStrategyIndicators = useCallback(
     (strategyId: string | null) => {
-      console.log("AITradingConfig: Loading indicators for strategy:", strategyId);
-
       // Clear existing indicators first
       clearAllIndicators();
 
-      if (!strategyId) {
-        console.log("AITradingConfig: No strategy ID provided, skipping indicator loading");
-        return;
-      }
+      if (!strategyId) return;
 
       // Find the selected strategy
       const strategy = strategies.find((s) => s.id === strategyId);
-      if (!strategy || !strategy.rules?.indicators) {
-        console.log("AITradingConfig: No valid strategy or indicators found");
-        return;
-      }
+      if (!strategy || !strategy.rules?.indicators) return;
 
       // Create a single update batch
       const indicatorsToAdd = Object.entries(strategy.rules.indicators)
@@ -117,7 +155,7 @@ export function AITradingConfig() {
 
             return createIndicator(type, params);
           } catch (error) {
-            console.error(`AITradingConfig: Error creating indicator ${type}:`, error);
+            console.error(`Error creating indicator ${type}:`, error);
             return null;
           }
         })
@@ -126,9 +164,7 @@ export function AITradingConfig() {
       // Add all indicators in one batch
       if (indicatorsToAdd.length > 0) {
         indicatorsToAdd.forEach((indicator) => {
-          if (indicator) {
-            addIndicator(indicator);
-          }
+          if (indicator) addIndicator(indicator);
         });
 
         // Single chart refresh after all indicators are added
@@ -140,7 +176,7 @@ export function AITradingConfig() {
                   pair: selectedPair,
                   brokerId: selectedBroker.id,
                   timeframe: aiTradingConfig.timeframe || "1h",
-                  skipIndicatorCheck: true, // Add this flag to prevent recursive checks
+                  skipIndicatorCheck: true,
                 },
               })
             );
@@ -169,81 +205,63 @@ export function AITradingConfig() {
 
   // Create a new bot
   const createBot = async () => {
-    if (!selectedBroker || !selectedPair || !aiTradingConfig.selectedStrategyId) {
-      toast.error("Please select a broker, trading pair, and strategy first");
+    if (!strategy || !timeframe) {
+      setError("Please select a strategy and timeframe");
       return;
     }
 
-    if (isTogglingService) return;
+    setIsCreating(true);
+    setError("");
 
-    setIsTogglingService(true);
     try {
-      // Use strategy's risk parameters if available
-      const strategyRiskSettings = selectedStrategy?.riskParameters || {};
-
-      const requestBody = {
-        strategyId: aiTradingConfig.selectedStrategyId,
-        pair: selectedPair,
-        timeframe: aiTradingConfig.timeframe || "1h",
-        riskSettings: {
-          maxRiskPerTrade: strategyRiskSettings.maxRiskPercent || riskSettings.maxRiskPerTrade,
-          stopLossPercent: strategyRiskSettings.stopLossMultiplier || riskSettings.stopLossPercent,
-          takeProfitPercent: strategyRiskSettings.takeProfitMultiplier || riskSettings.takeProfitPercent,
+      const response = await fetch(`${API_URL}/trading/bot`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "dev-auth": "true",
         },
-      };
-
-      console.log("Creating bot with data:", JSON.stringify(requestBody, null, 2));
-
-      try {
-        const response = await fetch(`${API_URL}/trading/bot`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
+        body: JSON.stringify({
+          pair: "BTCUSDT",
+          timeframe,
+          strategyId: strategy,
+          riskSettings: {
+            maxRiskPerTrade: 2, // Default value instead of slider
           },
-          body: JSON.stringify(requestBody),
-          cache: "no-cache",
-          credentials: "same-origin",
-        });
+        }),
+      });
 
-        const responseText = await response.text();
-        console.log("Response status:", response.status);
-        console.log("Response text:", responseText);
-
-        if (!response.ok) {
-          throw new Error(`Failed to create bot: ${response.statusText} - ${responseText}`);
-        }
-
-        const botData = response.status !== 204 ? JSON.parse(responseText) : {};
-
-        const startResponse = await fetch(`${API_URL}/trading/bot/${botData.id}/start`, {
-          method: "POST",
-        });
-
-        if (!startResponse.ok) {
-          throw new Error(`Failed to start bot: ${startResponse.statusText}`);
-        }
-
-        toast.success("Trading bot created and started");
-        queryClient.invalidateQueries({ queryKey: ["all-trading-bots"] });
-      } catch (error) {
-        console.error("Error creating bot:", error);
-        throw error;
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `API error: ${response.status}`);
       }
-    } catch (error) {
+
+      const botData = await response.json();
+      console.log("Bot created:", botData);
+
+      // Start the bot
+      await toggleBot(botData.id, false);
+
+      // Clear inputs
+      setStrategy("");
+      setTimeframe("");
+    } catch (error: unknown) {
       console.error("Error creating bot:", error);
-      toast.error(error instanceof Error ? error.message : "Failed to create trading bot");
+      setError(`Failed to create bot: ${error instanceof Error ? error.message : "Unknown error"}`);
     } finally {
-      setIsTogglingService(false);
+      setIsCreating(false);
     }
   };
 
   // Toggle an existing bot
   const toggleBot = async (botId: string, isActive: boolean) => {
+    setIsTogglingBot(true);
     try {
       const action = isActive ? "stop" : "start";
       const response = await fetch(`${API_URL}/trading/bot/${botId}/${action}`, {
         method: "POST",
+        headers: {
+          "dev-auth": "true",
+        },
       });
 
       if (!response.ok) {
@@ -255,12 +273,46 @@ export function AITradingConfig() {
     } catch (error) {
       console.error(`Error ${isActive ? "stopping" : "starting"} bot:`, error);
       toast.error(error instanceof Error ? error.message : `Failed to ${isActive ? "stop" : "start"} trading bot`);
+    } finally {
+      setIsTogglingBot(false);
+    }
+  };
+
+  // Delete a bot
+  const deleteBot = async (botId: string) => {
+    if (!botId) return;
+
+    setIsDeleting(botId);
+    try {
+      const response = await fetch(`${API_URL}/trading/bot/${botId}`, {
+        method: "DELETE",
+        headers: {
+          "dev-auth": "true",
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to delete bot: ${response.statusText}`);
+      }
+
+      toast.success("Trading bot deleted successfully");
+      queryClient.invalidateQueries({ queryKey: ["all-trading-bots"] });
+      setBotToDelete(null);
+    } catch (error: unknown) {
+      console.error("Error deleting bot:", error);
+      if (error instanceof Error) {
+        toast.error(error.message);
+      } else {
+        toast.error("Failed to delete trading bot");
+      }
+    } finally {
+      setIsDeleting(null);
     }
   };
 
   // Handle strategy selection
   const handleStrategyChange = (value: string) => {
-    console.log("AITradingConfig: Strategy selected:", value);
+    setStrategy(value);
     updateAITradingConfig({ selectedStrategyId: value || null });
 
     // Use RAF to ensure we're not in a tight loop
@@ -271,38 +323,227 @@ export function AITradingConfig() {
 
   // Handle timeframe selection
   const handleTimeframeChange = (value: string) => {
+    setTimeframe(value);
     updateAITradingConfig({ timeframe: value });
   };
 
-  const isConfigured = selectedBroker && selectedPair && aiTradingConfig.selectedStrategyId && aiTradingConfig.timeframe;
+  // Function to open bot details
+  const handleBotClick = (bot: BotStatus) => {
+    setSelectedBot(bot);
+    setShowBotDetails(true);
+  };
 
+  const botTableRow = (bot: BotStatus) => (
+    <TableRow
+      key={bot.id}
+      className="cursor-pointer hover:bg-muted/50"
+      onClick={(e) => {
+        // Prevent clicks on action buttons from opening the details
+        if ((e.target as Element).closest("button")) return;
+        handleBotClick(bot);
+      }}>
+      <TableCell>
+        <Badge variant={bot.isActive ? "default" : "secondary"} className="flex items-center gap-1 w-fit">
+          {bot.isActive ? (
+            <>
+              <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse"></span>
+              Active
+            </>
+          ) : (
+            "Inactive"
+          )}
+        </Badge>
+      </TableCell>
+      <TableCell>{bot.pair || "BTCUSDT"}</TableCell>
+      <TableCell>{bot.timeframe}</TableCell>
+      <TableCell>{bot.strategyId?.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) || "Unknown"}</TableCell>
+      <TableCell>
+        {bot.lastCheck
+          ? formatDistanceToNow(new Date(bot.lastCheck), {
+              addSuffix: true,
+            })
+          : "Not started"}
+      </TableCell>
+      <TableCell className="text-right">{bot.dailyStats?.winRate !== undefined ? `${Math.round(bot.dailyStats.winRate * 100)}%` : "N/A"}</TableCell>
+      <TableCell className="text-right">
+        {bot.dailyStats?.profitLoss !== undefined ? `${bot.dailyStats.profitLoss > 0 ? "+" : ""}${bot.dailyStats.profitLoss.toFixed(2)}%` : "N/A"}
+      </TableCell>
+      <TableCell className="text-right">
+        <div className="flex justify-end gap-2">
+          <Button
+            variant={bot.isActive ? "destructive" : "default"}
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation(); // Prevent opening details
+              toggleBot(bot.id!, bot.isActive);
+            }}
+            disabled={isTogglingBot}
+            className="h-8 px-3">
+            {bot.isActive ? <StopCircle className="h-4 w-4 mr-1" /> : <PlayCircle className="h-4 w-4 mr-1" />}
+            {bot.isActive ? "Stop" : "Start"}
+          </Button>
+
+          {!bot.isActive && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <AlertDialog open={botToDelete === bot.id} onOpenChange={(isOpen: boolean) => !isOpen && setBotToDelete(null)}>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation(); // Prevent opening details
+                          setBotToDelete(bot.id!);
+                        }}
+                        disabled={isDeleting === bot.id}
+                        className="h-8 px-3">
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Trading Bot</AlertDialogTitle>
+                        <AlertDialogDescription>Are you sure you want to delete this trading bot? This action cannot be undone.</AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => deleteBot(bot.id!)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                          {isDeleting === bot.id ? (
+                            <>
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              Deleting...
+                            </>
+                          ) : (
+                            "Delete"
+                          )}
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Delete bot</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+        </div>
+      </TableCell>
+    </TableRow>
+  );
+
+  // Render function for the table that includes both the table rows and the bot details dialog
+  const renderBotTable = () => (
+    <>
+      <div className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-[100px]">Status</TableHead>
+              <TableHead>Pair</TableHead>
+              <TableHead>Timeframe</TableHead>
+              <TableHead>Strategy</TableHead>
+              <TableHead>Last Check</TableHead>
+              <TableHead className="text-right">Win Rate</TableHead>
+              <TableHead className="text-right">P/L</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>{allBots.map((bot) => botTableRow(bot))}</TableBody>
+        </Table>
+      </div>
+
+      {/* Bot Details Dialog */}
+      <Dialog open={showBotDetails} onOpenChange={setShowBotDetails}>
+        <DialogContent className="max-w-4xl h-[80vh] max-h-[80vh] flex flex-col overflow-hidden">
+          <DialogHeader>
+            <DialogTitle className="text-xl flex items-center gap-2">
+              <BrainCircuit className="h-5 w-5 text-primary" />
+              Bot Details: {selectedBot?.strategyId?.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} - {selectedBot?.pair}
+            </DialogTitle>
+            <DialogDescription>View trade history and AI evaluations for this trading bot.</DialogDescription>
+          </DialogHeader>
+
+          {selectedBot && <BotDetailsView bot={selectedBot} />}
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+
+  // Render only the active bots section if showOnlyActiveBots is true
+  if (showOnlyActiveBots) {
+    return (
+      <div className="w-full">
+        {/* Active Trading Bots Section */}
+        <Card className="shadow-md">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <BrainCircuit className="w-5 h-5 mr-2 text-primary" />
+                <CardTitle className="text-xl">Active Trading Bots</CardTitle>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  queryClient.invalidateQueries({ queryKey: ["all-trading-bots"] });
+                }}
+                className="h-8">
+                <RefreshCcw className="w-4 h-4 mr-1" /> Refresh
+              </Button>
+            </div>
+            <CardDescription>Monitor and manage your automated trading bots</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {isLoadingBots ? (
+              <div className="flex justify-center p-8">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            ) : allBots.length > 0 ? (
+              renderBotTable()
+            ) : (
+              <div className="text-center py-8 text-muted-foreground">
+                <p className="mb-2">No active trading bots found</p>
+                <p className="text-sm">Configure and start a bot to see it here</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Original implementation for the full component
   return (
-    <div className="space-y-6">
-      {/* Bot Creation Card */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <BrainCircuit className="h-6 w-6" />
-            <span>AI Trading Bot</span>
-          </CardTitle>
-          <CardDescription>Create and manage automated trading bots</CardDescription>
+    <div className="w-full space-y-6">
+      {/* Create Bot Section */}
+      <Card className="shadow-md">
+        <CardHeader className="pb-3">
+          <div className="flex items-center mb-2">
+            <BrainCircuit className="w-5 h-5 mr-2 text-primary" />
+            <CardTitle className="text-xl">Create Trading Bot</CardTitle>
+          </div>
+          <CardDescription>Configure and launch an automated trading bot</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-6 md:grid-cols-2">
-            {/* Left Column - Options */}
-            <div className="space-y-4">
+          <form className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="strategy" className="mb-1 block">
+                <Label htmlFor="strategy" className="text-sm font-medium mb-1 block">
                   Trading Strategy
                 </Label>
-                <Select value={aiTradingConfig.selectedStrategyId || ""} onValueChange={handleStrategyChange} disabled={isLoadingStrategies}>
-                  <SelectTrigger id="strategy">
+                <Select value={strategy} onValueChange={handleStrategyChange} disabled={isLoadingStrategies}>
+                  <SelectTrigger id="strategy" className="w-full">
                     <SelectValue placeholder="Select a strategy" />
                   </SelectTrigger>
                   <SelectContent>
                     {isLoadingStrategies ? (
                       <SelectItem value="loading" disabled>
-                        Loading strategies...
+                        <span className="flex items-center">
+                          <Loader2 className="h-3 w-3 animate-spin mr-2" />
+                          Loading strategies...
+                        </span>
                       </SelectItem>
                     ) : strategies.length > 0 ? (
                       strategies.map((strategy) => (
@@ -312,7 +553,10 @@ export function AITradingConfig() {
                       ))
                     ) : (
                       <SelectItem value="none" disabled>
-                        No strategies available
+                        <span className="flex items-center">
+                          <AlertCircle className="h-3 w-3 mr-2" />
+                          No strategies available
+                        </span>
                       </SelectItem>
                     )}
                   </SelectContent>
@@ -320,11 +564,11 @@ export function AITradingConfig() {
               </div>
 
               <div>
-                <Label htmlFor="timeframe" className="mb-1 block">
+                <Label htmlFor="timeframe" className="text-sm font-medium mb-1 block">
                   Chart Timeframe
                 </Label>
-                <Select value={aiTradingConfig.timeframe || "1h"} onValueChange={handleTimeframeChange}>
-                  <SelectTrigger id="timeframe">
+                <Select value={timeframe} onValueChange={handleTimeframeChange}>
+                  <SelectTrigger id="timeframe" className="w-full">
                     <SelectValue placeholder="Select timeframe" />
                   </SelectTrigger>
                   <SelectContent>
@@ -338,149 +582,375 @@ export function AITradingConfig() {
                   </SelectContent>
                 </Select>
               </div>
-
-              <Button onClick={createBot} disabled={!isConfigured || isTogglingService} className="w-full mt-4">
-                {isTogglingService ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Creating Bot...
-                  </>
-                ) : (
-                  <>
-                    <Play className="mr-2 h-4 w-4" />
-                    Create & Start Bot
-                  </>
-                )}
-              </Button>
             </div>
 
-            {/* Right Column - Strategy Details */}
-            <div className="space-y-2">
-              {selectedStrategy ? (
-                <div className="rounded-md border p-4 h-full">
-                  <div className="font-medium mb-2 text-base">{selectedStrategy.name}</div>
-                  <div className="text-muted-foreground text-xs mb-4 max-h-16 overflow-y-auto">{selectedStrategy.description}</div>
+            {error && <div className="bg-destructive/10 text-destructive p-2 rounded-md text-sm">{error}</div>}
 
-                  <div className="space-y-1 border-t pt-3 mt-2">
-                    <h4 className="text-sm font-semibold mb-2 flex items-center">
-                      <span>Risk Parameters</span>
-                      <span className="inline-block ml-2 px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs rounded-full">Used by Bot</span>
-                    </h4>
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Max Risk:</span>
-                        <span className="font-medium">{(selectedStrategy.riskParameters?.maxRiskPercent ?? "N/A").toString()}%</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Stop Loss:</span>
-                        <span className="font-medium">{(selectedStrategy.riskParameters?.stopLossMultiplier ?? "N/A").toString()}%</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Take Profit:</span>
-                        <span className="font-medium">{(selectedStrategy.riskParameters?.takeProfitMultiplier ?? "N/A").toString()}%</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Timeframes:</span>
-                        <span className="font-medium">{selectedStrategy.timeframes?.join(", ") || "N/A"}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="border-t pt-3 mt-3">
-                    <h4 className="text-sm font-semibold mb-2">Indicators Used</h4>
-                    <div className="flex flex-wrap gap-1">
-                      {selectedStrategy.rules?.indicators ? (
-                        Object.keys(selectedStrategy.rules.indicators).map((indicator) => (
-                          <span key={indicator} className="bg-secondary/60 text-xs rounded px-2 py-1">
-                            {indicator}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-muted-foreground">No indicators specified</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
+            <Button type="button" onClick={createBot} disabled={isCreating || !strategy || !timeframe} className="w-full">
+              {isCreating ? (
+                <>
+                  <RefreshCcw className="w-4 h-4 mr-2 animate-spin" />
+                  Creating...
+                </>
               ) : (
-                <div className="flex items-center justify-center h-full border rounded-md border-dashed p-8">
-                  <div className="text-center text-muted-foreground">
-                    <BrainCircuit className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                    <p>Select a strategy to view details</p>
-                  </div>
-                </div>
+                "Create & Start Bot"
               )}
-            </div>
-          </div>
+            </Button>
+          </form>
         </CardContent>
       </Card>
 
-      {/* Active Bots Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg flex items-center gap-2">
-            <Activity className="h-5 w-5" />
-            <span>Active Trading Bots</span>
-          </CardTitle>
+      {/* Strategy Details Section */}
+      {strategy && (
+        <Card className="shadow-md">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-xl">Strategy Details</CardTitle>
+            <CardDescription>Learn about this trading strategy</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {strategy === "rsi_mean_reversion" && (
+              <div className="space-y-3">
+                <h3 className="font-medium">RSI Mean Reversion Strategy</h3>
+                <p className="text-sm text-muted-foreground">
+                  This strategy uses the Relative Strength Index (RSI) indicator to identify overbought and oversold conditions in the market, entering trades when price is likely
+                  to revert to the mean.
+                </p>
+                <div className="space-y-2">
+                  <h4 className="text-sm font-medium">Indicators Used</h4>
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant="secondary">RSI</Badge>
+                  </div>
+                </div>
+                <div>
+                  <h4 className="text-sm font-medium mb-1">Trade Logic</h4>
+                  <ul className="text-sm text-muted-foreground list-disc pl-5 space-y-1">
+                    <li>Buy when RSI drops below 30 (oversold)</li>
+                    <li>Sell when RSI rises above 70 (overbought)</li>
+                    <li>Uses dynamic stop-loss based on recent volatility</li>
+                  </ul>
+                </div>
+              </div>
+            )}
+
+            {strategy === "sma_crossover" && (
+              <div className="space-y-3">
+                <h3 className="font-medium">SMA Crossover Strategy</h3>
+                <p className="text-sm text-muted-foreground">
+                  Uses Simple Moving Average crossovers to identify trend changes and potential entry/exit points. This strategy works well in trending markets.
+                </p>
+                <div className="space-y-2">
+                  <h4 className="text-sm font-medium">Indicators Used</h4>
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant="secondary">SMA 50</Badge>
+                    <Badge variant="secondary">SMA 200</Badge>
+                  </div>
+                </div>
+                <div>
+                  <h4 className="text-sm font-medium mb-1">Trade Logic</h4>
+                  <ul className="text-sm text-muted-foreground list-disc pl-5 space-y-1">
+                    <li>Buy when fast SMA crosses above slow SMA</li>
+                    <li>Sell when fast SMA crosses below slow SMA</li>
+                    <li>Includes confirmation with volume analysis</li>
+                  </ul>
+                </div>
+              </div>
+            )}
+
+            {strategy === "macd_momentum" && (
+              <div className="space-y-3">
+                <h3 className="font-medium">MACD Momentum Strategy</h3>
+                <p className="text-sm text-muted-foreground">
+                  Uses the Moving Average Convergence Divergence (MACD) indicator to identify momentum shifts and potential trend continuations or reversals.
+                </p>
+                <div className="space-y-2">
+                  <h4 className="text-sm font-medium">Indicators Used</h4>
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant="secondary">MACD</Badge>
+                    <Badge variant="secondary">Signal Line</Badge>
+                  </div>
+                </div>
+                <div>
+                  <h4 className="text-sm font-medium mb-1">Trade Logic</h4>
+                  <ul className="text-sm text-muted-foreground list-disc pl-5 space-y-1">
+                    <li>Buy when MACD crosses above signal line</li>
+                    <li>Sell when MACD crosses below signal line</li>
+                    <li>Uses histogram for confirmation</li>
+                  </ul>
+                </div>
+              </div>
+            )}
+
+            {strategy === "bollinger_breakout" && (
+              <div className="space-y-3">
+                <h3 className="font-medium">Bollinger Breakout Strategy</h3>
+                <p className="text-sm text-muted-foreground">
+                  Utilizes Bollinger Bands to identify volatility breakouts and potential trend movements, entering trades when price breaks through the bands.
+                </p>
+                <div className="space-y-2">
+                  <h4 className="text-sm font-medium">Indicators Used</h4>
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant="secondary">Bollinger Bands</Badge>
+                    <Badge variant="secondary">SMA 20</Badge>
+                  </div>
+                </div>
+                <div>
+                  <h4 className="text-sm font-medium mb-1">Trade Logic</h4>
+                  <ul className="text-sm text-muted-foreground list-disc pl-5 space-y-1">
+                    <li>Buy when price breaks above upper band</li>
+                    <li>Sell when price breaks below lower band</li>
+                    <li>Uses volume and band width for confirmation</li>
+                  </ul>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Active Trading Bots Section */}
+      <Card className="shadow-md">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center">
+              <BrainCircuit className="w-5 h-5 mr-2 text-primary" />
+              <CardTitle className="text-xl">Active Trading Bots</CardTitle>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                queryClient.invalidateQueries({ queryKey: ["all-trading-bots"] });
+              }}
+              className="h-8">
+              <RefreshCcw className="w-4 h-4 mr-1" /> Refresh
+            </Button>
+          </div>
+          <CardDescription>Monitor and manage your automated trading bots</CardDescription>
         </CardHeader>
         <CardContent>
           {isLoadingBots ? (
-            <div className="flex justify-center p-6">
+            <div className="flex justify-center p-8">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
           ) : allBots.length > 0 ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Pair</TableHead>
-                  <TableHead>Timeframe</TableHead>
-                  <TableHead>Strategy</TableHead>
-                  <TableHead>Last Check</TableHead>
-                  <TableHead>Win Rate</TableHead>
-                  <TableHead>P/L</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {allBots.map((bot) => (
-                  <TableRow key={bot.id}>
-                    <TableCell>
-                      <div className="flex items-center space-x-2">
-                        <div
-                          className={cn("h-3 w-3 rounded-full", {
-                            "bg-green-500 animate-pulse": bot.isActive,
-                            "bg-red-500": !bot.isActive,
-                          })}
-                        />
-                        <span>{bot.isActive ? "Active" : "Inactive"}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>{bot.pair}</TableCell>
-                    <TableCell>{bot.timeframe}</TableCell>
-                    <TableCell>{strategies.find((s) => s.id === bot.strategyId)?.name || "Unknown"}</TableCell>
-                    <TableCell>{bot.lastCheck ? formatDistanceToNow(new Date(bot.lastCheck), { addSuffix: true }) : "Never"}</TableCell>
-                    <TableCell>{bot.dailyStats?.winRate?.toFixed(1) || 0}%</TableCell>
-                    <TableCell className={cn({ "text-green-600": (bot.dailyStats?.profitLoss || 0) > 0, "text-red-600": (bot.dailyStats?.profitLoss || 0) < 0 })}>
-                      {(bot.dailyStats?.profitLoss || 0).toFixed(2)}%
-                    </TableCell>
-                    <TableCell>
-                      <Button variant={bot.isActive ? "destructive" : "outline"} size="sm" onClick={() => toggleBot(bot.id!, bot.isActive)}>
-                        {bot.isActive ? "Stop" : "Start"}
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            renderBotTable()
           ) : (
-            <div className="text-center p-6 border rounded-lg bg-secondary/20">
-              <Activity className="h-12 w-12 mx-auto mb-4 text-secondary-foreground/60" />
-              <p className="text-secondary-foreground/70">No active trading bots found</p>
-              <p className="text-xs text-muted-foreground mt-1">Configure and start a bot to see it here</p>
+            <div className="text-center py-8 text-muted-foreground">
+              <p className="mb-2">No active trading bots found</p>
+              <p className="text-sm">Configure and start a bot to see it here</p>
             </div>
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+// New component for bot details view
+function BotDetailsView({ bot }: { bot: BotStatus }) {
+  const [activeTab, setActiveTab] = useState<string>("trades");
+  const [trades, setTrades] = useState<Trade[]>([]);
+  const [evaluations, setEvaluations] = useState<AIEvaluation[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchBotDetails = async () => {
+      setIsLoading(true);
+      try {
+        // In the future, these will be real API calls to fetch data
+        // For now we'll use placeholder data
+
+        // Mock trades data - will be replaced with API call in the future
+        const mockTrades: Trade[] = [
+          {
+            id: "trade-1",
+            pair: bot.pair || "BTCUSDT",
+            entryPrice: 40000,
+            exitPrice: 41000,
+            profitLoss: 2.5,
+            createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+            closedAt: new Date(Date.now() - 20 * 60 * 60 * 1000).toISOString(),
+            type: "BUY",
+            status: "CLOSED",
+          },
+          {
+            id: "trade-2",
+            pair: bot.pair || "BTCUSDT",
+            entryPrice: 39500,
+            exitPrice: 39000,
+            profitLoss: -1.3,
+            createdAt: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
+            closedAt: new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString(),
+            type: "BUY",
+            status: "CLOSED",
+          },
+          {
+            id: "trade-3",
+            pair: bot.pair || "BTCUSDT",
+            entryPrice: 40500,
+            type: "BUY",
+            createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+            status: "OPEN",
+          },
+        ];
+
+        // Mock evaluations data - will be replaced with API call in the future
+        const mockEvaluations: AIEvaluation[] = [
+          {
+            id: "eval-1",
+            signalId: "signal-1",
+            botInstanceId: bot.id || "",
+            evalType: "ENTRY",
+            chartImageUrl: "/placeholder-chart.png", // Will be real chart images in the future
+            promptUsed: "Analyze this chart for buy opportunities using RSI strategy",
+            llmResponse: {
+              decision: "BUY",
+              confidence: 0.85,
+              reasoning: "RSI is in oversold territory at 29.5, indicating a potential reversal. Price is also finding support at the 50-day moving average.",
+            },
+            createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+          },
+          {
+            id: "eval-2",
+            signalId: "signal-2",
+            botInstanceId: bot.id || "",
+            evalType: "EXIT",
+            chartImageUrl: "/placeholder-chart.png", // Will be real chart images in the future
+            promptUsed: "Analyze this chart for exit conditions using RSI strategy",
+            llmResponse: {
+              decision: "SELL",
+              confidence: 0.78,
+              reasoning: "RSI has reached overbought territory at 72, and price is approaching resistance. Consider taking profits.",
+            },
+            createdAt: new Date(Date.now() - 20 * 60 * 60 * 1000).toISOString(),
+          },
+        ];
+
+        setTrades(mockTrades);
+        setEvaluations(mockEvaluations);
+      } catch (error) {
+        console.error("Error fetching bot details:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchBotDetails();
+  }, [bot.id, bot.pair]);
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      <Tabs defaultValue="trades" value={activeTab} onValueChange={setActiveTab} className="w-full flex-1 flex flex-col overflow-hidden">
+        <TabsList className="w-full grid grid-cols-2 mb-4">
+          <TabsTrigger value="trades" className="py-2">
+            Trade History
+          </TabsTrigger>
+          <TabsTrigger value="evaluations" className="py-2">
+            AI Evaluations
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="trades" className="flex-1 overflow-auto">
+          {isLoading ? (
+            <div className="flex justify-center items-center h-full">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : trades.length > 0 ? (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Entry Price</TableHead>
+                    <TableHead>Exit Price</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">P/L</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {trades.map((trade) => (
+                    <TableRow key={trade.id}>
+                      <TableCell>{new Date(trade.createdAt).toLocaleString()}</TableCell>
+                      <TableCell>
+                        <Badge variant={trade.type === "BUY" ? "default" : "secondary"}>{trade.type}</Badge>
+                      </TableCell>
+                      <TableCell>${trade.entryPrice.toLocaleString()}</TableCell>
+                      <TableCell>{trade.exitPrice ? `$${trade.exitPrice.toLocaleString()}` : "-"}</TableCell>
+                      <TableCell>
+                        <Badge variant={trade.status === "OPEN" ? "outline" : "secondary"}>{trade.status}</Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {trade.profitLoss !== undefined ? (
+                          <span className={trade.profitLoss >= 0 ? "text-green-500" : "text-red-500"}>
+                            {trade.profitLoss >= 0 ? "+" : ""}
+                            {trade.profitLoss.toFixed(2)}%
+                          </span>
+                        ) : (
+                          "-"
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground">
+              <p>No trade history available for this bot</p>
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="evaluations" className="flex-1 overflow-auto">
+          {isLoading ? (
+            <div className="flex justify-center items-center h-full">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : evaluations.length > 0 ? (
+            <div className="space-y-6">
+              {evaluations.map((evaluation) => (
+                <Card key={evaluation.id} className="overflow-hidden">
+                  <CardHeader className="pb-2">
+                    <div className="flex justify-between items-center">
+                      <CardTitle className="text-lg">{evaluation.evalType === "ENTRY" ? "Entry Evaluation" : "Exit Evaluation"}</CardTitle>
+                      <span className="text-sm text-muted-foreground">{new Date(evaluation.createdAt).toLocaleString()}</span>
+                    </div>
+                    <CardDescription>{evaluation.promptUsed}</CardDescription>
+                  </CardHeader>
+                  <CardContent className="pb-4 space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div>
+                        <h4 className="font-medium mb-2">Chart Analysis</h4>
+                        <div className="rounded-md border overflow-hidden h-64 bg-muted flex items-center justify-center">
+                          <div className="text-muted-foreground text-sm">
+                            Chart image not available
+                            <p className="text-xs mt-1">(Will be implemented in future version)</p>
+                          </div>
+                        </div>
+                      </div>
+                      <div>
+                        <h4 className="font-medium mb-2">AI Response</h4>
+                        <div className="rounded-md border p-4 bg-muted/30">
+                          <div className="flex justify-between mb-2">
+                            <Badge variant={evaluation.llmResponse.decision === "BUY" ? "default" : "destructive"}>{evaluation.llmResponse.decision}</Badge>
+                            <span className="text-sm">Confidence: {(evaluation.llmResponse.confidence * 100).toFixed(0)}%</span>
+                          </div>
+                          <p className="text-sm">{evaluation.llmResponse.reasoning}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground">
+              <p>No AI evaluations available for this bot</p>
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

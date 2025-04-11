@@ -5,60 +5,12 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Badge } from "@/components/ui/badge";
-import { Lightbulb, HelpCircle, Clock, ArrowRightLeft, TrendingUp, Zap, BarChart3, Settings, Trash2, Loader2 } from "lucide-react";
+import { Lightbulb, HelpCircle, BarChart3, Settings, Trash2, Loader2 } from "lucide-react";
 import { Strategy, StrategyRules } from "@/services/strategy";
 import { useToast } from "@/components/ui/use-toast";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useUserStore } from "@/stores/user-store";
-
-// Common timeframes for trading
-const timeframeOptions = [
-  { value: "1m", label: "1 Minute" },
-  { value: "5m", label: "5 Minutes" },
-  { value: "15m", label: "15 Minutes" },
-  { value: "30m", label: "30 Minutes" },
-  { value: "1h", label: "1 Hour" },
-  { value: "4h", label: "4 Hours" },
-  { value: "1d", label: "1 Day" },
-  { value: "1w", label: "1 Week" },
-];
-
-// Strategy types
-const strategyTypes = [
-  { value: "trend-following", label: "Trend Following", icon: TrendingUp },
-  { value: "mean-reversion", label: "Mean Reversion", icon: ArrowRightLeft },
-  { value: "breakout", label: "Breakout", icon: Zap },
-];
-
-// Market conditions
-const marketConditions = [
-  { value: "bullish", label: "Bullish" },
-  { value: "bearish", label: "Bearish" },
-  { value: "sideways", label: "Sideways" },
-  { value: "volatile", label: "Volatile" },
-  { value: "low_volatility", label: "Low Volatility" },
-];
-
-// Common entry/exit rule conditions - will be used in future enhancements
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const conditionOptions = {
-  entry: [
-    { value: "price_above_ma", label: "Price Above Moving Average" },
-    { value: "price_below_ma", label: "Price Below Moving Average" },
-    { value: "ma_crossover", label: "Moving Average Crossover" },
-    { value: "rsi_overbought", label: "RSI Overbought" },
-    { value: "rsi_oversold", label: "RSI Oversold" },
-  ],
-  exit: [
-    { value: "take_profit", label: "Take Profit" },
-    { value: "stop_loss", label: "Stop Loss" },
-    { value: "trailing_stop", label: "Trailing Stop" },
-  ],
-};
 
 // Indicator options
 interface IndicatorParameter {
@@ -216,18 +168,20 @@ export function StrategyForm({ initialData, onSubmit, isSubmitting, submitLabel,
   const { toast } = useToast();
   const [name, setName] = useState(initialData?.name || "");
   const [strategyDescription, setStrategyDescription] = useState(initialData?.description || "");
-  const [selectedTimeframes, setSelectedTimeframes] = useState<string[]>(initialData?.timeframes || ["1h"]);
-  const [isActive, setIsActive] = useState(initialData?.isActive !== undefined ? initialData.isActive : true);
-  const [isPublic, setIsPublic] = useState(initialData?.isPublic ?? false);
-  const [strategyType, setStrategyType] = useState(initialData?.rules?.type || "trend-following");
-  const [selectedMarketConditions, setSelectedMarketConditions] = useState<string[]>(initialData?.rules?.market_conditions || ["bullish"]);
+
+  // Hidden fields with default values
+  const selectedTimeframes = ["1h", "4h", "1d"];
+  const isActive = true;
+  const isPublic = true;
+  const strategyType = "trend-following";
+  const selectedMarketConditions = ["bullish", "bearish"];
 
   // Indicators state management
   const [selectedIndicators, setSelectedIndicators] = useState<IndicatorConfig[]>(
     initialData?.rules?.indicators
       ? Object.entries(initialData.rules.indicators).map(([key, value]) => ({
           type: key,
-          config: typeof value === "number" ? { period: value } : (value as IndicatorParameter),
+          config: typeof value === "number" ? { period: value } : (value as unknown as IndicatorParameter),
         }))
       : [{ type: "SMA", config: { period: 20 } }]
   );
@@ -236,20 +190,12 @@ export function StrategyForm({ initialData, onSubmit, isSubmitting, submitLabel,
   const userSubscription = useUserStore((state: { credits: { subscription: string } }) => state.credits.subscription);
   const maxIndicators = userSubscription === "pro" ? 8 : 3;
 
-  // Risk parameters with updated structure
+  // Risk parameters with updated structure for bot requirements
   const [maxRiskPerTrade, setMaxRiskPerTrade] = useState<number>(initialData?.riskParameters?.maxRiskPerTrade ? Number(initialData.riskParameters.maxRiskPerTrade) : 1);
-  const [riskRewardRatio, setRiskRewardRatio] = useState<number>(initialData?.riskParameters?.riskRewardRatio ? Number(initialData.riskParameters.riskRewardRatio) : 2);
-  const [trailingStopEnabled, setTrailingStopEnabled] = useState<boolean>(
-    initialData?.riskParameters?.trailingStopEnabled ? Boolean(initialData.riskParameters.trailingStopEnabled) : false
-  );
-  const [trailingStopPercentage, setTrailingStopPercentage] = useState<number>(
-    initialData?.riskParameters?.trailingStopPercentage ? Number(initialData.riskParameters.trailingStopPercentage) : 1
-  );
 
   const [validationErrors, setValidationErrors] = useState<{
     name?: string;
     description?: string;
-    timeframes?: string;
   }>({});
 
   // Only update form state on initial load and when initialData.id changes
@@ -258,21 +204,15 @@ export function StrategyForm({ initialData, onSubmit, isSubmitting, submitLabel,
     if (initialData) {
       setName(initialData.name || "");
       setStrategyDescription(initialData.description || "");
-      setSelectedTimeframes(initialData.timeframes || ["1h"]);
-      setIsActive(initialData.isActive !== undefined ? initialData.isActive : true);
-      setIsPublic(initialData.isPublic ?? false);
 
       // Rules
       if (initialData.rules) {
-        setStrategyType(initialData.rules.type || "trend-following");
-        setSelectedMarketConditions(initialData.rules.market_conditions || ["bullish"]);
-
         // Indicators
         if (initialData.rules.indicators) {
           setSelectedIndicators(
             Object.entries(initialData.rules.indicators).map(([key, value]) => ({
               type: key,
-              config: typeof value === "number" ? { period: value } : (value as IndicatorParameter),
+              config: typeof value === "number" ? { period: value } : (value as unknown as IndicatorParameter),
             }))
           );
         }
@@ -281,37 +221,15 @@ export function StrategyForm({ initialData, onSubmit, isSubmitting, submitLabel,
       // Risk parameters
       if (initialData.riskParameters) {
         setMaxRiskPerTrade(Number(initialData.riskParameters.maxRiskPerTrade) || 1);
-        setRiskRewardRatio(Number(initialData.riskParameters.riskRewardRatio) || 2);
-        setTrailingStopEnabled(Boolean(initialData.riskParameters.trailingStopEnabled) || false);
-        setTrailingStopPercentage(Number(initialData.riskParameters.trailingStopPercentage) || 1);
       }
     }
   }, [initialData?.id]); // Only depend on the ID changing, not the entire initialData object
-
-  // Handle timeframe selection
-  const toggleTimeframe = (timeframe: string) => {
-    if (selectedTimeframes.includes(timeframe)) {
-      setSelectedTimeframes(selectedTimeframes.filter((t) => t !== timeframe));
-    } else {
-      setSelectedTimeframes([...selectedTimeframes, timeframe]);
-    }
-  };
-
-  // Handle market condition selection
-  const toggleMarketCondition = (condition: string) => {
-    if (selectedMarketConditions.includes(condition)) {
-      setSelectedMarketConditions(selectedMarketConditions.filter((c) => c !== condition));
-    } else {
-      setSelectedMarketConditions([...selectedMarketConditions, condition]);
-    }
-  };
 
   // Validate form fields
   const validateForm = (): boolean => {
     const errors: {
       name?: string;
       description?: string;
-      timeframes?: string;
     } = {};
 
     if (!name.trim()) {
@@ -322,10 +240,6 @@ export function StrategyForm({ initialData, onSubmit, isSubmitting, submitLabel,
       errors.description = "Strategy description is required";
     } else if (strategyDescription.length < 20) {
       errors.description = "Please provide a more detailed description (at least 20 characters)";
-    }
-
-    if (selectedTimeframes.length === 0) {
-      errors.timeframes = "Please select at least one timeframe";
     }
 
     setValidationErrors(errors);
@@ -362,7 +276,10 @@ export function StrategyForm({ initialData, onSubmit, isSubmitting, submitLabel,
 
     if (availableIndicator) {
       // For complex parameters (objects), use the defaultValue directly
-      const config = typeof availableIndicator.defaultValue === "object" ? availableIndicator.defaultValue : { [availableIndicator.configKey]: availableIndicator.defaultValue };
+      const config =
+        typeof availableIndicator.defaultValue === "object"
+          ? (availableIndicator.defaultValue as IndicatorParameter)
+          : { [availableIndicator.configKey]: availableIndicator.defaultValue };
 
       setSelectedIndicators([
         ...selectedIndicators,
@@ -401,7 +318,7 @@ export function StrategyForm({ initialData, onSubmit, isSubmitting, submitLabel,
     }
 
     // For complex parameters (objects), use the defaultValue directly
-    const config = typeof indicatorInfo.defaultValue === "object" ? indicatorInfo.defaultValue : { [indicatorInfo.configKey]: indicatorInfo.defaultValue };
+    const config = typeof indicatorInfo.defaultValue === "object" ? (indicatorInfo.defaultValue as IndicatorParameter) : { [indicatorInfo.configKey]: indicatorInfo.defaultValue };
 
     setSelectedIndicators(
       selectedIndicators.map((ind, i) => {
@@ -465,16 +382,16 @@ export function StrategyForm({ initialData, onSubmit, isSubmitting, submitLabel,
         conditions: [
           {
             condition: "take_profit",
-            parameters: { rrr: riskRewardRatio },
+            parameters: { percentage: 2 },
           },
           {
             condition: "stop_loss",
-            parameters: { percentage: maxRiskPerTrade },
+            parameters: { percentage: 1 },
           },
         ],
         operator: "AND",
       },
-      indicators: indicatorsObj as Record<string, string | number>,
+      indicators: indicatorsObj as Record<string, string | number | IndicatorParameter>,
       type: strategyType,
       market_conditions: selectedMarketConditions,
     };
@@ -482,9 +399,6 @@ export function StrategyForm({ initialData, onSubmit, isSubmitting, submitLabel,
     // Prepare risk parameters
     const riskParameters = {
       maxRiskPerTrade,
-      riskRewardRatio,
-      trailingStopEnabled,
-      trailingStopPercentage,
     };
 
     try {
@@ -511,381 +425,249 @@ export function StrategyForm({ initialData, onSubmit, isSubmitting, submitLabel,
   return (
     <TooltipProvider>
       <form onSubmit={handleSubmit} className="space-y-8">
-        <Tabs defaultValue="basic" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 mb-6">
-            <TabsTrigger value="basic">Basic Information</TabsTrigger>
-            <TabsTrigger value="rules">Strategy Rules</TabsTrigger>
-          </TabsList>
+        {/* Top section: Basic Information and Risk Management */}
+        <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-2">
+          {/* Basic Information */}
+          <Card className="bg-white/40 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800">
+            <CardHeader>
+              <div className="flex items-center">
+                <div className="p-2 bg-blue-500/10 dark:bg-blue-400/10 rounded-lg mr-3">
+                  <Lightbulb className="h-5 w-5 text-blue-500 dark:text-blue-400" />
+                </div>
+                <div>
+                  <CardTitle>Basic Information</CardTitle>
+                  <CardDescription>{isEditMode ? "Update your strategy details" : "Define your trading strategy"}</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <div className="flex items-center">
+                  <Label htmlFor="name">Strategy Name</Label>
+                  <FieldInfoTooltip content="Give your strategy a clear, descriptive name that helps you identify its purpose. For example: 'EMA Crossover Strategy' or 'RSI Divergence Trader'." />
+                </div>
+                <Input
+                  id="name"
+                  placeholder="e.g., Moving Average Crossover"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                  className={validationErrors.name ? "border-red-500 focus-visible:ring-red-500" : ""}
+                />
+                {validationErrors.name && <p className="text-sm text-red-500">{validationErrors.name}</p>}
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center">
+                  <Label htmlFor="description">Description</Label>
+                  <FieldInfoTooltip content="Describe your strategy in detail, including how it works and when it should be used. The AI will use this description to help understand your strategy's intent." />
+                </div>
+                <Textarea
+                  id="description"
+                  placeholder="Describe how your strategy works including entry and exit rules..."
+                  value={strategyDescription}
+                  onChange={(e) => setStrategyDescription(e.target.value)}
+                  rows={6}
+                  required
+                  className={validationErrors.description ? "border-red-500 focus-visible:ring-red-500" : ""}
+                />
+                {validationErrors.description && <p className="text-sm text-red-500">{validationErrors.description}</p>}
+              </div>
+            </CardContent>
+          </Card>
 
-          {/* Basic Information Tab */}
-          <TabsContent value="basic">
-            <div className="grid gap-6 md:grid-cols-2">
-              {/* Basic Information */}
-              <Card className="bg-white/40 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800">
-                <CardHeader>
+          {/* Risk Management */}
+          <Card className="bg-white/40 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800">
+            <CardHeader>
+              <div className="flex items-center">
+                <div className="p-2 bg-blue-500/10 dark:bg-blue-400/10 rounded-lg mr-3">
+                  <Settings className="h-5 w-5 text-blue-500 dark:text-blue-400" />
+                </div>
+                <div>
+                  <CardTitle>Risk Management</CardTitle>
+                  <CardDescription>Configure risk parameters for automated trading</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800 rounded text-sm text-amber-700 dark:text-amber-300">
+                <p className="flex items-center mb-2">
+                  <HelpCircle className="h-4 w-4 mr-2 flex-shrink-0" />
+                  <span className="font-medium">Risk Management Notes</span>
+                </p>
+                <p className="mb-2">
+                  The AI trading bot will determine optimal entry points, stop loss, and take profit levels based on real-time market analysis. You only need to set the maximum
+                  risk per trade.
+                </p>
+                <p>The AI will automatically calculate position sizes to ensure your risk is never higher than the specified percentage.</p>
+              </div>
+
+              {/* Risk Management Parameters */}
+              <div className="space-y-4">
+                {/* Max Risk Per Trade */}
+                <div className="space-y-2">
                   <div className="flex items-center">
-                    <div className="p-2 bg-blue-500/10 dark:bg-blue-400/10 rounded-lg mr-3">
-                      <Lightbulb className="h-5 w-5 text-blue-500 dark:text-blue-400" />
-                    </div>
-                    <div>
-                      <CardTitle>Basic Information</CardTitle>
-                      <CardDescription>{isEditMode ? "Update your strategy name and description" : "Define your strategy name and description"}</CardDescription>
-                    </div>
+                    <Label htmlFor="max-risk">Max Risk Per Trade</Label>
+                    <FieldInfoTooltip content="The maximum percentage of your account that can be risked on a single trade. This determines position size and stop loss." />
                   </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <div className="flex items-center">
-                      <Label htmlFor="name">Strategy Name</Label>
-                      <FieldInfoTooltip content="Give your strategy a clear, descriptive name that helps you identify its purpose. For example: 'EMA Crossover Strategy' or 'RSI Divergence Trader'." />
-                    </div>
+                  <div className="flex items-center gap-3">
                     <Input
-                      id="name"
-                      placeholder="e.g., Moving Average Crossover"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      required
-                      className={validationErrors.name ? "border-red-500 focus-visible:ring-red-500" : ""}
+                      id="max-risk"
+                      type="number"
+                      min="0.1"
+                      max="10"
+                      step="0.1"
+                      value={maxRiskPerTrade}
+                      onChange={(e) => setMaxRiskPerTrade(parseFloat(e.target.value))}
+                      className="max-w-[180px]"
                     />
-                    {validationErrors.name && <p className="text-sm text-red-500">{validationErrors.name}</p>}
+                    <span className="text-sm text-slate-500 dark:text-slate-400">% of account</span>
                   </div>
-                  <div className="space-y-2">
-                    <div className="flex items-center">
-                      <Label htmlFor="description">Description</Label>
-                      <FieldInfoTooltip content="Describe your strategy in detail, including the entry and exit conditions, risk management rules, and any specific market conditions it works best in. The more detailed, the better." />
-                    </div>
-                    <Textarea
-                      id="description"
-                      placeholder="Describe how your strategy works including entry and exit rules..."
-                      value={strategyDescription}
-                      onChange={(e) => setStrategyDescription(e.target.value)}
-                      rows={6}
-                      required
-                      className={validationErrors.description ? "border-red-500 focus-visible:ring-red-500" : ""}
-                    />
-                    {validationErrors.description && <p className="text-sm text-red-500">{validationErrors.description}</p>}
-                  </div>
-                  <div className="flex items-center space-x-2 pt-2">
-                    <Switch id="active" checked={isActive} onCheckedChange={setIsActive} />
-                    <Label htmlFor="active" className="cursor-pointer">
-                      Strategy Active
-                    </Label>
-                    <FieldInfoTooltip content="Active strategies can be used in trading bots. Inactive strategies are saved but won't be available for trading." />
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <Switch id="isPublic" checked={isPublic} onCheckedChange={setIsPublic} />
-                    <Label htmlFor="isPublic">Make this strategy public</Label>
-                    <HelpCircle className="h-4 w-4 text-slate-400" />
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className="cursor-help">Public strategies can be viewed and used by other users</span>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>When a strategy is public:</p>
-                        <ul className="list-disc list-inside mt-2">
-                          <li>Other users can view it</li>
-                          <li>Other users can use it in their bots</li>
-                          <li>You maintain ownership and can edit it</li>
-                        </ul>
-                      </TooltipContent>
-                    </Tooltip>
-                  </div>
-                </CardContent>
-              </Card>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
-              {/* Timeframes and Strategy Type */}
-              <div className="space-y-6">
-                <Card className="bg-white/40 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800">
-                  <CardHeader>
-                    <div className="flex items-center">
-                      <div className="p-2 bg-blue-500/10 dark:bg-blue-400/10 rounded-lg mr-3">
-                        <Clock className="h-5 w-5 text-blue-500 dark:text-blue-400" />
-                      </div>
-                      <div>
-                        <CardTitle>Timeframes</CardTitle>
-                        <CardDescription>Select timeframes this strategy will operate on</CardDescription>
-                      </div>
-                      <FieldInfoTooltip content="Choose the chart timeframes your strategy is designed for. You can select multiple timeframes if your strategy works across different time intervals." />
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-2 gap-3">
-                      {timeframeOptions.map((timeframe) => (
-                        <div
-                          key={timeframe.value}
-                          className={`
-                            p-3 border rounded-lg flex items-center justify-between cursor-pointer
-                            ${
-                              selectedTimeframes.includes(timeframe.value)
-                                ? "border-blue-500 dark:border-blue-400 bg-blue-50 dark:bg-blue-950/50"
-                                : "border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900/80"
-                            }
-                            ${validationErrors.timeframes ? "border-red-500" : ""}
-                          `}
-                          onClick={() => toggleTimeframe(timeframe.value)}>
-                          <span className={selectedTimeframes.includes(timeframe.value) ? "text-blue-600 dark:text-blue-400" : "text-slate-700 dark:text-slate-300"}>
-                            {timeframe.label}
-                          </span>
-                          {selectedTimeframes.includes(timeframe.value) && <div className="h-2 w-2 bg-blue-500 dark:bg-blue-400 rounded-full"></div>}
-                        </div>
-                      ))}
-                    </div>
-                    {validationErrors.timeframes && <p className="text-sm text-red-500 mt-2">{validationErrors.timeframes}</p>}
-                  </CardContent>
-                </Card>
+        {/* Indicators */}
+        <Card className="bg-white/40 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800">
+          <CardHeader>
+            <div className="flex items-center">
+              <div className="p-2 bg-blue-500/10 dark:bg-blue-400/10 rounded-lg mr-3">
+                <BarChart3 className="h-5 w-5 text-blue-500 dark:text-blue-400" />
+              </div>
+              <div>
+                <CardTitle>Technical Indicators</CardTitle>
+                <CardDescription>Add and configure indicators for your trading strategy</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded text-sm text-blue-700 dark:text-blue-300 mb-4">
+              <p className="flex items-center mb-2">
+                <HelpCircle className="h-4 w-4 mr-2 flex-shrink-0" />
+                <span className="font-medium">Indicator Usage</span>
+              </p>
+              <p>The AI will use these indicators as part of its market analysis. Configure them based on your preferred settings for optimal results.</p>
+            </div>
 
-                <Card className="bg-white/40 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800">
-                  <CardHeader>
-                    <div className="flex items-center">
-                      <div className="p-2 bg-green-500/10 dark:bg-green-400/10 rounded-lg mr-3">
-                        <TrendingUp className="h-5 w-5 text-green-500 dark:text-green-400" />
-                      </div>
-                      <div>
-                        <CardTitle>Strategy Type & Market Conditions</CardTitle>
-                        <CardDescription>Select the type of strategy and preferred market conditions</CardDescription>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="strategy-type">Strategy Type</Label>
-                      <Select value={strategyType} onValueChange={setStrategyType}>
-                        <SelectTrigger id="strategy-type">
-                          <SelectValue placeholder="Select strategy type" />
+            <div className="flex items-center justify-between">
+              <Label>
+                Active Indicators ({selectedIndicators.length}/{maxIndicators})
+              </Label>
+              <Button type="button" size="sm" variant="outline" onClick={addIndicator} disabled={selectedIndicators.length >= maxIndicators}>
+                Add Indicator
+              </Button>
+            </div>
+
+            {userSubscription === "free" && selectedIndicators.length >= maxIndicators && (
+              <div className="p-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded text-sm text-blue-600 dark:text-blue-300 flex items-center">
+                <HelpCircle className="h-4 w-4 mr-2" />
+                Upgrade to Pro for up to 8 indicators
+              </div>
+            )}
+
+            <div className="grid gap-4 sm:grid-cols-1 lg:grid-cols-2">
+              {selectedIndicators.map((indicator, index) => {
+                const indicatorInfo = indicatorOptions.find((opt) => opt.value === indicator.type);
+                if (!indicatorInfo) return null;
+
+                return (
+                  <div key={index} className="border border-slate-200 dark:border-slate-800 rounded-lg p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Select value={indicator.type} onValueChange={(value) => updateIndicatorType(index, value)}>
+                        <SelectTrigger className="w-[200px]">
+                          <SelectValue placeholder="Select indicator" />
                         </SelectTrigger>
                         <SelectContent>
-                          {strategyTypes.map((type) => (
-                            <SelectItem key={type.value} value={type.value}>
-                              <div className="flex items-center gap-2">
-                                <type.icon className="h-4 w-4" />
-                                <span>{type.label}</span>
-                              </div>
+                          {indicatorOptions.map((option) => (
+                            <SelectItem
+                              key={option.value}
+                              value={option.value}
+                              disabled={
+                                selectedIndicators.some((ind) => ind.type === option.value && ind !== indicator) ||
+                                (option.isOscillator && selectedIndicators.some((ind, i) => i !== index && indicatorOptions.find((opt) => opt.value === ind.type)?.isOscillator))
+                              }>
+                              {option.label}
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
+
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 w-8 p-0 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+                        onClick={() => removeIndicator(index)}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </div>
 
                     <div className="space-y-2">
-                      <Label>Market Conditions</Label>
-                      <div className="flex flex-wrap gap-2 mt-2">
-                        {marketConditions.map((condition) => (
-                          <Badge
-                            key={condition.value}
-                            className={`cursor-pointer ${
-                              selectedMarketConditions.includes(condition.value)
-                                ? "bg-purple-50 text-purple-700 border-purple-100 hover:bg-purple-100 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800"
-                                : "bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
-                            }`}
-                            onClick={() => toggleMarketCondition(condition.value)}>
-                            {condition.label}
-                            {selectedMarketConditions.includes(condition.value) && <span className="ml-1 text-xs">✓</span>}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-          </TabsContent>
-
-          {/* Strategy Rules Tab */}
-          <TabsContent value="rules">
-            <div className="grid gap-6 md:grid-cols-2">
-              <Card className="bg-white/40 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800">
-                <CardHeader>
-                  <div className="flex items-center">
-                    <div className="p-2 bg-blue-500/10 dark:bg-blue-400/10 rounded-lg mr-3">
-                      <BarChart3 className="h-5 w-5 text-blue-500 dark:text-blue-400" />
-                    </div>
-                    <div>
-                      <CardTitle>Indicators</CardTitle>
-                      <CardDescription>Configure technical indicators for your strategy</CardDescription>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <Label>
-                      Active Indicators ({selectedIndicators.length}/{maxIndicators})
-                    </Label>
-                    <Button type="button" size="sm" variant="outline" onClick={addIndicator} disabled={selectedIndicators.length >= maxIndicators}>
-                      Add Indicator
-                    </Button>
-                  </div>
-
-                  {userSubscription === "free" && selectedIndicators.length >= maxIndicators && (
-                    <div className="p-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded text-sm text-blue-600 dark:text-blue-300 flex items-center">
-                      <HelpCircle className="h-4 w-4 mr-2" />
-                      Upgrade to Pro for up to 8 indicators
-                    </div>
-                  )}
-
-                  {selectedIndicators.map((indicator, index) => {
-                    const indicatorInfo = indicatorOptions.find((opt) => opt.value === indicator.type);
-                    if (!indicatorInfo) return null;
-
-                    return (
-                      <div key={index} className="border border-slate-200 dark:border-slate-800 rounded-lg p-3 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <Select value={indicator.type} onValueChange={(value) => updateIndicatorType(index, value)}>
-                            <SelectTrigger className="w-[200px]">
-                              <SelectValue placeholder="Select indicator" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {indicatorOptions.map((option) => (
-                                <SelectItem
-                                  key={option.value}
-                                  value={option.value}
-                                  disabled={
-                                    selectedIndicators.some((ind) => ind.type === option.value && ind !== indicator) ||
-                                    (option.isOscillator &&
-                                      selectedIndicators.some((ind, i) => i !== index && indicatorOptions.find((opt) => opt.value === ind.type)?.isOscillator))
-                                  }>
-                                  {option.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="ghost"
-                            className="h-8 w-8 p-0 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
-                            onClick={() => removeIndicator(index)}>
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-
-                        <div className="space-y-2">
-                          {typeof indicatorInfo.defaultValue === "object" ? (
-                            // Render multiple parameter inputs for complex indicators
-                            Object.entries(indicatorInfo.defaultValue as IndicatorParameter).map(([paramKey, defaultValue]) => {
-                              const minValue = (indicatorInfo.min as IndicatorParameter)[paramKey];
-                              const maxValue = (indicatorInfo.max as IndicatorParameter)[paramKey];
-                              return (
-                                <div key={paramKey} className="flex items-center">
-                                  <Label htmlFor={`indicator-${index}-${paramKey}`}>{paramKey}</Label>
-                                  <FieldInfoTooltip content={`Configure the ${paramKey} for this indicator.`} />
-                                  <div className="flex items-center gap-3">
-                                    <Input
-                                      id={`indicator-${index}-${paramKey}`}
-                                      type="number"
-                                      min={minValue}
-                                      max={maxValue}
-                                      value={indicator.config[paramKey] || defaultValue}
-                                      onChange={(e) => updateIndicatorConfig(index, paramKey, parseInt(e.target.value))}
-                                    />
-                                    <span className="text-sm text-slate-500 dark:text-slate-400">periods</span>
-                                  </div>
-                                </div>
-                              );
-                            })
-                          ) : (
-                            // Render single parameter input for simple indicators
-                            <div className="flex items-center">
-                              <Label htmlFor={`indicator-${index}-period`}>Period</Label>
-                              <FieldInfoTooltip content="The number of candles used to calculate this indicator." />
-                              <div className="flex items-center gap-3">
+                      {typeof indicatorInfo.defaultValue === "object" ? (
+                        // Render multiple parameter inputs for complex indicators
+                        Object.entries(indicatorInfo.defaultValue as IndicatorParameter).map(([paramKey, defaultValue]) => {
+                          const minValue = (indicatorInfo.min as IndicatorParameter)[paramKey];
+                          const maxValue = (indicatorInfo.max as IndicatorParameter)[paramKey];
+                          return (
+                            <div key={paramKey} className="flex items-center">
+                              <Label htmlFor={`indicator-${index}-${paramKey}`} className="w-32">
+                                {paramKey}
+                              </Label>
+                              <FieldInfoTooltip content={`Configure the ${paramKey} for this indicator.`} />
+                              <div className="flex items-center gap-3 ml-2">
                                 <Input
-                                  id={`indicator-${index}-period`}
+                                  id={`indicator-${index}-${paramKey}`}
                                   type="number"
-                                  min={indicatorInfo.min}
-                                  max={indicatorInfo.max}
-                                  value={indicator.config.period || indicatorInfo.defaultValue}
-                                  onChange={(e) => updateIndicatorConfig(index, "period", parseInt(e.target.value))}
+                                  min={minValue}
+                                  max={maxValue}
+                                  value={indicator.config[paramKey] || defaultValue}
+                                  onChange={(e) => updateIndicatorConfig(index, paramKey, parseInt(e.target.value))}
+                                  className="max-w-[120px]"
                                 />
                                 <span className="text-sm text-slate-500 dark:text-slate-400">periods</span>
                               </div>
                             </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </CardContent>
-              </Card>
-
-              <Card className="bg-white/40 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800">
-                <CardHeader>
-                  <div className="flex items-center">
-                    <div className="p-2 bg-blue-500/10 dark:bg-blue-400/10 rounded-lg mr-3">
-                      <Settings className="h-5 w-5 text-blue-500 dark:text-blue-400" />
-                    </div>
-                    <div>
-                      <CardTitle>Risk Management</CardTitle>
-                      <CardDescription>Configure risk parameters for your strategy</CardDescription>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  {/* Risk Management Parameters */}
-                  <div className="space-y-4">
-                    {/* Max Risk Per Trade */}
-                    <div className="space-y-2">
-                      <div className="flex items-center">
-                        <Label htmlFor="max-risk">Max Risk Per Trade</Label>
-                        <FieldInfoTooltip content="The maximum percentage of your account that can be risked on a single trade. This determines position size and stop loss." />
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <Input id="max-risk" type="number" min="0.1" max="10" step="0.1" value={maxRiskPerTrade} onChange={(e) => setMaxRiskPerTrade(parseFloat(e.target.value))} />
-                        <span className="text-sm text-slate-500 dark:text-slate-400">% of account</span>
-                      </div>
-                    </div>
-
-                    {/* Risk-Reward Ratio */}
-                    <div className="space-y-2">
-                      <div className="flex items-center">
-                        <Label htmlFor="risk-reward">Risk-Reward Ratio</Label>
-                        <FieldInfoTooltip content="The ratio of potential reward to risk. A value of 2 means your profit target will be 2x your risk amount." />
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <Input
-                          id="risk-reward"
-                          type="number"
-                          min="1"
-                          max="10"
-                          step="0.5"
-                          value={riskRewardRatio}
-                          onChange={(e) => setRiskRewardRatio(parseFloat(e.target.value))}
-                        />
-                        <span className="text-sm text-slate-500 dark:text-slate-400">R:R ratio</span>
-                      </div>
-                    </div>
-
-                    {/* Trailing Stop */}
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
+                          );
+                        })
+                      ) : (
+                        // Render single parameter input for simple indicators
                         <div className="flex items-center">
-                          <Label htmlFor="trailing-stop">Trailing Stop</Label>
-                          <FieldInfoTooltip content="Trailing stop follows the price as it moves in your favor, helping to lock in profits while letting winners run." />
-                        </div>
-                        <Switch id="trailing-stop" checked={trailingStopEnabled} onCheckedChange={setTrailingStopEnabled} />
-                      </div>
-
-                      {trailingStopEnabled && (
-                        <div className="flex items-center gap-3 mt-3">
-                          <Input
-                            id="trailing-stop-percentage"
-                            type="number"
-                            min="0.5"
-                            max="10"
-                            step="0.1"
-                            value={trailingStopPercentage}
-                            onChange={(e) => setTrailingStopPercentage(parseFloat(e.target.value))}
-                          />
-                          <span className="text-sm text-slate-500 dark:text-slate-400">% trailing distance</span>
+                          <Label htmlFor={`indicator-${index}-period`} className="w-32">
+                            Period
+                          </Label>
+                          <FieldInfoTooltip content="The number of candles used to calculate this indicator." />
+                          <div className="flex items-center gap-3 ml-2">
+                            <Input
+                              id={`indicator-${index}-period`}
+                              type="number"
+                              min={indicatorInfo.min as number}
+                              max={indicatorInfo.max as number}
+                              value={indicator.config.period || (indicatorInfo.defaultValue as number)}
+                              onChange={(e) => updateIndicatorConfig(index, "period", parseInt(e.target.value))}
+                              className="max-w-[120px]"
+                            />
+                            <span className="text-sm text-slate-500 dark:text-slate-400">periods</span>
+                          </div>
                         </div>
                       )}
                     </div>
                   </div>
-                </CardContent>
-              </Card>
+                );
+              })}
             </div>
-          </TabsContent>
-        </Tabs>
+
+            {selectedIndicators.length === 0 && (
+              <div className="text-center p-8 text-slate-500 dark:text-slate-400 border border-dashed border-slate-300 dark:border-slate-700 rounded-lg">
+                <BarChart3 className="h-12 w-12 mx-auto mb-3 text-slate-400 dark:text-slate-600" />
+                <p>Add technical indicators for your trading strategy</p>
+                <Button type="button" variant="outline" size="sm" onClick={addIndicator} className="mt-4">
+                  Add First Indicator
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         <div className="mt-6 flex justify-end">
           <Button type="button" variant="outline" onClick={() => router.back()} className="mr-2">

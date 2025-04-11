@@ -89,14 +89,17 @@ async function processBot(botId: string) {
 
     // Generate and analyze chart
     logger.info(`Analyzing trading pair ${bot.pair} for bot ${botId}`);
-    // Temporarily commented out until we implement these methods
-    // const signal = await tradingService.analyzeTradingPair(botId);
 
-    // if (signal) {
-    //   // Execute trade if signal is generated
-    //   logger.info(`Signal generated for bot ${botId}, executing trade`);
-    //   await tradingService.executeTrade(botId, signal);
-    // }
+    // Use the trading service to analyze the pair and potentially generate a signal
+    const signal = await tradingService.analyzeTradingPair(botId);
+
+    if (signal) {
+      // Execute trade if signal is generated
+      logger.info(`Signal generated for bot ${botId}, executing trade`);
+      await tradingService.executeTrade(botId, signal);
+    } else {
+      logger.debug(`No trading signal generated for bot ${botId}`);
+    }
   } catch (error) {
     logger.error(`Error processing bot ${botId}:`, error);
   } finally {

@@ -16,24 +16,21 @@ const defaultRules: StrategyRules = {
   },
   exit: {
     conditions: [
-      { condition: "take_profit", parameters: { rrr: 2 } },
+      { condition: "take_profit", parameters: { percentage: 2 } },
       { condition: "stop_loss", parameters: { percentage: 1 } },
     ],
     operator: "AND",
   },
   indicators: {
-    moving_average: 20, // Keep as a number to match the StrategyRules interface
+    EMA: { period: 20 },
   },
   type: "trend-following",
-  market_conditions: ["bullish"],
+  market_conditions: ["bullish", "bearish"],
 };
 
 // Default risk parameters
 const defaultRiskParameters = {
   maxRiskPerTrade: 1, // Percentage of account
-  riskRewardRatio: 2,
-  trailingStopEnabled: false,
-  trailingStopPercentage: 1,
 };
 
 export default function CreateStrategyPage() {
@@ -81,16 +78,25 @@ export default function CreateStrategyPage() {
   };
 
   return (
-    <div className="container py-6 space-y-6">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" onClick={() => router.back()} className="gap-2">
-          <ArrowLeft className="h-4 w-4" />
-          Back
-        </Button>
-        <h1 className="text-2xl font-bold">Create Strategy</h1>
-      </div>
+    <div className="min-h-screen bg-white dark:bg-slate-950">
+      {/* Subtle gradient background */}
+      <div className="fixed inset-0 bg-gradient-to-br from-blue-500/5 via-transparent to-transparent dark:from-blue-950/50 dark:via-slate-950 dark:to-slate-950 pointer-events-none" />
 
-      <StrategyForm onSubmit={handleSubmit} isSubmitting={isSubmitting} submitLabel="Create Strategy" />
+      {/* Main content */}
+      <div className="relative p-6 space-y-6 max-w-[1200px] mx-auto">
+        <div className="flex items-center mb-6">
+          <Button variant="ghost" size="sm" className="mr-2" onClick={() => router.back()}>
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back
+          </Button>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">Create AI Trading Strategy</h1>
+            <p className="text-slate-500 dark:text-slate-400 mt-1">Define your trading strategy for automated execution</p>
+          </div>
+        </div>
+
+        <StrategyForm onSubmit={handleSubmit} isSubmitting={isSubmitting} submitLabel="Create Strategy" />
+      </div>
     </div>
   );
 }

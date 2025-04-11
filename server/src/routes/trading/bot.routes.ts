@@ -16,8 +16,6 @@ const createBotSchema = z.object({
   strategyId: z.string(),
   riskSettings: z.object({
     maxRiskPerTrade: z.number(),
-    stopLossPercent: z.number(),
-    takeProfitPercent: z.number(),
   }),
 });
 
