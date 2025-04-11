@@ -1,9 +1,11 @@
 import axios, { AxiosInstance, AxiosHeaders } from "axios";
 import WebSocket from "ws";
+import { EventEmitter } from "events";
 import { createLogger } from "../../../utils/logger";
 import { RateLimiter } from "../../../utils/rate-limiter";
 import { IBroker, IBrokerCredentials } from "../interfaces/broker.interface";
 import { MarketData, Order, Position, AccountBalance, Candle, OrderParameters, OrderType, OrderStatus } from "../interfaces/types";
+import { MarketDataStreamService } from "./market-data-stream.service";
 
 interface CapitalConfig extends IBrokerCredentials {
   baseUrl?: string;
@@ -11,7 +13,7 @@ interface CapitalConfig extends IBrokerCredentials {
   isDemo?: boolean;
 }
 
-export class CapitalService implements IBroker {
+export class CapitalService extends EventEmitter implements IBroker {
   private readonly baseUrl: string;
   private readonly wsUrl: string;
   private readonly apiKey: string;
@@ -29,6 +31,7 @@ export class CapitalService implements IBroker {
   private pingInterval?: NodeJS.Timeout;
   private reconnectTimeout?: NodeJS.Timeout;
   private readonly logger = createLogger("capital-service");
+  private readonly marketDataStream: MarketDataStreamService;
 
   // Rate limiters based on Capital.com API limits
   private readonly globalLimiter = new RateLimiter(10, 1000); // 10 requests per second
@@ -36,6 +39,7 @@ export class CapitalService implements IBroker {
   private readonly sessionLimiter = new RateLimiter(1, 1000); // 1 request per second for session
 
   constructor(private readonly config: CapitalConfig) {
+    super();
     this.apiKey = this.config.apiKey;
     this.apiSecret = this.config.apiSecret;
     this.isDemo = this.config.isDemo || false;
@@ -87,6 +91,26 @@ export class CapitalService implements IBroker {
         throw error;
       }
     );
+
+    this.marketDataStream = new MarketDataStreamService();
+
+    // Forward market data events
+    this.marketDataStream.on("marketData", (data: MarketData) => {
+      const callbacks = this.marketDataCallbacks.get(data.symbol);
+      if (callbacks) {
+        callbacks.forEach((callback) => {
+          try {
+            callback(data);
+          } catch (error) {
+            this.handleError("Error in market data callback", error);
+          }
+        });
+      }
+    });
+
+    this.marketDataStream.on("candle", ({ symbol, timeframe, candle }) => {
+      this.emit("candle", symbol, timeframe, candle);
+    });
   }
 
   async connect(credentials: IBrokerCredentials): Promise<void> {
@@ -114,6 +138,7 @@ export class CapitalService implements IBroker {
 
   async disconnect(): Promise<void> {
     try {
+      this.marketDataStream.destroy();
       this.clearPingInterval();
       if (this.reconnectTimeout) {
         clearTimeout(this.reconnectTimeout);
@@ -332,16 +357,8 @@ export class CapitalService implements IBroker {
       volume: data.volume,
     };
 
-    const callbacks = this.marketDataCallbacks.get(data.epic);
-    if (callbacks) {
-      callbacks.forEach((callback) => {
-        try {
-          callback(marketData);
-        } catch (error) {
-          this.handleError("Error in market data callback", error);
-        }
-      });
-    }
+    // Forward to market data stream for buffering and aggregation
+    this.marketDataStream.handleMarketDataUpdate(marketData);
   }
 
   private async resubscribeToMarketData(): Promise<void> {
@@ -361,7 +378,7 @@ export class CapitalService implements IBroker {
     }
   }
 
-  async subscribeToMarketData(symbol: string, callback: (data: MarketData) => void): Promise<void> {
+  async subscribeToMarketData(symbol: string, callback: (data: MarketData) => void, timeframe?: string): Promise<void> {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       throw new Error("WebSocket not connected");
     }
@@ -377,9 +394,14 @@ export class CapitalService implements IBroker {
     }
 
     this.marketDataCallbacks.get(symbol)?.add(callback);
+
+    // If timeframe is specified, set up candle aggregation
+    if (timeframe) {
+      this.marketDataStream.subscribe(symbol, timeframe);
+    }
   }
 
-  async unsubscribeFromMarketData(symbol: string): Promise<void> {
+  async unsubscribeFromMarketData(symbol: string, timeframe?: string): Promise<void> {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
     this.marketDataCallbacks.delete(symbol);
@@ -389,6 +411,11 @@ export class CapitalService implements IBroker {
         epic: symbol,
       })
     );
+
+    // If timeframe is specified, remove candle aggregation
+    if (timeframe) {
+      this.marketDataStream.unsubscribe(symbol, timeframe);
+    }
   }
 
   async getBalance(): Promise<AccountBalance> {
