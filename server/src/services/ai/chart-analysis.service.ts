@@ -14,7 +14,7 @@ export interface ChartAnalysisRequest {
 }
 
 export interface ChartAnalysisResponse {
-  signal: "BUY" | "SELL" | "NO_SIGNAL";
+  signal: "BUY" | "SELL" | "HOLD";
   confidence: number;
   strategy?: string;
   analysis: {
@@ -28,6 +28,7 @@ export interface ChartAnalysisResponse {
     stop_loss: number;
     take_profit: number;
     risk_reward_ratio: number;
+    entry_price?: number;
   };
   risk_percent_score: number;
   prompt: string;
@@ -63,7 +64,7 @@ export interface SignalConfirmationResponse {
   rawResponse: any;
 }
 
-export class ChartAnaylsisService {
+export class ChartAnalysisService {
   private genAI: GoogleGenerativeAI;
   private model: any;
 

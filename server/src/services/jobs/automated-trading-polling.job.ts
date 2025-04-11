@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, BrokerCredential, Strategy, BotInstance, User, Prisma } from "@prisma/client";
 import { CronJob } from "cron";
 import { createLogger } from "../../utils/logger";
 import { AutomatedTradingService } from "../trading/automated-trading.service";
@@ -8,6 +8,9 @@ import { RiskManagementService } from "../trading/risk-management.service";
 import { TradeExecutionService } from "../trading/trade-execution.service";
 import { AIService } from "../ai/ai.service";
 import { RedisService } from "../redis/redis.service";
+import { CapitalService } from "../broker/capital-com/capital.service";
+import { ChartAnalysisService } from "../ai/chart-analysis.service";
+import { StorageService } from "../storage/storage.service";
 
 const logger = createLogger("automated-trading-polling");
 const prisma = new PrismaClient();
@@ -15,11 +18,11 @@ const prisma = new PrismaClient();
 // Initialize required services
 const riskManagementService = new RiskManagementService();
 const tradeExecutionService = new TradeExecutionService();
-const chartGeneratorService = new ChartGeneratorService();
+const storageService = new StorageService();
+let chartGeneratorService: ChartGeneratorService | null = null;
 const aiService = new AIService();
 const redisService = new RedisService();
-
-const tradingService = new AutomatedTradingService();
+const chartAnalysisService = new ChartAnalysisService();
 
 // Cache key prefix for bot processing status
 const BOT_PROCESSING_KEY = "bot:processing:";
@@ -37,6 +40,39 @@ const TIMEFRAME_CRONS: Record<string, string> = {
 
 // Store active jobs by timeframe
 const activeJobs: Record<string, CronJob> = {};
+
+interface BrokerCredentials {
+  apiKey: string;
+  apiSecret: string;
+  isDemo: boolean;
+}
+
+interface StrategyRiskParameters {
+  maxPositions: number;
+  maxRiskPerTrade: number;
+  maxDrawdown: number;
+  symbols: string[];
+}
+
+type BotWithCredentials = {
+  id: string;
+  isActive: boolean;
+  timeframe: string;
+  strategy: {
+    id: string;
+    riskParameters: Prisma.JsonValue;
+  };
+  userId: string;
+  user: {
+    id: string;
+    broker_credentials: Array<{
+      id: string;
+      broker_name: string;
+      credentials: Prisma.JsonValue;
+      is_demo: boolean;
+    }>;
+  };
+};
 
 /**
  * Check if a bot is currently being processed
@@ -74,12 +110,45 @@ async function processBot(botId: string) {
     // Mark bot as being processed
     await markBotProcessing(botId);
 
-    // Get bot details
-    const bot = await prisma.botInstance.findUnique({
-      where: { id: botId },
-      include: {
-        strategy: true,
-      },
+    // Get bot details with user's broker credentials
+    const bot = await prisma.$transaction(async (tx) => {
+      const botInstance = await tx.botInstance.findUnique({
+        where: { id: botId },
+        include: {
+          strategy: {
+            select: {
+              id: true,
+              riskParameters: true,
+            },
+          },
+        },
+      });
+
+      if (!botInstance) return null;
+
+      const user = await tx.user.findUnique({
+        where: { id: botInstance.userId },
+        include: {
+          broker_credentials: {
+            select: {
+              id: true,
+              broker_name: true,
+              credentials: true,
+              is_demo: true,
+            },
+          },
+        },
+      });
+
+      if (!user) return null;
+
+      return {
+        ...botInstance,
+        user: {
+          id: user.id,
+          broker_credentials: user.broker_credentials,
+        },
+      } as BotWithCredentials;
     });
 
     if (!bot || !bot.isActive) {
@@ -87,18 +156,48 @@ async function processBot(botId: string) {
       return;
     }
 
-    // Generate and analyze chart
-    logger.info(`Analyzing trading pair ${bot.pair} for bot ${botId}`);
+    // Get Capital.com credentials for this user
+    const capitalCredentials = bot.user.broker_credentials.find((cred) => cred.broker_name === "CAPITAL");
 
-    // Use the trading service to analyze the pair and potentially generate a signal
-    const signal = await tradingService.analyzeTradingPair(botId);
+    if (!capitalCredentials) {
+      logger.error(`No Capital.com credentials found for bot ${botId}`);
+      return;
+    }
 
-    if (signal) {
-      // Execute trade if signal is generated
-      logger.info(`Signal generated for bot ${botId}, executing trade`);
-      await tradingService.executeTrade(botId, signal);
-    } else {
-      logger.debug(`No trading signal generated for bot ${botId}`);
+    // Parse credentials and strategy risk parameters
+    const credentials = capitalCredentials.credentials as unknown as BrokerCredentials;
+    const riskParameters = bot.strategy.riskParameters as unknown as StrategyRiskParameters;
+
+    // Initialize broker service with user's credentials
+    const userBroker = new CapitalService({
+      apiKey: credentials.apiKey,
+      apiSecret: credentials.apiSecret,
+      isDemo: credentials.isDemo,
+      timeout: 30000,
+    });
+
+    // Initialize chart generator service with user's broker
+    chartGeneratorService = new ChartGeneratorService(userBroker, storageService);
+
+    // Initialize trading service with user's broker
+    const userTradingService = new AutomatedTradingService(userBroker, aiService, chartAnalysisService, {
+      maxPositions: riskParameters?.maxPositions ?? 5,
+      maxRiskPerTrade: riskParameters?.maxRiskPerTrade ?? 2,
+      maxDrawdown: riskParameters?.maxDrawdown ?? 10,
+      timeframes: [bot.timeframe],
+      symbols: riskParameters?.symbols ?? ["EURUSD"],
+    });
+
+    // Start the trading service
+    try {
+      await userBroker.connect();
+      await userTradingService.start();
+      logger.info(`Bot ${botId} is being monitored by the trading service`);
+    } catch (err) {
+      const error = err as Error;
+      if (error.message !== "Trading service is already running") {
+        throw error;
+      }
     }
   } catch (error) {
     logger.error(`Error processing bot ${botId}:`, error);
@@ -250,4 +349,37 @@ export async function startAutomatedTradingPollingJob(): Promise<void> {
   await initializePollingJobs();
   logger.info("Automated trading polling job initialized successfully");
   return Promise.resolve();
+}
+
+export class AutomatedTradingPollingJob {
+  private readonly capitalService: CapitalService;
+  private readonly logger = createLogger("automated-trading-polling");
+
+  constructor() {
+    this.capitalService = new CapitalService({
+      apiKey: process.env.CAPITAL_API_KEY || "",
+      apiSecret: process.env.CAPITAL_API_SECRET || "",
+      isDemo: process.env.CAPITAL_IS_DEMO === "true",
+      timeout: 30000,
+    });
+  }
+
+  async start(): Promise<void> {
+    try {
+      this.logger.info("Starting automated trading polling job");
+
+      // Connect to Capital.com API
+      await this.capitalService.connect();
+
+      // Start polling
+      this.poll();
+    } catch (error) {
+      this.logger.error("Failed to start automated trading polling job", error);
+      throw error;
+    }
+  }
+
+  private async poll(): Promise<void> {
+    // ... existing polling code ...
+  }
 }

@@ -8,13 +8,13 @@ import { models } from "../../../config/ai.config";
 import { createLogger } from "../../../utils/logger";
 import { generateChartImage } from "../../../utils/chart.utils";
 import { supabase } from "../../../lib/supabase";
-import { ChartAnaylsisService } from "../../../services/ai/chart-analysis.service";
+import { ChartAnalysisService } from "../../../services/ai/chart-analysis.service";
 import { TIMEFRAME_MAP } from "../../../services/ai/confirmation/types";
 
 const router = Router();
 const logger = createLogger("chart-analysis-routes");
 const brokerService = new BrokerService();
-const chartAnalysisService = new ChartAnaylsisService();
+const chartAnalysisService = new ChartAnalysisService();
 
 /**
  * @route POST /api/ai/analyze

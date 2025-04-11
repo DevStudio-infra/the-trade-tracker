@@ -239,3 +239,47 @@ model CapitalComPair {
   @@index([type])
   @@map("capital_com_pairs")
 }
+
+model MarketDataCache {
+  symbol      String
+  timeframe   String
+  startTime   DateTime
+  endTime     DateTime
+  data        String   @db.Text
+  lastUpdated DateTime @default(now())
+  isComplete  Boolean  @default(true)
+
+  @@id([symbol, timeframe, startTime, endTime])
+  @@index([lastUpdated])
+}
+
+model PerformanceMetrics {
+  id              String   @id @default(cuid())
+  timestamp       DateTime @default(now())
+  totalTrades     Int
+  winningTrades   Int
+  losingTrades    Int
+  totalProfitLoss Decimal
+  winRate         Decimal
+  averageWin      Decimal
+  averageLoss     Decimal
+  profitFactor    Decimal
+  maxDrawdown     Decimal
+  sharpeRatio     Decimal
+  dailyProfitLoss Decimal
+  openPositions   Int
+  marginUsage     Decimal
+
+  @@index([timestamp])
+}
+
+model AccountBalance {
+  id        String   @id @default(cuid())
+  timestamp DateTime @default(now())
+  total     Decimal
+  available Decimal
+  locked    Decimal
+  currency  String
+
+  @@index([timestamp])
+}

@@ -1,4 +1,4 @@
-import axios, { AxiosInstance, AxiosHeaders } from "axios";
+import axios, { AxiosInstance, AxiosHeaders, AxiosError, InternalAxiosRequestConfig } from "axios";
 import WebSocket from "ws";
 import { EventEmitter } from "events";
 import { createLogger } from "../../../utils/logger";
@@ -6,12 +6,21 @@ import { RateLimiter } from "../../../utils/rate-limiter";
 import { IBroker, IBrokerCredentials } from "../interfaces/broker.interface";
 import { MarketData, Order, Position, AccountBalance, Candle, OrderParameters, OrderType, OrderStatus } from "../interfaces/types";
 import { MarketDataStreamService } from "./market-data-stream.service";
+import { MarketDataCacheService } from "./market-data-cache.service";
+import { CapitalRateLimiter } from "./rate-limiter.service";
+
+// Extend InternalAxiosRequestConfig to include retry count
+interface RetryConfig extends InternalAxiosRequestConfig {
+  __retryCount?: number;
+}
 
 interface CapitalConfig extends IBrokerCredentials {
   baseUrl?: string;
   timeout?: number;
   isDemo?: boolean;
 }
+
+const logger = createLogger("capital-service");
 
 export class CapitalService extends EventEmitter implements IBroker {
   private readonly baseUrl: string;
@@ -30,8 +39,10 @@ export class CapitalService extends EventEmitter implements IBroker {
   private lastError: Error | null = null;
   private pingInterval?: NodeJS.Timeout;
   private reconnectTimeout?: NodeJS.Timeout;
-  private readonly logger = createLogger("capital-service");
   private readonly marketDataStream: MarketDataStreamService;
+  private readonly marketDataCache: MarketDataCacheService;
+  private readonly rateLimiter: CapitalRateLimiter;
+  private readonly logger = createLogger("capital-service");
 
   // Rate limiters based on Capital.com API limits
   private readonly globalLimiter = new RateLimiter(10, 1000); // 10 requests per second
@@ -64,35 +75,72 @@ export class CapitalService extends EventEmitter implements IBroker {
       return config;
     });
 
+    this.rateLimiter = new CapitalRateLimiter();
+
     // Add rate limiting interceptor
     this.client.interceptors.request.use(async (config) => {
-      await this.globalLimiter.acquire();
-      if (config.url?.includes("/positions") || config.url?.includes("/orders")) {
-        await this.orderLimiter.acquire();
-      }
-      if (config.url?.includes("/session")) {
-        await this.sessionLimiter.acquire();
+      try {
+        // Apply appropriate rate limit based on endpoint
+        if (config.url?.includes("/market-data") || config.url?.includes("/prices")) {
+          await this.rateLimiter.checkRateLimit("market_data");
+        } else if (config.url?.includes("/positions") || config.url?.includes("/orders")) {
+          await this.rateLimiter.checkRateLimit("trading");
+        } else if (config.url?.includes("/account")) {
+          await this.rateLimiter.checkRateLimit("account");
+        }
+        await this.rateLimiter.checkRateLimit("global");
+      } catch (error) {
+        this.handleError("Rate limit check failed", error);
+        throw error;
       }
       return config;
     });
 
-    // Add error handling interceptor
+    // Add error handling interceptor with retry logic
     this.client.interceptors.response.use(
       (response) => response,
-      (error) => {
+      async (error: AxiosError) => {
+        const config = error.config as RetryConfig;
+        if (!config) throw error;
+
+        // Handle rate limit errors
         if (error.response?.status === 429) {
-          this.handleError("Rate limit exceeded", error);
-          throw new Error("Too many requests");
+          this.logger.warn("Rate limit exceeded, retrying with backoff...");
+          const retryAfter = parseInt(error.response.headers["retry-after"] || "1", 10);
+          await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000));
+          return this.client(config);
         }
-        if (error.response?.data?.errorCode) {
-          this.handleError(error.response.data.message, error);
-          throw new Error(error.response.data.message);
+
+        // Handle authentication errors
+        if (error.response?.status === 401) {
+          this.logger.warn("Authentication failed, attempting to refresh session...");
+          try {
+            await this.refreshSession();
+            return this.client(config);
+          } catch (refreshError) {
+            this.handleError("Session refresh failed", refreshError);
+            throw error;
+          }
         }
+
+        // Handle server errors with retry
+        if (error.response?.status && error.response.status >= 500) {
+          config.__retryCount = (config.__retryCount || 0) + 1;
+          if (config.__retryCount <= 3) {
+            this.logger.warn(`Server error, retry attempt ${config.__retryCount}/3`);
+            const delay = Math.pow(2, Math.max(0, config.__retryCount)) * 1000;
+            await new Promise((resolve) => setTimeout(resolve, delay));
+            return this.client(config);
+          }
+        }
+
         throw error;
       }
     );
 
+    // Initialize services
     this.marketDataStream = new MarketDataStreamService();
+    this.marketDataCache = new MarketDataCacheService();
 
     // Forward market data events
     this.marketDataStream.on("marketData", (data: MarketData) => {
@@ -111,148 +159,11 @@ export class CapitalService extends EventEmitter implements IBroker {
     this.marketDataStream.on("candle", ({ symbol, timeframe, candle }) => {
       this.emit("candle", symbol, timeframe, candle);
     });
+
+    this.setupWebSocket();
   }
 
-  async connect(credentials: IBrokerCredentials): Promise<void> {
-    try {
-      const response = await this.client.post("/api/v1/session", credentials);
-      this.sessionToken = response.data.token;
-      if (this.sessionToken) {
-        this.client.defaults.headers["X-SECURITY-TOKEN"] = this.sessionToken;
-      }
-
-      await this.setupWebSocket();
-      this.connected = true;
-      this.logger.info("Connected to Capital.com API");
-    } catch (error: any) {
-      // Handle rate limiting
-      if (error.response?.status === 429) {
-        // Wait for a second and retry
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        return this.connect(credentials);
-      }
-      this.handleError("Connection failed", error);
-      throw error;
-    }
-  }
-
-  async disconnect(): Promise<void> {
-    try {
-      this.marketDataStream.destroy();
-      this.clearPingInterval();
-      if (this.reconnectTimeout) {
-        clearTimeout(this.reconnectTimeout);
-        this.reconnectTimeout = undefined;
-      }
-      if (this.ws) {
-        // Send close frame and wait for server to acknowledge
-        this.ws.close();
-        await new Promise<void>((resolve) => {
-          if (!this.ws) {
-            resolve();
-            return;
-          }
-          this.ws.once("close", () => {
-            resolve();
-          });
-          // Force close after 1 second if server doesn't respond
-          setTimeout(() => {
-            if (this.ws) {
-              this.ws.terminate();
-              resolve();
-            }
-          }, 1000).unref();
-        });
-        this.ws = undefined;
-      }
-      this.connected = false;
-      this.sessionToken = undefined;
-      this.logger.info("Disconnected from Capital.com API");
-    } catch (error) {
-      this.handleError("Disconnect failed", error);
-      throw error;
-    }
-  }
-
-  async validateCredentials(): Promise<boolean> {
-    try {
-      await this.client.get("/session");
-      return true;
-    } catch (error) {
-      this.handleError("Credential validation failed", error);
-      return false;
-    }
-  }
-
-  isConnected(): boolean {
-    return this.connected;
-  }
-
-  async getMarketData(symbol: string): Promise<MarketData> {
-    try {
-      const response = await this.client.get(`/api/v1/prices/${symbol}`);
-      return response.data;
-    } catch (error) {
-      this.handleError("Failed to get market data", error);
-      throw error;
-    }
-  }
-
-  async getCandles(symbol: string, timeframe: string, limit = 200): Promise<Candle[]> {
-    try {
-      const response = await this.client.get(`/api/v1/candles/${symbol}`, {
-        params: {
-          resolution: this.mapTimeframeToResolution(timeframe),
-          limit,
-        },
-      });
-      return response.data.candles;
-    } catch (error) {
-      this.handleError("Failed to get candles", error);
-      throw error;
-    }
-  }
-
-  private mapTimeframeToResolution(timeframe: string): string {
-    const map: { [key: string]: string } = {
-      "1m": "1",
-      "5m": "5",
-      "15m": "15",
-      "30m": "30",
-      "1h": "60",
-      "4h": "240",
-      "1d": "1440",
-    };
-    return map[timeframe] || "60";
-  }
-
-  private getTimeframeInMs(timeframe: string): number {
-    const map: { [key: string]: number } = {
-      "1m": 60000,
-      "5m": 300000,
-      "15m": 900000,
-      "30m": 1800000,
-      "1h": 3600000,
-      "4h": 14400000,
-      "1d": 86400000,
-    };
-    return map[timeframe] || 3600000;
-  }
-
-  getLastError(): Error | null {
-    return this.lastError;
-  }
-
-  private handleError(message: string, error: unknown): void {
-    this.lastError = error instanceof Error ? error : new Error(String(error));
-    this.logger.error({
-      message,
-      error: this.lastError.message,
-      stack: this.lastError.stack,
-    });
-  }
-
-  private async setupWebSocket(): Promise<void> {
+  private setupWebSocket(): void {
     if (!this.sessionToken) {
       throw new Error("No session token available");
     }
@@ -265,6 +176,8 @@ export class CapitalService extends EventEmitter implements IBroker {
       this.authenticate();
       this.setupPingInterval();
       this.wsReconnectAttempts = 0;
+      this.connected = true;
+      this.emit("connected");
     });
 
     this.ws.on("message", (data: string) => {
@@ -280,6 +193,8 @@ export class CapitalService extends EventEmitter implements IBroker {
       this.logger.warn("WebSocket disconnected");
       this.clearPingInterval();
       this.handleReconnect();
+      this.connected = false;
+      this.emit("disconnected");
     });
 
     this.ws.on("error", (error) => {
@@ -378,27 +293,23 @@ export class CapitalService extends EventEmitter implements IBroker {
     }
   }
 
-  async subscribeToMarketData(symbol: string, callback: (data: MarketData) => void, timeframe?: string): Promise<void> {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+  async subscribeToMarketData(symbol: string, callback: (data: MarketData) => void): Promise<void> {
+    if (!this.ws || !this.isConnected()) {
       throw new Error("WebSocket not connected");
     }
 
-    if (!this.marketDataCallbacks.has(symbol)) {
-      this.marketDataCallbacks.set(symbol, new Set());
-      this.ws.send(
-        JSON.stringify({
-          action: "subscribe",
-          epic: symbol,
-        })
-      );
-    }
+    this.ws.send(
+      JSON.stringify({
+        type: "SUBSCRIBE",
+        symbol,
+      })
+    );
 
-    this.marketDataCallbacks.get(symbol)?.add(callback);
-
-    // If timeframe is specified, set up candle aggregation
-    if (timeframe) {
-      this.marketDataStream.subscribe(symbol, timeframe);
-    }
+    this.on("marketData", (data: MarketData) => {
+      if (data.symbol === symbol) {
+        callback(data);
+      }
+    });
   }
 
   async unsubscribeFromMarketData(symbol: string, timeframe?: string): Promise<void> {
@@ -682,5 +593,210 @@ export class CapitalService extends EventEmitter implements IBroker {
       CANCELLED: "CANCELED",
     };
     return map[status] || "PENDING";
+  }
+
+  /**
+   * Get historical candles with caching
+   */
+  public async getHistoricalCandles(symbol: string, timeframe: string, startTime: number, endTime: number): Promise<Candle[]> {
+    try {
+      // Try to get from cache first
+      const cachedCandles = await this.marketDataCache.getCachedCandles(symbol, timeframe, startTime, endTime);
+      if (cachedCandles) {
+        this.logger.debug(`Retrieved ${cachedCandles.length} candles from cache for ${symbol}:${timeframe}`);
+        return cachedCandles;
+      }
+
+      // If not in cache, fetch from API
+      const candles = await this.fetchHistoricalCandles(symbol, timeframe, startTime, endTime);
+
+      // Cache the results
+      await this.marketDataCache.cacheCandles(symbol, timeframe, startTime, endTime, candles);
+
+      return candles;
+    } catch (error) {
+      this.logger.error("Error getting historical candles:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Fetch historical candles from API
+   */
+  private async fetchHistoricalCandles(symbol: string, timeframe: string, startTime: number, endTime: number): Promise<Candle[]> {
+    try {
+      const response = await this.client.get(`/api/v1/market-data/${symbol}/candles`, {
+        params: {
+          timeframe,
+          from: startTime,
+          to: endTime,
+        },
+      });
+
+      return response.data.candles.map((candle: any) => ({
+        timestamp: new Date(candle.timestamp).getTime(),
+        open: parseFloat(candle.open),
+        high: parseFloat(candle.high),
+        low: parseFloat(candle.low),
+        close: parseFloat(candle.close),
+        volume: parseFloat(candle.volume),
+      }));
+    } catch (error) {
+      this.logger.error("Error fetching historical candles:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Refresh session token
+   */
+  private async refreshSession(): Promise<void> {
+    try {
+      const response = await this.client.post("/session", {
+        apiKey: this.apiKey,
+        apiSecret: this.apiSecret,
+      });
+      this.sessionToken = response.data.token;
+      if (this.sessionToken) {
+        this.client.defaults.headers["X-SECURITY-TOKEN"] = this.sessionToken;
+      }
+    } catch (error) {
+      this.handleError("Failed to refresh session", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Clean up resources
+   */
+  public async destroy(): Promise<void> {
+    // ... existing cleanup code ...
+
+    await this.marketDataStream.destroy();
+    await this.marketDataCache.destroy();
+    this.rateLimiter.destroy();
+  }
+
+  isConnected(): boolean {
+    return this.connected;
+  }
+
+  private handleError(message: string, error: unknown): void {
+    this.lastError = error instanceof Error ? error : new Error(String(error));
+
+    // Log different error types appropriately
+    if (axios.isAxiosError(error)) {
+      this.logger.error({
+        message,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        headers: error.response?.headers,
+      });
+    } else if (error instanceof Error && "type" in error) {
+      // Handle WebSocket errors
+      this.logger.error({
+        message,
+        type: (error as { type?: string }).type,
+        error: error.message,
+      });
+    } else {
+      this.logger.error({
+        message,
+        error: this.lastError.message,
+        stack: this.lastError.stack,
+      });
+    }
+
+    // Emit error event for monitoring
+    this.emit("error", {
+      message,
+      error: this.lastError,
+      timestamp: new Date(),
+    });
+  }
+
+  /**
+   * Connect to the Capital.com API and establish WebSocket connection
+   */
+  public async connect(): Promise<void> {
+    try {
+      await this.refreshSession();
+      this.setupWebSocket();
+    } catch (error) {
+      this.handleError("Failed to connect", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Disconnect from the Capital.com API and close WebSocket connection
+   */
+  public async disconnect(): Promise<void> {
+    try {
+      if (this.ws) {
+        this.ws.close();
+        this.ws = undefined;
+      }
+      this.clearPingInterval();
+      this.connected = false;
+      this.sessionToken = undefined;
+    } catch (error) {
+      this.handleError("Failed to disconnect", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Validate the provided credentials
+   */
+  public async validateCredentials(): Promise<boolean> {
+    try {
+      await this.refreshSession();
+      return true;
+    } catch (error) {
+      this.handleError("Failed to validate credentials", error);
+      return false;
+    }
+  }
+
+  /**
+   * Get market data for a symbol
+   */
+  public async getMarketData(symbol: string): Promise<MarketData> {
+    try {
+      const response = await this.client.get(`/prices/${symbol}`);
+      return {
+        symbol,
+        bid: response.data.bid,
+        ask: response.data.ask,
+        timestamp: response.data.timestamp,
+      };
+    } catch (error) {
+      this.handleError(`Failed to get market data for ${symbol}`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get candles for a symbol
+   */
+  public async getCandles(symbol: string, timeframe: string, limit: number): Promise<Candle[]> {
+    try {
+      const response = await this.client.get(`/prices/${symbol}/candles/${timeframe}`, {
+        params: { limit },
+      });
+      return response.data.candles;
+    } catch (error) {
+      this.handleError(`Failed to get candles for ${symbol}`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get the last error that occurred
+   */
+  public getLastError(): Error | null {
+    return this.lastError;
   }
 }

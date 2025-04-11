@@ -4,10 +4,124 @@ import { validateRequest } from "../../middleware/validate-request";
 import { z } from "zod";
 import { authenticateUser } from "../../middleware/auth";
 import { createLogger } from "../../utils/logger";
+import { AIService } from "../../services/ai/ai.service";
+import { ChartAnalysisService } from "../../services/ai/chart-analysis.service";
+import { StorageService } from "../../services/storage/storage.service";
+import { CapitalService } from "../../services/broker/capital-com/capital.service";
+import { prisma } from "../../lib/prisma";
+import { BotInstance, Prisma } from "@prisma/client";
+import { Position } from "../../services/broker/interfaces/types";
 
 const logger = createLogger("bot-routes");
 const router = Router();
-const tradingService = new AutomatedTradingService();
+
+// Initialize required services
+const aiService = new AIService();
+const chartAnalysisService = new ChartAnalysisService();
+const storageService = new StorageService();
+
+interface BotConfig {
+  pair: string;
+  timeframe: string;
+  strategyId: string;
+  riskSettings: {
+    maxRiskPerTrade: number;
+    maxPositions?: number;
+    maxDrawdown?: number;
+    symbols?: string[];
+  };
+}
+
+interface BotWithStrategy extends BotInstance {
+  strategy: {
+    id: string;
+    riskParameters: Prisma.JsonValue;
+  };
+}
+
+interface BotStatus {
+  isActive: boolean;
+  lastCheck: Date | null;
+  lastTrade: Date | null;
+  positions?: Position[];
+  dailyStats: {
+    tradesExecuted: number;
+    winRate: number;
+    profitLoss: number;
+  };
+  errors: string[];
+}
+
+/**
+ * Convert bot instance to bot config
+ */
+function convertBotToConfig(bot: BotWithStrategy): BotConfig {
+  const riskParameters = bot.strategy.riskParameters as {
+    maxPositions?: number;
+    maxRiskPerTrade?: number;
+    maxDrawdown?: number;
+    symbols?: string[];
+  } | null;
+
+  return {
+    pair: bot.pair,
+    timeframe: bot.timeframe,
+    strategyId: bot.strategyId,
+    riskSettings: {
+      maxRiskPerTrade: riskParameters?.maxRiskPerTrade ?? 2,
+      maxPositions: riskParameters?.maxPositions,
+      maxDrawdown: riskParameters?.maxDrawdown,
+      symbols: riskParameters?.symbols,
+    },
+  };
+}
+
+/**
+ * Initialize trading service for a bot
+ */
+async function initializeTradingService(userId: string, botConfig: BotConfig): Promise<AutomatedTradingService> {
+  // Get user's broker credentials
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    include: {
+      broker_credentials: {
+        where: { broker_name: "CAPITAL" },
+      },
+    },
+  });
+
+  if (!user?.broker_credentials?.[0]) {
+    throw new Error("No Capital.com credentials found");
+  }
+
+  const credentials = user.broker_credentials[0].credentials as {
+    apiKey: string;
+    apiSecret: string;
+    isDemo: boolean;
+  };
+
+  // Initialize broker service with user's credentials
+  const userBroker = new CapitalService({
+    apiKey: credentials.apiKey,
+    apiSecret: credentials.apiSecret,
+    isDemo: credentials.isDemo,
+    timeout: 30000,
+  });
+
+  // Initialize trading service with user's broker
+  const tradingService = new AutomatedTradingService(userBroker, aiService, chartAnalysisService, {
+    maxPositions: botConfig.riskSettings?.maxPositions ?? 5,
+    maxRiskPerTrade: botConfig.riskSettings.maxRiskPerTrade,
+    maxDrawdown: botConfig.riskSettings?.maxDrawdown ?? 10,
+    timeframes: [botConfig.timeframe],
+    symbols: botConfig.riskSettings?.symbols ?? [botConfig.pair],
+  });
+
+  // Connect to broker
+  await userBroker.connect();
+
+  return tradingService;
+}
 
 // Validation schemas
 const createBotSchema = z.object({
@@ -16,74 +130,39 @@ const createBotSchema = z.object({
   strategyId: z.string(),
   riskSettings: z.object({
     maxRiskPerTrade: z.number(),
+    maxPositions: z.number().optional(),
+    maxDrawdown: z.number().optional(),
+    symbols: z.array(z.string()).optional(),
   }),
 });
 
 // Create new bot
-router.post(
-  "/",
-  authenticateUser,
-  (req, res, next) => {
-    // Debug middleware to check request body
-    logger.info(`Create bot request received:`, {
-      bodyType: typeof req.body,
-      contentType: req.headers["content-type"],
-      bodyKeys: req.body ? Object.keys(req.body) : [],
-      rawBody: JSON.stringify(req.body),
+router.post("/", authenticateUser, validateRequest(createBotSchema), async (req, res) => {
+  logger.info("Creating new bot", { userId: req.user?.id, config: req.body });
+  try {
+    // Create bot instance in database
+    const botInstance = await prisma.botInstance.create({
+      data: {
+        userId: req.user!.id,
+        strategyId: req.body.strategyId,
+        pair: req.body.pair,
+        timeframe: req.body.timeframe,
+        riskSettings: req.body.riskSettings,
+        isActive: true,
+      },
     });
 
-    // Continue to validation middleware
-    next();
-  },
-  validateRequest(createBotSchema),
-  async (req, res) => {
-    logger.info("Creating new bot", { userId: req.user?.id, config: req.body });
-    try {
-      // If risk settings are not complete, try to get them from the strategy
-      const { strategyId, riskSettings } = req.body;
+    // Initialize trading service
+    const tradingService = await initializeTradingService(req.user!.id, req.body);
 
-      // Create the bot instance
-      const botInstance = await tradingService.createBot(req.user!.id, req.body);
-      logger.info("Bot created successfully", { botId: botInstance.id });
-      res.status(201).json(botInstance);
-    } catch (error) {
-      logger.error("Error creating bot:", { error, userId: req.user?.id, config: req.body });
-      res.status(500).json({ error: "Failed to create bot" });
-    }
-  }
-);
+    // Start the trading service
+    await tradingService.start();
 
-// Get bot status
-router.get("/status", authenticateUser, async (req, res) => {
-  try {
-    logger.info("Fetching bot status for user", { userId: req.user?.id });
-    // Get all bots for the user
-    const bots = await tradingService.getAllUserBots(req.user!.id);
-
-    if (bots.length === 0) {
-      // If no bots found, return a default inactive bot status
-      const mockStatus = {
-        id: null,
-        isActive: false,
-        lastCheck: new Date(),
-        lastTrade: null,
-        dailyStats: {
-          tradesExecuted: 0,
-          winRate: 0,
-          profitLoss: 0,
-        },
-        errors: [],
-      };
-      return res.status(200).json(mockStatus);
-    }
-
-    // Return the most recently active bot, or the first bot if none are active
-    const activeBot = bots.find((bot) => bot.isActive) || bots[0];
-
-    res.status(200).json(activeBot);
+    logger.info("Bot created successfully", { botId: botInstance.id });
+    res.status(201).json(botInstance);
   } catch (error) {
-    logger.error("Error fetching bot status:", error);
-    res.status(500).json({ message: "Failed to fetch bot status", error: String(error) });
+    logger.error("Error creating bot:", { error, userId: req.user?.id, config: req.body });
+    res.status(500).json({ error: error instanceof Error ? error.message : "Failed to create bot" });
   }
 });
 
@@ -91,7 +170,13 @@ router.get("/status", authenticateUser, async (req, res) => {
 router.get("/all", authenticateUser, async (req, res) => {
   logger.info("Fetching all bots for user", { userId: req.user?.id });
   try {
-    const bots = await tradingService.getAllUserBots(req.user!.id);
+    const bots = await prisma.botInstance.findMany({
+      where: { userId: req.user!.id },
+      include: {
+        strategy: true,
+      },
+      orderBy: { createdAt: "desc" },
+    });
     res.status(200).json(bots);
   } catch (error) {
     logger.error("Error fetching all bots:", { error, userId: req.user?.id });
@@ -103,16 +188,63 @@ router.get("/all", authenticateUser, async (req, res) => {
 router.get("/:id", authenticateUser, async (req, res) => {
   logger.info("Fetching specific bot", { userId: req.user?.id, botId: req.params.id });
   try {
-    const bot = await tradingService.getBotStatus(req.params.id);
+    // Get bot details
+    const bot = await prisma.botInstance.findUnique({
+      where: { id: req.params.id },
+      include: {
+        strategy: true,
+        trades: {
+          orderBy: {
+            createdAt: "desc",
+          },
+          take: 10,
+        },
+      },
+    });
+
     if (!bot) {
       logger.warn("Bot not found", { userId: req.user?.id, botId: req.params.id });
       return res.status(404).json({ error: "Bot not found" });
     }
+
+    // If bot is active, get its current status
+    const status: BotStatus = {
+      isActive: bot.isActive,
+      lastCheck: null,
+      lastTrade: bot.trades[0]?.createdAt ?? null,
+      dailyStats: {
+        tradesExecuted: 0,
+        winRate: 0,
+        profitLoss: 0,
+      },
+      errors: [],
+    };
+
+    if (bot.isActive) {
+      try {
+        // Initialize trading service
+        const tradingService = await initializeTradingService(req.user!.id, convertBotToConfig(bot as BotWithStrategy));
+
+        // Get current positions from broker
+        const positions = await tradingService.getPositions();
+
+        // Update status with current positions
+        status.positions = positions;
+        status.lastCheck = new Date();
+      } catch (error) {
+        logger.error("Error getting bot status:", { error, userId: req.user?.id, botId: req.params.id });
+        status.errors = [error instanceof Error ? error.message : "Failed to get bot status"];
+      }
+    }
+
     logger.info("Bot fetched successfully", { userId: req.user?.id, botId: req.params.id });
-    res.json(bot);
+    res.json({
+      ...bot,
+      status,
+    });
   } catch (error) {
     logger.error("Error fetching bot:", { error, userId: req.user?.id, botId: req.params.id });
-    res.status(500).json({ error: "Failed to fetch bot" });
+    res.status(500).json({ error: error instanceof Error ? error.message : "Failed to fetch bot" });
   }
 });
 
@@ -121,12 +253,35 @@ router.post("/:id/start", authenticateUser, async (req, res) => {
   const botId = req.params.id;
   logger.info("Starting bot", { userId: req.user?.id, botId });
   try {
-    await tradingService.startBot(botId);
+    // Get bot details
+    const bot = await prisma.botInstance.findUnique({
+      where: { id: botId },
+      include: {
+        strategy: true,
+      },
+    });
+
+    if (!bot) {
+      throw new Error("Bot not found");
+    }
+
+    // Initialize trading service
+    const tradingService = await initializeTradingService(req.user!.id, convertBotToConfig(bot as BotWithStrategy));
+
+    // Start the trading service
+    await tradingService.start();
+
+    // Update bot status
+    const updatedBot = await prisma.botInstance.update({
+      where: { id: botId },
+      data: { isActive: true },
+    });
+
     logger.info("Bot started successfully", { userId: req.user?.id, botId });
-    res.status(200).json({ success: true, message: "Bot started successfully" });
+    res.status(200).json(updatedBot);
   } catch (error) {
     logger.error("Error starting bot:", { error, userId: req.user?.id, botId });
-    res.status(500).json({ error: "Failed to start bot" });
+    res.status(500).json({ error: error instanceof Error ? error.message : "Failed to start bot" });
   }
 });
 
@@ -135,25 +290,70 @@ router.post("/:id/stop", authenticateUser, async (req, res) => {
   const botId = req.params.id;
   logger.info("Stopping bot", { userId: req.user?.id, botId });
   try {
-    await tradingService.stopBot(botId);
+    // Get bot details
+    const bot = await prisma.botInstance.findUnique({
+      where: { id: botId },
+      include: {
+        strategy: true,
+      },
+    });
+
+    if (!bot) {
+      throw new Error("Bot not found");
+    }
+
+    // Initialize trading service
+    const tradingService = await initializeTradingService(req.user!.id, convertBotToConfig(bot as BotWithStrategy));
+
+    // Stop the trading service
+    await tradingService.stop();
+
+    // Update bot status
+    const updatedBot = await prisma.botInstance.update({
+      where: { id: botId },
+      data: { isActive: false },
+    });
+
     logger.info("Bot stopped successfully", { userId: req.user?.id, botId });
-    res.status(200).json({ success: true, message: "Bot stopped successfully" });
+    res.status(200).json(updatedBot);
   } catch (error) {
     logger.error("Error stopping bot:", { error, userId: req.user?.id, botId });
-    res.status(500).json({ error: "Failed to stop bot" });
+    res.status(500).json({ error: error instanceof Error ? error.message : "Failed to stop bot" });
   }
 });
 
 // Delete/stop bot
 router.delete("/:id", authenticateUser, async (req, res) => {
-  logger.info("Stopping bot", { userId: req.user?.id, botId: req.params.id });
+  logger.info("Deleting bot", { userId: req.user?.id, botId: req.params.id });
   try {
-    await tradingService.stopBot(req.params.id);
-    logger.info("Bot stopped successfully", { userId: req.user?.id, botId: req.params.id });
+    // Get bot details
+    const bot = await prisma.botInstance.findUnique({
+      where: { id: req.params.id },
+      include: {
+        strategy: true,
+      },
+    });
+
+    if (!bot) {
+      throw new Error("Bot not found");
+    }
+
+    // Initialize trading service
+    const tradingService = await initializeTradingService(req.user!.id, convertBotToConfig(bot as BotWithStrategy));
+
+    // Stop the trading service
+    await tradingService.stop();
+
+    // Delete bot instance
+    await prisma.botInstance.delete({
+      where: { id: req.params.id },
+    });
+
+    logger.info("Bot deleted successfully", { userId: req.user?.id, botId: req.params.id });
     res.status(204).send();
   } catch (error) {
-    logger.error("Error stopping bot:", { error, userId: req.user?.id, botId: req.params.id });
-    res.status(500).json({ error: "Failed to stop bot" });
+    logger.error("Error deleting bot:", { error, userId: req.user?.id, botId: req.params.id });
+    res.status(500).json({ error: error instanceof Error ? error.message : "Failed to delete bot" });
   }
 });
 
@@ -161,12 +361,28 @@ router.delete("/:id", authenticateUser, async (req, res) => {
 router.get("/:id/logs", authenticateUser, async (req, res) => {
   logger.info("Fetching bot logs", { userId: req.user?.id, botId: req.params.id });
   try {
+    // Get bot details
+    const bot = await prisma.botInstance.findUnique({
+      where: { id: req.params.id },
+      include: {
+        strategy: true,
+      },
+    });
+
+    if (!bot) {
+      throw new Error("Bot not found");
+    }
+
+    // Initialize trading service
+    const tradingService = await initializeTradingService(req.user!.id, convertBotToConfig(bot as BotWithStrategy));
+
+    // Get logs
     const logs = await tradingService.getBotLogs(req.params.id);
     logger.info("Bot logs fetched successfully", { userId: req.user?.id, botId: req.params.id, logsCount: logs.length });
     res.json(logs);
   } catch (error) {
     logger.error("Error fetching bot logs:", { error, userId: req.user?.id, botId: req.params.id });
-    res.status(500).json({ error: "Failed to fetch bot logs" });
+    res.status(500).json({ error: error instanceof Error ? error.message : "Failed to fetch bot logs" });
   }
 });
 

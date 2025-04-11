@@ -1,7 +1,13 @@
 export type OrderType = "MARKET" | "LIMIT" | "STOP" | "STOP_LIMIT";
 export type OrderSide = "BUY" | "SELL";
 export type TimeInForce = "GTC" | "IOC" | "FOK";
-export type OrderStatus = "PENDING" | "OPEN" | "CLOSED" | "CANCELED" | "REJECTED";
+export enum OrderStatus {
+  PENDING = "PENDING",
+  OPEN = "OPEN",
+  FILLED = "FILLED",
+  CANCELLED = "CANCELLED",
+  REJECTED = "REJECTED",
+}
 export type PositionSide = "LONG" | "SHORT";
 
 export interface MarketData {
@@ -10,6 +16,9 @@ export interface MarketData {
   ask: number;
   timestamp: number;
   volume?: number;
+  timeframe?: string;
+  currentPrice?: number;
+  candles?: Candle[];
 }
 
 export interface Candle {
@@ -18,41 +27,43 @@ export interface Candle {
   high: number;
   low: number;
   close: number;
-  volume: number;
+  volume?: number;
 }
 
 export interface OrderParameters {
   symbol: string;
   type: OrderType;
-  side: OrderSide;
+  side: "BUY" | "SELL";
   quantity: number;
-  price?: number; // Required for LIMIT and STOP_LIMIT orders
-  stopPrice?: number; // Required for STOP and STOP_LIMIT orders
-  timeInForce?: TimeInForce;
-  leverage?: number; // For margin trading
+  price?: number;
+  stopPrice?: number;
+  timeInForce?: "GTC" | "IOC" | "FOK";
 }
 
-export interface Order extends OrderParameters {
+export interface Order {
   id: string;
+  symbol: string;
+  type: OrderType;
+  side: "BUY" | "SELL";
+  quantity: number;
+  price: number;
+  stopPrice?: number;
   status: OrderStatus;
-  filledQuantity: number;
-  averagePrice?: number;
-  commission?: number;
-  createdAt: Date;
-  updatedAt: Date;
+  timestamp: number;
 }
 
 export interface Position {
   id: string;
   symbol: string;
-  side: PositionSide;
+  side: "LONG" | "SHORT";
+  leverage: number;
   entryPrice: number;
   currentPrice: number;
   quantity: number;
   unrealizedPnL: number;
   realizedPnL: number;
-  leverage: number;
-  liquidationPrice?: number;
+  stopLoss?: number;
+  takeProfit?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -69,4 +80,10 @@ export interface BrokerError {
   code: string;
   message: string;
   details?: any;
+}
+
+export enum OrderType {
+  MARKET = "MARKET",
+  LIMIT = "LIMIT",
+  STOP = "STOP",
 }

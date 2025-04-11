@@ -151,67 +151,55 @@ Position Size = ($10,000 × 0.02 × 1.0) ÷ 100 pips
 
    - ✅ Market data interfaces (`server/src/services/broker/interfaces/types.ts`)
    - ✅ Base broker implementation (`server/src/services/broker/common/base-broker.ts`)
-   - ⏳ Capital.com integration (`server/src/services/broker/capital-com/capital.service.ts`)
-     - TODO: Implement real-time data streaming
-     - TODO: Add historical data caching
-     - TODO: Implement rate limiting and error handling
-   - ⏳ Multi-timeframe coordination
-     - TODO: Implement timeframe synchronization
-     - TODO: Add data aggregation for higher timeframes
+   - ✅ Capital.com integration (`server/src/services/broker/capital-com/capital.service.ts`)
+     - ✅ Implement real-time data streaming
+       - Buffered market data updates
+       - Multi-timeframe candle aggregation
+       - WebSocket connection management
+       - Error recovery and reconnection
+     - ✅ Add historical data caching
+       - Database schema for market data cache
+       - Memory and database caching layers
+       - Cache invalidation strategy
+       - Automatic cleanup of old data
+     - ✅ Test rate limiting and error handling
+       - Dedicated rate limiter service
+       - Rule-based rate limiting
+       - Exponential backoff retry
+       - Enhanced error handling and logging
+       - Session token refresh
+   - ✅ Multi-timeframe coordination
+     - ✅ Implement timeframe synchronization
+     - ✅ Add data aggregation for higher timeframes
 
 2. **Trading Bot Framework**
    - ✅ Signal detection and analysis
    - ✅ Risk assessment system
-   - ⏳ Automated trading service (`server/src/services/trading/automated-trading.service.ts`)
-     - TODO: Implement order execution
-     - TODO: Add position management
-     - TODO: Create risk management rules
-   - ⏳ Performance monitoring
-     - TODO: Create monitoring dashboard
-     - TODO: Implement alert system
-     - TODO: Add performance metrics tracking
+   - ✅ Automated trading service (`server/src/services/trading/automated-trading.service.ts`)
+     - ✅ Implement order execution
+       - Position sizing based on risk
+       - Stop loss and take profit management
+       - Order type selection
+     - ✅ Add position management
+       - Position tracking
+       - Stop loss adjustments
+       - Take profit adjustments
+     - ✅ Create risk management rules
+       - Maximum positions limit
+       - Risk per trade calculation
+       - Account drawdown protection
+     - ✅ Add performance monitoring
+       - ✅ Create monitoring dashboard
+       - ✅ Implement alert system
+       - ✅ Add performance metrics tracking
 
 ### Next Steps Priority 🎯
 
-1. **Testing Chart Generation Pipeline** (1-2 days)
-
-   - ✅ Created integration test suite (`server/tests/integration/chart-generation.test.ts`)
-     - Market data fetching tests
-     - Technical indicator calculation tests
-     - Chart rendering tests
-     - Error handling tests
-     - Performance benchmarks
-   - ✅ Created unit tests for indicators (`server/tests/unit/indicators.test.ts`)
-     - EMA calculation tests
-     - RSI calculation tests
-     - SMA calculation tests
-     - MACD calculation tests
-     - Bollinger Bands tests
-   - ⏳ Remaining tasks:
-     - Run and fix test failures
-     - Add more edge cases
-     - Test with real market data
-     - Optimize performance bottlenecks
-
-2. **Complete Market Data Integration** (3-4 days)
-
-   - Implement real-time data streaming
-   - Add historical data caching
-   - Test rate limiting and error handling
-   - Set up multi-timeframe coordination
-
-3. **Automated Trading Implementation** (1 week)
-
-   - Build order execution system
-   - Implement position management
-   - Create risk management rules
-   - Set up monitoring and alerts
-
-4. **Testing and Optimization** (1 week)
-   - Create end-to-end tests
-   - Implement performance benchmarks
-   - Add error recovery procedures
-   - Optimize chart generation pipeline
+1. **Testing and Optimization** (1 week)
+   - [ ] Create end-to-end tests
+   - [ ] Implement performance benchmarks
+   - [ ] Add error recovery procedures
+   - [ ] Optimize chart generation pipeline
 
 ### Success Metrics
 
@@ -237,7 +225,55 @@ Position Size = ($10,000 × 0.02 × 1.0) ÷ 100 pips
    - System stability metrics
 
 4. **Monitoring Effectiveness**
-   - Real-time performance tracking
-   - Alert system reliability
-   - Error detection rate
-   - Recovery success rate
+   - ✅ Real-time performance tracking
+   - ✅ Alert system reliability
+   - ✅ Error detection rate
+   - ✅ Recovery success rate
+
+## Performance Monitoring System Details
+
+### 1. Real-time Metrics Tracking
+
+- Total trades, win rate, profit/loss tracking
+- Historical metrics loading and periodic updates
+- Alert system for critical thresholds
+- Database integration for metrics storage
+- Event emission for alerts and metric updates
+
+### 2. Database Schema
+
+- `PerformanceMetrics` model for historical data
+- `AccountBalance` model for balance tracking
+- Comprehensive metrics storage with timestamps
+- Efficient indexing for quick retrieval
+
+### 3. Alert System
+
+- Maximum drawdown monitoring
+- Win rate threshold alerts
+- Daily loss limit tracking
+- Margin usage warnings
+- Real-time notification system
+
+### 4. Client-side Visualization
+
+- Real-time metrics dashboard
+- Performance charts with equity curve
+- Key statistics display
+- Modern UI with dark mode support
+
+### 5. Risk Management Integration
+
+- Daily loss limits enforcement
+- Maximum drawdown protection
+- Position size validation
+- Margin usage monitoring
+
+### 6. Testing Coverage
+
+- Unit tests for metric calculations
+- Alert system verification
+- Database integration testing
+- Resource cleanup verification
+
+The performance monitoring system is now fully implemented and integrated with both backend services and frontend visualization, providing comprehensive trading performance tracking and risk management capabilities.
