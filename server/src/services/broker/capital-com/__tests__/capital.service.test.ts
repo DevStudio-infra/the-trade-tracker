@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "@jest/globals";
+import { describe, it, expect, beforeEach, beforeAll, afterAll } from "@jest/globals";
 import { CapitalService } from "../capital.service";
 import { IBrokerCredentials } from "../../interfaces/broker.interface";
 import axios from "axios";
@@ -27,21 +27,34 @@ const mockAxiosInstance = {
 // Mock WebSocket
 jest.mock("ws");
 
-describe("CapitalService", () => {
-  let service: CapitalService;
+describe("Capital.com Service", () => {
+  let capitalService: CapitalService;
   const mockCredentials: IBrokerCredentials = {
     apiKey: "test-api-key",
     apiSecret: "test-api-secret",
     isDemo: true,
   };
 
-  beforeEach(() => {
-    jest.clearAllMocks();
-    service = new CapitalService({
-      ...mockCredentials,
-      baseUrl: "https://test-api.capital.com",
-      timeout: 5000,
+  beforeAll(async () => {
+    capitalService = new CapitalService({
+      apiKey: process.env.CAPITAL_COM_API_KEY || "",
+      apiSecret: process.env.CAPITAL_COM_API_SECRET || "",
+      isDemo: true,
     });
+  });
+
+  afterAll(async () => {
+    // Ensure all WebSocket connections are closed
+    await capitalService.disconnect();
+    // Wait for any pending operations to complete
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    // Clear all mocks
+    jest.clearAllMocks();
+  });
+
+  beforeEach(() => {
+    // Reset mocks before each test
+    jest.clearAllMocks();
   });
 
   describe("Connection Management", () => {
@@ -49,27 +62,27 @@ describe("CapitalService", () => {
       const mockToken = "test-session-token";
       mockAxiosInstance.post.mockResolvedValueOnce({ data: { token: mockToken } });
 
-      await service.connect(mockCredentials);
-      expect(service.isConnected()).toBe(true);
+      await capitalService.connect(mockCredentials);
+      expect(capitalService.isConnected()).toBe(true);
       expect(mockAxiosInstance.post).toHaveBeenCalledWith("/api/v1/session", mockCredentials);
     });
 
     it("should disconnect successfully", async () => {
       // First connect
       mockAxiosInstance.post.mockResolvedValueOnce({ data: { token: "test-token" } });
-      await service.connect(mockCredentials);
+      await capitalService.connect(mockCredentials);
 
       // Then disconnect
-      await service.disconnect();
-      expect(service.isConnected()).toBe(false);
+      await capitalService.disconnect();
+      expect(capitalService.isConnected()).toBe(false);
     });
 
     it("should handle rate limiting", async () => {
       const mockToken = "test-session-token";
       mockAxiosInstance.post.mockRejectedValueOnce({ response: { status: 429 } }).mockResolvedValueOnce({ data: { token: mockToken } });
 
-      await service.connect(mockCredentials);
-      expect(service.isConnected()).toBe(true);
+      await capitalService.connect(mockCredentials);
+      expect(capitalService.isConnected()).toBe(true);
       expect(mockAxiosInstance.post).toHaveBeenCalledTimes(2);
     });
   });
@@ -77,7 +90,11 @@ describe("CapitalService", () => {
   describe("Market Data", () => {
     beforeEach(async () => {
       mockAxiosInstance.post.mockResolvedValueOnce({ data: { token: "test-token" } });
-      await service.connect(mockCredentials);
+      await capitalService.connect(mockCredentials);
+    });
+
+    afterEach(async () => {
+      await capitalService.disconnect();
     });
 
     it("should get market data", async () => {
@@ -89,7 +106,7 @@ describe("CapitalService", () => {
       };
 
       mockAxiosInstance.get.mockResolvedValueOnce({ data: mockMarketData });
-      const result = await service.getMarketData("EURUSD");
+      const result = await capitalService.getMarketData("EURUSD");
       expect(result).toEqual(mockMarketData);
     });
 
@@ -106,7 +123,7 @@ describe("CapitalService", () => {
       ];
 
       mockAxiosInstance.get.mockResolvedValueOnce({ data: { candles: mockCandles } });
-      const result = await service.getCandles("EURUSD", "1h", 1);
+      const result = await capitalService.getCandles("EURUSD", "1h", 1);
       expect(result).toEqual(mockCandles);
     });
   });
@@ -116,12 +133,12 @@ describe("CapitalService", () => {
   describe("WebSocket Functionality", () => {
     beforeEach(async () => {
       mockAxiosInstance.post.mockResolvedValueOnce({ data: { token: "test-token" } });
-      await service.connect(mockCredentials);
+      await capitalService.connect(mockCredentials);
     });
 
     it("should handle market data subscription", async () => {
       const callback = jest.fn();
-      await service.subscribeToMarketData("EURUSD", callback);
+      await capitalService.subscribeToMarketData("EURUSD", callback);
       // Add WebSocket tests later
     });
 

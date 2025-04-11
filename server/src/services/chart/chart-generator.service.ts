@@ -1,6 +1,11 @@
 import { createLogger } from "../../utils/logger";
 import { ChartOptions } from "lightweight-charts";
 import { getChartOptions } from "./chart-config.service";
+import { CapitalService } from "../broker/capital-com/capital.service";
+import { Candle } from "../broker/interfaces/types";
+import { IndicatorsService } from "./indicators.service";
+import { ChartRendererService } from "./chart-renderer.service";
+import { StorageService } from "../storage/storage.service";
 
 const logger = createLogger("chart-generator");
 
@@ -19,11 +24,28 @@ export interface GeneratedChart {
   indicators: Record<string, number[]>;
 }
 
+export interface ChartGeneratorOptions {
+  userId: string;
+  signalId: string;
+}
+
 export class ChartGeneratorService {
+  private capitalService: CapitalService;
+  private indicatorsService: IndicatorsService;
+  private chartRenderer: ChartRendererService;
+  private storageService: StorageService;
+
+  constructor(capitalService: CapitalService, storageService: StorageService) {
+    this.capitalService = capitalService;
+    this.indicatorsService = new IndicatorsService();
+    this.chartRenderer = new ChartRendererService();
+    this.storageService = storageService;
+  }
+
   /**
    * Generate a chart for analysis
    */
-  async generateChart(pair: string, timeframe: string): Promise<GeneratedChart> {
+  async generateChart(pair: string, timeframe: string, options: ChartGeneratorOptions): Promise<GeneratedChart> {
     try {
       // Get chart data from market data service
       const data = await this.fetchMarketData(pair, timeframe);
@@ -32,7 +54,7 @@ export class ChartGeneratorService {
       const indicators = await this.calculateIndicators(data);
 
       // Generate chart image
-      const chartUrl = await this.renderChart(data, indicators);
+      const chartUrl = await this.renderChart(data, indicators, pair, timeframe, options);
 
       return {
         url: chartUrl,
@@ -50,19 +72,23 @@ export class ChartGeneratorService {
    */
   private async fetchMarketData(pair: string, timeframe: string): Promise<ChartData[]> {
     try {
-      // TODO: Implement market data fetching from your data provider
-      // For now, return sample data
-      return [
-        {
-          timestamp: Date.now() - 3600000,
-          open: 1.1,
-          high: 1.105,
-          low: 1.095,
-          close: 1.1025,
-          volume: 1000000,
-        },
-        // Add more candles...
-      ];
+      // Ensure we're connected to the broker
+      if (!this.capitalService.isConnected()) {
+        throw new Error("Not connected to broker");
+      }
+
+      // Get candles from Capital.com
+      const candles = await this.capitalService.getCandles(pair, timeframe, 200);
+
+      // Map candles to ChartData format
+      return candles.map((candle: Candle) => ({
+        timestamp: candle.timestamp,
+        open: candle.open,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close,
+        volume: candle.volume || 0,
+      }));
     } catch (error) {
       logger.error("Error fetching market data:", error);
       throw error;
@@ -74,12 +100,7 @@ export class ChartGeneratorService {
    */
   private async calculateIndicators(data: ChartData[]): Promise<Record<string, number[]>> {
     try {
-      // TODO: Implement indicator calculations
-      // For now, return sample indicators
-      return {
-        ema20: data.map((d) => d.close),
-        rsi14: data.map(() => 50),
-      };
+      return this.indicatorsService.calculateAllIndicators(data);
     } catch (error) {
       logger.error("Error calculating indicators:", error);
       throw error;
@@ -87,13 +108,28 @@ export class ChartGeneratorService {
   }
 
   /**
-   * Render chart to image
+   * Render chart to image and store it
    */
-  private async renderChart(data: ChartData[], indicators: Record<string, number[]>): Promise<string> {
+  private async renderChart(
+    data: ChartData[],
+    indicators: Record<string, number[]>,
+    pair: string,
+    timeframe: string,
+    options: ChartGeneratorOptions
+  ): Promise<string> {
     try {
-      // TODO: Implement chart rendering using node-canvas
-      // For now, return a placeholder URL
-      return "https://chart-storage.example.com/temp-chart.png";
+      // Generate chart image
+      const chartBuffer = await this.chartRenderer.renderChart(data, indicators);
+
+      // Upload chart image
+      const result = await this.storageService.uploadChartImage(chartBuffer, {
+        userId: options.userId,
+        signalId: options.signalId,
+        timeframe,
+        chartType: "analysis",
+      });
+
+      return result.url;
     } catch (error) {
       logger.error("Error rendering chart:", error);
       throw error;

@@ -115,8 +115,29 @@ export class CapitalService implements IBroker {
   async disconnect(): Promise<void> {
     try {
       this.clearPingInterval();
+      if (this.reconnectTimeout) {
+        clearTimeout(this.reconnectTimeout);
+        this.reconnectTimeout = undefined;
+      }
       if (this.ws) {
-        this.ws.terminate();
+        // Send close frame and wait for server to acknowledge
+        this.ws.close();
+        await new Promise<void>((resolve) => {
+          if (!this.ws) {
+            resolve();
+            return;
+          }
+          this.ws.once("close", () => {
+            resolve();
+          });
+          // Force close after 1 second if server doesn't respond
+          setTimeout(() => {
+            if (this.ws) {
+              this.ws.terminate();
+              resolve();
+            }
+          }, 1000).unref();
+        });
         this.ws = undefined;
       }
       this.connected = false;
@@ -212,6 +233,7 @@ export class CapitalService implements IBroker {
     }
 
     this.ws = new WebSocket(this.wsUrl);
+    (this.ws as any)._socket?.unref(); // Unref the underlying socket
 
     this.ws.on("open", () => {
       this.logger.info("WebSocket connected");
@@ -259,6 +281,7 @@ export class CapitalService implements IBroker {
         this.ws.send(JSON.stringify({ action: "ping" }));
       }
     }, 30000);
+    this.pingInterval.unref(); // Unref the interval
   }
 
   private clearPingInterval(): void {
