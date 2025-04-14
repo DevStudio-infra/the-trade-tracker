@@ -20,11 +20,15 @@ export const authenticateUser = async (req: Request, res: Response, next: NextFu
     // For development, accept any request without authentication
     // In a production environment, you would use proper authentication
     if (process.env.NODE_ENV === "development") {
-      // Set a default user for development
+      // Check if user ID is provided in headers
+      const userId = req.headers["x-user-id"] as string;
+
+      // Set user from headers or use default for development
       req.user = {
-        id: "dev-user-id",
-        email: "dev@example.com",
+        id: userId || "dev-user-id",
+        email: userId ? `${userId}@example.com` : "dev@example.com",
       };
+
       return next();
     }
 

@@ -15,8 +15,8 @@ export function RequireOnboarding({ children }: { children: React.ReactNode }) {
     async function checkOnboarding() {
       try {
         if (isSignedIn) {
-          const status = await onboardingService.getStatus();
-          if (!status.onboarding_completed) {
+          const response = await onboardingService.getStatus();
+          if (!response.data.onboarding_completed) {
             router.push("/onboarding");
           }
         }

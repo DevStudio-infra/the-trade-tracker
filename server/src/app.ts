@@ -39,7 +39,7 @@ const corsOptions = {
         ]
       : ["http://localhost:3000"], // Next.js dev server
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "x-clerk-client-token", "svix-id", "svix-timestamp", "svix-signature", "dev-auth"],
+  allowedHeaders: ["Content-Type", "Authorization", "x-clerk-client-token", "svix-id", "svix-timestamp", "svix-signature", "dev-auth", "x-user-id"],
   credentials: true,
 };
 

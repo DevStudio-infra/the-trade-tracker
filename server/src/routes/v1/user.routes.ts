@@ -3,59 +3,63 @@ import { validateAuth, rateLimit, AuthenticatedRequest } from "../../middleware/
 import { prisma } from "../../lib/prisma";
 import { createLogger } from "../../utils/logger";
 import { BrokerService } from "../../services/broker/broker.service";
+import { authenticateUser, getAuthenticatedUserId } from "../middleware/auth.middleware";
+import { z } from "zod";
 
 const router = Router();
 const logger = createLogger("user-routes");
 const brokerService = new BrokerService();
 
 // Apply rate limiting to all user routes
-const userRateLimit = rateLimit(100, 60 * 1000); // 100 requests per minute
+const userRateLimit = rateLimit(100, 15 * 60 * 1000); // 100 requests per 15 minutes
+
+// Validation schemas
+const updateProfileSchema = z.object({
+  name: z.string().optional(),
+  email: z.string().email().optional(),
+  subscription_plan: z.enum(["Free", "Pro", "Enterprise"]).optional(),
+  credits: z.number().int().min(0).optional(),
+  onboarding_step: z.number().int().min(1).max(5).optional(),
+  onboarding_completed: z.boolean().optional(),
+  is_active: z.boolean().optional(),
+});
+
+const updateSettingsSchema = z.object({
+  theme: z.enum(["light", "dark", "system"]).optional(),
+  notifications_enabled: z.boolean().optional(),
+  email_notifications: z.boolean().optional(),
+});
 
 // Get user profile
-router.get("/profile", validateAuth, userRateLimit, async (req, res) => {
+router.get("/profile", authenticateUser, userRateLimit, async (req, res) => {
   try {
-    const { userId } = (req as AuthenticatedRequest).auth;
+    const userId = getAuthenticatedUserId(req);
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
         id: true,
+        email: true,
+        name: true,
         subscription_plan: true,
         credits: true,
-        onboarding_completed: true,
         onboarding_step: true,
+        onboarding_completed: true,
         is_active: true,
         created_at: true,
-        _count: {
-          select: {
-            trades: true,
-            signals: true,
-            broker_credentials: true,
-          },
-        },
+        updated_at: true,
       },
     });
 
     if (!user) {
-      logger.warn({
-        message: "User not found",
-        userId,
-      });
-      return res.status(404).json({ error: "User not found" });
+      logger.error("User not found", { userId });
+      return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    logger.info({
-      message: "User profile retrieved",
-      userId,
-    });
-
-    res.json(user);
+    res.json({ success: true, data: user });
   } catch (error) {
-    logger.error({
-      message: "Error retrieving user profile",
-      error: error instanceof Error ? error.message : "Unknown error",
-    });
-    res.status(500).json({ error: "Internal server error" });
+    logger.error("Error fetching user profile:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
 
@@ -120,268 +124,93 @@ router.post("/profile", validateAuth, userRateLimit, async (req, res) => {
 });
 
 // Update user profile
-router.patch("/profile", validateAuth, userRateLimit, async (req, res) => {
+router.patch("/profile", authenticateUser, userRateLimit, async (req, res) => {
   try {
-    const { userId } = (req as AuthenticatedRequest).auth;
-    const { onboarding_step, onboarding_completed } = req.body;
+    const userId = getAuthenticatedUserId(req);
+    const validation = updateProfileSchema.safeParse(req.body);
+
+    if (!validation.success) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid request data",
+        errors: validation.error.errors,
+      });
+    }
 
     const user = await prisma.user.update({
       where: { id: userId },
-      data: {
-        onboarding_step: onboarding_step !== undefined ? onboarding_step : undefined,
-        onboarding_completed: onboarding_completed !== undefined ? onboarding_completed : undefined,
-      },
+      data: validation.data,
       select: {
         id: true,
+        email: true,
+        name: true,
+        subscription_plan: true,
+        credits: true,
         onboarding_step: true,
         onboarding_completed: true,
+        is_active: true,
+        updated_at: true,
       },
     });
 
-    logger.info({
-      message: "User profile updated",
-      userId,
-      updates: { onboarding_step, onboarding_completed },
-    });
-
-    res.json(user);
+    res.json({ success: true, data: user });
   } catch (error) {
-    logger.error({
-      message: "Error updating user profile",
-      error: error instanceof Error ? error.message : "Unknown error",
-    });
-    res.status(500).json({ error: "Internal server error" });
+    logger.error("Error updating user profile:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
 
 // Handle onboarding step
-router.post("/onboarding/:step", validateAuth, userRateLimit, async (req, res) => {
+router.post("/onboarding/:step", authenticateUser, userRateLimit, async (req, res) => {
   try {
-    const { userId } = (req as AuthenticatedRequest).auth;
+    const userId = getAuthenticatedUserId(req);
     const step = parseInt(req.params.step, 10);
-    const data = req.body;
 
-    // Validate step (now only 4 steps)
-    if (isNaN(step) || step < 1 || step > 4) {
-      return res.status(400).json({ error: "Invalid onboarding step" });
+    if (isNaN(step) || step < 1 || step > 5) {
+      return res.status(400).json({ success: false, message: "Invalid onboarding step" });
     }
 
-    // Get current user state
-    const user = await prisma.user.findUnique({
+    const user = await prisma.user.update({
       where: { id: userId },
+      data: {
+        onboarding_step: step,
+        onboarding_completed: step === 5,
+      },
       select: {
         onboarding_step: true,
         onboarding_completed: true,
       },
     });
 
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
-
-    // Validate step sequence
-    if (step !== user.onboarding_step) {
-      return res.status(400).json({
-        error: "Invalid step sequence",
-        currentStep: user.onboarding_step,
-      });
-    }
-
-    // Process step
-    switch (step) {
-      case 1: // Profile completion
-        await prisma.user.update({
-          where: { id: userId },
-          data: { onboarding_step: 2 },
-        });
-        await prisma.userOnboarding.upsert({
-          where: { user_id: userId },
-          create: {
-            user_id: userId,
-            step: 2,
-            status: "In_Progress",
-            data: {
-              name: data.name,
-              trading_experience: data.trading_experience,
-            },
-          },
-          update: {
-            step: 2,
-            data: {
-              name: data.name,
-              trading_experience: data.trading_experience,
-            },
-          },
-        });
-        break;
-
-      case 2: // Trading preferences
-        await prisma.user.update({
-          where: { id: userId },
-          data: { onboarding_step: 3 },
-        });
-        await prisma.userOnboarding.upsert({
-          where: { user_id: userId },
-          create: {
-            user_id: userId,
-            step: 3,
-            status: "In_Progress",
-            data: {
-              preferred_markets: data.preferred_markets,
-              risk_tolerance: data.risk_tolerance,
-            },
-          },
-          update: {
-            step: 3,
-            data: {
-              preferred_markets: data.preferred_markets,
-              risk_tolerance: data.risk_tolerance,
-            },
-          },
-        });
-        break;
-
-      case 3: // Optional broker connection
-        // Save favorite broker if provided
-        if (data.favoritebroker) {
-          // Store in onboarding data instead of user model directly
-          await prisma.userOnboarding.upsert({
-            where: { user_id: userId },
-            create: {
-              user_id: userId,
-              step: 3,
-              status: "In_Progress",
-              data: {
-                favorite_broker: data.favoritebroker,
-              },
-            },
-            update: {
-              data: {
-                favorite_broker: data.favoritebroker,
-              },
-            },
-          });
-
-          logger.info({
-            message: "User favorite broker preference saved",
-            userId,
-            favoritebroker: data.favoritebroker,
-          });
-        }
-
-        if (data.skip_broker || !data.broker) {
-          // Skip broker connection
-          await prisma.user.update({
-            where: { id: userId },
-            data: { onboarding_step: 4 },
-          });
-        } else {
-          // Connect broker
-          await prisma.brokerCredential.create({
-            data: {
-              user_id: userId,
-              broker_name: data.broker.name,
-              credentials: {
-                apiKey: data.broker.apiKey,
-                identifier: data.broker.identifier || "",
-                password: data.broker.password || "",
-              },
-              is_active: true,
-            },
-          });
-          await prisma.user.update({
-            where: { id: userId },
-            data: { onboarding_step: 4 },
-          });
-        }
-        break;
-
-      case 4: // Complete onboarding
-        await prisma.user.update({
-          where: { id: userId },
-          data: {
-            onboarding_completed: true,
-            onboarding_step: 4,
-          },
-        });
-        break;
-    }
-
-    logger.info({
-      message: "Onboarding step completed",
-      userId,
-      step,
-      data: step === 3 ? { skip_broker: data.skip_broker } : data,
-    });
-
-    res.json({
-      success: true,
-      step,
-      is_complete: step === 4,
-    });
+    res.json({ success: true, data: user });
   } catch (error) {
-    logger.error({
-      message: "Error processing onboarding step",
-      error: error instanceof Error ? error.message : "Unknown error",
-    });
-    res.status(500).json({ error: "Internal server error" });
+    logger.error("Error updating onboarding step:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
 
 // Get user onboarding status
-router.get("/onboarding-status", validateAuth, async (req, res) => {
+router.get("/onboarding-status", authenticateUser, userRateLimit, async (req, res) => {
   try {
-    const { userId } = (req as AuthenticatedRequest).auth;
-
-    logger.info({
-      message: "Getting onboarding status - START",
-      userId,
-      headers: req.headers,
-      auth: (req as AuthenticatedRequest).auth,
-    });
+    const userId = getAuthenticatedUserId(req);
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
-        onboarding_completed: true,
         onboarding_step: true,
+        onboarding_completed: true,
       },
     });
 
     if (!user) {
-      logger.warn({
-        message: "User not found when fetching onboarding status",
-        userId,
-        query: "findUnique user",
-        prismaSelect: {
-          onboarding_completed: true,
-          onboarding_step: true,
-        },
-      });
-      return res.status(404).json({ error: "User not found" });
+      logger.error("User not found", { userId });
+      return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    logger.info({
-      message: "Onboarding status retrieved successfully",
-      userId,
-      onboardingData: {
-        onboarding_completed: user.onboarding_completed,
-        current_step: user.onboarding_step,
-      },
-    });
-
-    res.json({
-      onboarding_completed: user.onboarding_completed,
-      current_step: user.onboarding_step,
-    });
+    res.json({ success: true, data: user });
   } catch (error) {
-    logger.error({
-      message: "Error fetching onboarding status",
-      error: error instanceof Error ? error.message : "Unknown error",
-      stack: error instanceof Error ? error.stack : undefined,
-      userId: (req as AuthenticatedRequest).auth?.userId,
-    });
-    res.status(500).json({ error: "Internal server error" });
+    logger.error("Error fetching onboarding status:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
 
@@ -490,47 +319,32 @@ router.get("/settings", validateAuth, userRateLimit, async (req, res) => {
 });
 
 // Update user settings
-router.patch("/settings", validateAuth, userRateLimit, async (req, res) => {
+router.patch("/settings", authenticateUser, userRateLimit, async (req, res) => {
   try {
-    const { userId } = (req as AuthenticatedRequest).auth;
-    const { name, is_active } = req.body;
+    const userId = getAuthenticatedUserId(req);
+    const validation = updateSettingsSchema.safeParse(req.body);
 
-    logger.info({
-      message: "Updating user settings",
-      userId,
-      updates: { name, is_active },
-      headers: req.headers,
-    });
+    if (!validation.success) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid request data",
+        errors: validation.error.errors,
+      });
+    }
 
-    const user = await prisma.user.update({
-      where: { id: userId },
-      data: {
-        name: name !== undefined ? name : undefined,
-        is_active: is_active !== undefined ? is_active : undefined,
+    const settings = await prisma.userSettings.upsert({
+      where: { user_id: userId },
+      create: {
+        user_id: userId,
+        ...validation.data,
       },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        is_active: true,
-      },
+      update: validation.data,
     });
 
-    logger.info({
-      message: "User settings updated",
-      userId,
-      updates: { name, is_active },
-      result: user,
-    });
-
-    res.json(user);
+    res.json({ success: true, data: settings });
   } catch (error) {
-    logger.error({
-      message: "Error updating user settings",
-      error: error instanceof Error ? error.message : "Unknown error",
-      stack: error instanceof Error ? error.stack : undefined,
-    });
-    res.status(500).json({ error: "Internal server error" });
+    logger.error("Error updating user settings:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
 

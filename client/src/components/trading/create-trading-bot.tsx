@@ -14,6 +14,7 @@ import { createIndicator } from "@/components/trading/chart/indicators/indicator
 import { useIndicatorStore } from "@/components/trading/chart/indicators/indicatorStore";
 import { IndicatorParameters } from "@/components/trading/chart/core/ChartTypes";
 import { Badge } from "@/components/ui/badge";
+import { getCurrentUserId } from "@/lib/auth";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
@@ -118,11 +119,13 @@ export function CreateTradingBot() {
     setError("");
 
     try {
+      const userId = await getCurrentUserId();
       const response = await fetch(`${API_URL}/trading/bot`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "dev-auth": "true",
+          "x-user-id": userId,
         },
         body: JSON.stringify({
           pair: "BTCUSDT",
@@ -159,26 +162,30 @@ export function CreateTradingBot() {
     }
   };
 
-  // Toggle an existing bot
+  // Toggle bot status
   const toggleBot = async (botId: string, isActive: boolean) => {
     try {
+      const userId = await getCurrentUserId();
       const action = isActive ? "stop" : "start";
       const response = await fetch(`${API_URL}/trading/bot/${botId}/${action}`, {
         method: "POST",
         headers: {
+          "Content-Type": "application/json",
           "dev-auth": "true",
+          "x-user-id": userId,
         },
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to ${action} bot: ${response.statusText}`);
+        const errorData = await response.json();
+        throw new Error(errorData.error || `API error: ${response.status}`);
       }
 
-      toast.success(`Trading bot ${action}ed`);
+      // Refresh the bots list
       queryClient.invalidateQueries({ queryKey: ["all-trading-bots"] });
     } catch (error) {
       console.error(`Error ${isActive ? "stopping" : "starting"} bot:`, error);
-      toast.error(error instanceof Error ? error.message : `Failed to ${isActive ? "stop" : "start"} trading bot`);
+      toast.error(error instanceof Error ? error.message : `Failed to ${isActive ? "stop" : "start"} bot`);
     }
   };
 

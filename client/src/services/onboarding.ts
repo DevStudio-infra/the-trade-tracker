@@ -1,8 +1,11 @@
 import { api } from "@/lib/api";
 
 export interface OnboardingStatus {
-  onboarding_completed: boolean;
-  current_step: number;
+  success: boolean;
+  data: {
+    onboarding_completed: boolean;
+    current_step: number;
+  };
 }
 
 export interface OnboardingData {

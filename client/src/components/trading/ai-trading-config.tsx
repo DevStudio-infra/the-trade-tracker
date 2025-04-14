@@ -31,11 +31,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { getCurrentUserId } from "@/lib/auth";
 
 // Update AITradingConfig type
 declare module "@/stores/trading-store" {
   interface AITradingConfig {
-    timeframe?: string;
+    timeframe: string;
   }
 }
 
@@ -108,6 +109,8 @@ export function AITradingConfig({ showOnlyActiveBots = false }: AITradingConfigP
   const [botToDelete, setBotToDelete] = useState<string | null>(null);
   const [selectedBot, setSelectedBot] = useState<BotStatus | null>(null);
   const [showBotDetails, setShowBotDetails] = useState(false);
+  const [bots, setBots] = useState<BotStatus[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
 
   // Fetch strategies
   const { data: strategies = [], isLoading: isLoadingStrategies } = useQuery({
@@ -119,19 +122,43 @@ export function AITradingConfig({ showOnlyActiveBots = false }: AITradingConfigP
     staleTime: 1000 * 60 * 5, // 5 minutes
   });
 
-  // Fetch all active bots for the user
-  const { data: allBots = [], isLoading: isLoadingBots } = useQuery<BotStatus[]>({
-    queryKey: ["all-trading-bots"],
-    queryFn: async () => {
-      const response = await fetch(`${API_URL}/trading/bot/all`);
-      if (!response.ok) throw new Error("Failed to fetch all bots");
-      return response.json();
-    },
-    refetchInterval: 5000,
-    refetchIntervalInBackground: false,
-    retry: 3,
-    staleTime: 2000,
-  });
+  // Fetch all bots
+  const fetchBots = async () => {
+    try {
+      setIsLoading(true);
+      const userId = await getCurrentUserId();
+      const response = await fetch(`${API_URL}/trading/bot/all`, {
+        headers: {
+          "Content-Type": "application/json",
+          "dev-auth": "true",
+          "x-user-id": userId,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch bots: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      setBots(data);
+    } catch (error) {
+      console.error("Error fetching bots:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to fetch trading bots");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Fetch bots when component mounts
+  useEffect(() => {
+    fetchBots();
+
+    // Set up an interval to refresh bots every 5 seconds
+    const intervalId = setInterval(fetchBots, 5000);
+
+    // Clean up interval on unmount
+    return () => clearInterval(intervalId);
+  }, []);
 
   // Load strategy indicators
   const loadStrategyIndicators = useCallback(
@@ -214,11 +241,13 @@ export function AITradingConfig({ showOnlyActiveBots = false }: AITradingConfigP
     setError("");
 
     try {
+      const userId = await getCurrentUserId();
       const response = await fetch(`${API_URL}/trading/bot`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "dev-auth": "true",
+          "x-user-id": userId,
         },
         body: JSON.stringify({
           pair: "BTCUSDT",
@@ -254,13 +283,15 @@ export function AITradingConfig({ showOnlyActiveBots = false }: AITradingConfigP
 
   // Toggle an existing bot
   const toggleBot = async (botId: string, isActive: boolean) => {
-    setIsTogglingBot(true);
     try {
+      setIsTogglingBot(true);
+      const userId = await getCurrentUserId();
       const action = isActive ? "stop" : "start";
       const response = await fetch(`${API_URL}/trading/bot/${botId}/${action}`, {
         method: "POST",
         headers: {
           "dev-auth": "true",
+          "x-user-id": userId,
         },
       });
 
@@ -280,14 +311,14 @@ export function AITradingConfig({ showOnlyActiveBots = false }: AITradingConfigP
 
   // Delete a bot
   const deleteBot = async (botId: string) => {
-    if (!botId) return;
-
-    setIsDeleting(botId);
     try {
+      setIsDeleting(botId);
+      const userId = await getCurrentUserId();
       const response = await fetch(`${API_URL}/trading/bot/${botId}`, {
         method: "DELETE",
         headers: {
           "dev-auth": "true",
+          "x-user-id": userId,
         },
       });
 
@@ -295,16 +326,11 @@ export function AITradingConfig({ showOnlyActiveBots = false }: AITradingConfigP
         throw new Error(`Failed to delete bot: ${response.statusText}`);
       }
 
-      toast.success("Trading bot deleted successfully");
+      toast.success("Trading bot deleted");
       queryClient.invalidateQueries({ queryKey: ["all-trading-bots"] });
-      setBotToDelete(null);
-    } catch (error: unknown) {
+    } catch (error) {
       console.error("Error deleting bot:", error);
-      if (error instanceof Error) {
-        toast.error(error.message);
-      } else {
-        toast.error("Failed to delete trading bot");
-      }
+      toast.error(error instanceof Error ? error.message : "Failed to delete trading bot");
     } finally {
       setIsDeleting(null);
     }
@@ -433,38 +459,37 @@ export function AITradingConfig({ showOnlyActiveBots = false }: AITradingConfigP
     </TableRow>
   );
 
-  // Render function for the table that includes both the table rows and the bot details dialog
+  // Add renderBotTable function
   const renderBotTable = () => (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Status</TableHead>
+          <TableHead>Pair</TableHead>
+          <TableHead>Timeframe</TableHead>
+          <TableHead>Strategy</TableHead>
+          <TableHead>Last Check</TableHead>
+          <TableHead className="text-right">Win Rate</TableHead>
+          <TableHead className="text-right">P/L</TableHead>
+          <TableHead className="text-right">Actions</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>{bots.map((bot) => botTableRow(bot))}</TableBody>
+    </Table>
+  );
+
+  // Render function for the table that includes both the table rows and the bot details dialog
+  const renderBotTableWithDetails = () => (
     <>
-      <div className="overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-[100px]">Status</TableHead>
-              <TableHead>Pair</TableHead>
-              <TableHead>Timeframe</TableHead>
-              <TableHead>Strategy</TableHead>
-              <TableHead>Last Check</TableHead>
-              <TableHead className="text-right">Win Rate</TableHead>
-              <TableHead className="text-right">P/L</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>{allBots.map((bot) => botTableRow(bot))}</TableBody>
-        </Table>
-      </div>
+      <div className="overflow-x-auto">{renderBotTable()}</div>
 
       {/* Bot Details Dialog */}
       <Dialog open={showBotDetails} onOpenChange={setShowBotDetails}>
-        <DialogContent className="max-w-4xl h-[80vh] max-h-[80vh] flex flex-col overflow-hidden">
+        <DialogContent className="max-w-4xl h-[80vh]">
           <DialogHeader>
-            <DialogTitle className="text-xl flex items-center gap-2">
-              <BrainCircuit className="h-5 w-5 text-primary" />
-              Bot Details: {selectedBot?.strategyId?.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} - {selectedBot?.pair}
-            </DialogTitle>
-            <DialogDescription>View trade history and AI evaluations for this trading bot.</DialogDescription>
+            <DialogTitle>Bot Details</DialogTitle>
+            <DialogDescription>View detailed information about this trading bot</DialogDescription>
           </DialogHeader>
-
           {selectedBot && <BotDetailsView bot={selectedBot} />}
         </DialogContent>
       </Dialog>
@@ -496,12 +521,12 @@ export function AITradingConfig({ showOnlyActiveBots = false }: AITradingConfigP
             <CardDescription>Monitor and manage your automated trading bots</CardDescription>
           </CardHeader>
           <CardContent>
-            {isLoadingBots ? (
+            {isLoading ? (
               <div className="flex justify-center p-8">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
               </div>
-            ) : allBots.length > 0 ? (
-              renderBotTable()
+            ) : bots.length > 0 ? (
+              renderBotTableWithDetails()
             ) : (
               <div className="text-center py-8 text-muted-foreground">
                 <p className="mb-2">No active trading bots found</p>
@@ -728,12 +753,12 @@ export function AITradingConfig({ showOnlyActiveBots = false }: AITradingConfigP
           <CardDescription>Monitor and manage your automated trading bots</CardDescription>
         </CardHeader>
         <CardContent>
-          {isLoadingBots ? (
+          {isLoading ? (
             <div className="flex justify-center p-8">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
-          ) : allBots.length > 0 ? (
-            renderBotTable()
+          ) : bots.length > 0 ? (
+            renderBotTableWithDetails()
           ) : (
             <div className="text-center py-8 text-muted-foreground">
               <p className="mb-2">No active trading bots found</p>
@@ -746,7 +771,7 @@ export function AITradingConfig({ showOnlyActiveBots = false }: AITradingConfigP
   );
 }
 
-// New component for bot details view
+// BotDetailsView component
 function BotDetailsView({ bot }: { bot: BotStatus }) {
   const [activeTab, setActiveTab] = useState<string>("trades");
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -757,10 +782,7 @@ function BotDetailsView({ bot }: { bot: BotStatus }) {
     const fetchBotDetails = async () => {
       setIsLoading(true);
       try {
-        // In the future, these will be real API calls to fetch data
-        // For now we'll use placeholder data
-
-        // Mock trades data - will be replaced with API call in the future
+        // Mock trades data
         const mockTrades: Trade[] = [
           {
             id: "trade-1",
@@ -794,14 +816,14 @@ function BotDetailsView({ bot }: { bot: BotStatus }) {
           },
         ];
 
-        // Mock evaluations data - will be replaced with API call in the future
+        // Mock evaluations data
         const mockEvaluations: AIEvaluation[] = [
           {
             id: "eval-1",
             signalId: "signal-1",
             botInstanceId: bot.id || "",
             evalType: "ENTRY",
-            chartImageUrl: "/placeholder-chart.png", // Will be real chart images in the future
+            chartImageUrl: "/placeholder-chart.png",
             promptUsed: "Analyze this chart for buy opportunities using RSI strategy",
             llmResponse: {
               decision: "BUY",
@@ -815,7 +837,7 @@ function BotDetailsView({ bot }: { bot: BotStatus }) {
             signalId: "signal-2",
             botInstanceId: bot.id || "",
             evalType: "EXIT",
-            chartImageUrl: "/placeholder-chart.png", // Will be real chart images in the future
+            chartImageUrl: "/placeholder-chart.png",
             promptUsed: "Analyze this chart for exit conditions using RSI strategy",
             llmResponse: {
               decision: "SELL",
@@ -921,23 +943,21 @@ function BotDetailsView({ bot }: { bot: BotStatus }) {
                   <CardContent className="pb-4 space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div>
-                        <h4 className="font-medium mb-2">Chart Analysis</h4>
-                        <div className="rounded-md border overflow-hidden h-64 bg-muted flex items-center justify-center">
-                          <div className="text-muted-foreground text-sm">
-                            Chart image not available
-                            <p className="text-xs mt-1">(Will be implemented in future version)</p>
+                        <h4 className="text-sm font-medium mb-2">AI Decision</h4>
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-muted-foreground">Decision:</span>
+                            <Badge variant={evaluation.llmResponse.decision === "BUY" ? "default" : "secondary"}>{evaluation.llmResponse.decision}</Badge>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-muted-foreground">Confidence:</span>
+                            <span className="text-sm font-medium">{Math.round(evaluation.llmResponse.confidence * 100)}%</span>
                           </div>
                         </div>
                       </div>
                       <div>
-                        <h4 className="font-medium mb-2">AI Response</h4>
-                        <div className="rounded-md border p-4 bg-muted/30">
-                          <div className="flex justify-between mb-2">
-                            <Badge variant={evaluation.llmResponse.decision === "BUY" ? "default" : "destructive"}>{evaluation.llmResponse.decision}</Badge>
-                            <span className="text-sm">Confidence: {(evaluation.llmResponse.confidence * 100).toFixed(0)}%</span>
-                          </div>
-                          <p className="text-sm">{evaluation.llmResponse.reasoning}</p>
-                        </div>
+                        <h4 className="text-sm font-medium mb-2">Reasoning</h4>
+                        <p className="text-sm text-muted-foreground">{evaluation.llmResponse.reasoning}</p>
                       </div>
                     </div>
                   </CardContent>
