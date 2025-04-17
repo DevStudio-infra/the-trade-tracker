@@ -21,9 +21,9 @@ interface WatchlistItem {
 }
 
 interface TradingPairSelectProps {
-  value: string | null;
-  onChange: (value: string | null) => void;
-  pairs: TradingPair[];
+  value?: import("@/lib/api").TradingPair | null;
+  onChange: (pair: import("@/lib/api").TradingPair | null) => void;
+  pairs?: import("@/lib/api").TradingPair[];
   isLoading?: boolean;
   disabled?: boolean;
   connectionId?: string | null;
@@ -160,10 +160,19 @@ const FAVORITE_LIMITS: Record<string, number> = {
 // Constants for pagination
 const BATCH_SIZE = 20;
 
-export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoading = false, disabled = false, connectionId }: TradingPairSelectProps) {
+// Utility function to check shallow equality of two arrays of objects by symbol
+function arePairsEqual(a: TradingPair[], b: TradingPair[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].symbol !== b[i].symbol) return false;
+  }
+  return true;
+}
+
+export function TradingPairSelect({ value, onChange, pairs: initialPairs = [], isLoading = false, disabled = false, connectionId }: TradingPairSelectProps) {
   const [open, setOpen] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState("");
-  const [pairs, setPairs] = React.useState<TradingPair[]>(initialPairs);
+  const [pairs, setPairs] = React.useState<import("@/lib/api").TradingPair[]>(initialPairs || []);
   const [categoryLoading] = React.useState<Record<string, boolean>>({});
   const [searching, setSearching] = React.useState(false);
   const [selectedCategory, setSelectedCategory] = React.useState("WATCHLIST");
@@ -192,9 +201,8 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
     queryKey: ["watchlist"],
     queryFn: api.getWatchlist,
     staleTime: 1000 * 60 * 10, // 10 minutes
-    onSuccess: (data) => {
-      console.log("Watchlist query success:", data);
-    },
+    retry: 1,
+    refetchOnWindowFocus: false,
   });
 
   // New: Load all available categories using React Query
@@ -202,27 +210,22 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
     queryKey: ["pairs-categories"],
     queryFn: api.getPairsCategories,
     staleTime: 1000 * 60 * 60, // 1 hour
-    // Only fetch when the dialog is open
     enabled: open,
+    retry: 1,
+    refetchOnWindowFocus: false,
   });
 
   // Extract just the symbols for easier checking
   const favorites = React.useMemo(() => {
-    console.log("Recalculating favorites from watchlist:", watchlist);
-    return watchlist.map((item) => item.symbol);
+    return watchlist?.map((item) => item.symbol) || [];
   }, [watchlist]);
 
   // Add a specific query for complete watchlist pair data
   const { data: watchlistPairsData = [], isLoading: isLoadingWatchlistPairs } = useQuery({
     queryKey: ["watchlist-pairs-data"],
     queryFn: async () => {
-      if (!favorites.length) {
-        console.log("No favorites to fetch pairs data for");
-        return [];
-      }
-
+      if (!favorites.length) return [];
       try {
-        console.log("Fetching pairs data for favorites:", favorites);
         const allPairsData = await Promise.all(
           favorites.map((symbol) =>
             api
@@ -231,9 +234,7 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
               .catch(() => null)
           )
         );
-        const filteredData = allPairsData.filter(Boolean) as TradingPair[];
-        console.log("Fetched watchlist pairs data:", filteredData);
-        return filteredData;
+        return allPairsData.filter(Boolean);
       } catch (error) {
         console.error("Error fetching watchlist pairs data:", error);
         return [];
@@ -241,6 +242,8 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
     },
     enabled: open && selectedCategory === "WATCHLIST" && favorites.length > 0,
     staleTime: 1000 * 60 * 5, // 5 minutes
+    retry: 1,
+    refetchOnWindowFocus: false,
   });
 
   // New: Prefetch pairs for the most popular categories
@@ -359,7 +362,7 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
 
   // Get the selected pair
   const selectedPair = React.useMemo(() => {
-    return value ? pairs.find((pair) => pair.symbol === value) : null;
+    return value ? pairs.find((pair) => pair.symbol === value.symbol) : null;
   }, [value, pairs]);
 
   // Modified loadPairs function with better error handling
@@ -417,7 +420,7 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
 
         // Major crypto pairs should come first in CRYPTOCURRENCIES category
         if (category === "CRYPTOCURRENCIES") {
-          const majorCryptos = ["BTC", "ETH", "BNB", "XRP", "ADA", "DOT", "SOL"];
+          const majorCryptos = ["BTC", "ETH", "USDT", "BNB", "XRP", "ADA", "DOT", "SOL"];
           const aIsMajor = majorCryptos.some((crypto) => a.symbol.includes(crypto));
           const bIsMajor = majorCryptos.some((crypto) => b.symbol.includes(crypto));
           if (aIsMajor && !bIsMajor) return -1;
@@ -434,19 +437,12 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
 
   // Get pairs to display with logging
   const displayPairs = React.useMemo(() => {
-    console.log("Calculating displayPairs:", {
-      searching,
-      selectedCategory,
-      watchlistPairsData,
-      pairs,
-    });
-
     if (searching) {
       return pairs;
     }
 
     if (selectedCategory === "WATCHLIST") {
-      return watchlistPairsData;
+      return watchlistPairsData || [];
     }
 
     const grouped = groupAndSortPairs(pairs);
@@ -455,11 +451,13 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
 
   // Update pairs ONLY when category data changes (not for watchlist)
   React.useEffect(() => {
-    // Skip updates for watchlist - we'll handle that in the displayPairs memo
-    if (selectedCategory !== "WATCHLIST" && categoryPairs.length > 0) {
-      console.log(`Using category data: ${categoryPairs.length} pairs for ${selectedCategory}`);
-      setPairs(categoryPairs);
+    if (selectedCategory !== "WATCHLIST" && categoryPairs?.length > 0) {
+      // Only update if different to avoid infinite loop
+      if (!arePairsEqual(pairs, categoryPairs)) {
+        setPairs(categoryPairs);
+      }
     }
+    // eslint-disable-next-line
   }, [categoryPairs, selectedCategory]);
 
   // Reset to initial state when dialog closes
@@ -700,52 +698,54 @@ export function TradingPairSelect({ value, onChange, pairs: initialPairs, isLoad
               </div>
             ) : (
               <div className="py-1">
-                {displayPairs.map((pair) => (
-                  <div
-                    key={pair.symbol}
-                    className={cn(
-                      "flex items-center justify-between w-full px-4 py-2 transition-colors",
-                      value === pair.symbol ? "bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400" : "hover:bg-slate-50 dark:hover:bg-slate-800/30"
-                    )}>
-                    <button
-                      className="flex-1 flex items-center gap-3 text-left"
-                      onClick={() => {
-                        onChange(pair.symbol);
-                        setOpen(false);
-                      }}>
-                      <div
-                        className={cn(
-                          "w-1.5 h-8 rounded-sm",
-                          pair.type === "COMMODITIES" || pair.type?.toUpperCase() === "COMMODITY"
-                            ? "bg-yellow-500"
-                            : pair.type === "CRYPTOCURRENCIES" || pair.type?.toUpperCase() === "CRYPTOCURRENCY"
-                            ? "bg-purple-500"
-                            : pair.type === "FOREX" || pair.type?.toUpperCase() === "CURRENCIES"
-                            ? "bg-green-500"
-                            : pair.type === "INDICES" || pair.type?.toUpperCase() === "INDEX"
-                            ? "bg-blue-500"
-                            : "bg-red-500" // Shares/Stocks
-                        )}
-                      />
-                      <div>
-                        <div className="font-medium">{pair.displayName}</div>
-                        <div className="text-xs text-slate-500 font-mono">{pair.symbol}</div>
-                      </div>
-                    </button>
-                    <div className="flex items-center gap-2">
+                {displayPairs
+                  .filter((pair): pair is TradingPair => pair !== null)
+                  .map((pair) => (
+                    <div
+                      key={pair.symbol}
+                      className={cn(
+                        "flex items-center justify-between w-full px-4 py-2 transition-colors",
+                        value?.symbol === pair.symbol ? "bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400" : "hover:bg-slate-50 dark:hover:bg-slate-800/30"
+                      )}>
                       <button
-                        className={cn(
-                          "p-1 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500",
-                          isMutating ? "opacity-50 cursor-not-allowed" : "hover:bg-slate-100 dark:hover:bg-slate-800"
-                        )}
-                        onClick={(e) => toggleFavorite(pair.symbol, e)}
-                        disabled={isMutating}
-                        aria-label={favorites.includes(pair.symbol) ? "Remove from favorites" : "Add to favorites"}>
-                        <Star className={cn("h-5 w-5", favorites.includes(pair.symbol) ? "text-yellow-500 fill-yellow-500" : "text-slate-300 dark:text-slate-600")} />
+                        className="flex-1 flex items-center gap-3 text-left"
+                        onClick={() => {
+                          onChange(pair);
+                          setOpen(false);
+                        }}>
+                        <div
+                          className={cn(
+                            "w-1.5 h-8 rounded-sm",
+                            pair.type === "COMMODITIES" || pair.type?.toUpperCase() === "COMMODITY"
+                              ? "bg-yellow-500"
+                              : pair.type === "CRYPTOCURRENCIES" || pair.type?.toUpperCase() === "CRYPTOCURRENCY"
+                              ? "bg-purple-500"
+                              : pair.type === "FOREX" || pair.type?.toUpperCase() === "CURRENCIES"
+                              ? "bg-green-500"
+                              : pair.type === "INDICES" || pair.type?.toUpperCase() === "INDEX"
+                              ? "bg-blue-500"
+                              : "bg-red-500" // Shares/Stocks
+                          )}
+                        />
+                        <div>
+                          <div className="font-medium">{pair.displayName}</div>
+                          <div className="text-xs text-slate-500 font-mono">{pair.symbol}</div>
+                        </div>
                       </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          className={cn(
+                            "p-1 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500",
+                            isMutating ? "opacity-50 cursor-not-allowed" : "hover:bg-slate-100 dark:hover:bg-slate-800"
+                          )}
+                          onClick={(e) => toggleFavorite(pair.symbol, e)}
+                          disabled={isMutating}
+                          aria-label={favorites.includes(pair.symbol) ? "Remove from favorites" : "Add to favorites"}>
+                          <Star className={cn("h-5 w-5", favorites.includes(pair.symbol) ? "text-yellow-500 fill-yellow-500" : "text-slate-300 dark:text-slate-600")} />
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
 
                 {/* Loading indicator */}
                 {isFetchingMore && (

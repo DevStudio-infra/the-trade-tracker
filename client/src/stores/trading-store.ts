@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { devtools, persist } from "zustand/middleware";
-import { BrokerConnection } from "@/lib/api";
+import { BrokerConnection, TradingPair } from "@/lib/api";
 
 export interface Position {
   id: string;
@@ -45,6 +45,7 @@ export interface AITradingConfig {
   analysisOnly: boolean; // true = analysis only, false = analysis + execution
   customPrompt: string; // custom text to add to the prompt
   selectedStrategyId: string | null; // strategy to use for analysis
+  timeframe: string; // analysis timeframe (e.g., "1h", "4h", "1d")
 
   // Scheduling options
   scheduledAnalysis: boolean; // true = run analysis on schedule
@@ -56,6 +57,20 @@ export interface AITradingConfig {
   maxOpenPositions: number; // maximum number of open positions
   confirmationRequired: boolean; // require user confirmation before execution
 }
+
+// Default AI trading configuration
+const defaultAITradingConfig: AITradingConfig = {
+  analysisOnly: true,
+  customPrompt: "",
+  selectedStrategyId: null,
+  timeframe: "1h", // default to 1 hour timeframe
+  scheduledAnalysis: false,
+  backgroundService: false,
+  analysisInterval: 60, // 1 hour
+  riskPercentage: 1, // 1% risk per trade
+  maxOpenPositions: 3,
+  confirmationRequired: true,
+};
 
 interface TradingStore {
   // Broker State
@@ -81,27 +96,14 @@ interface TradingStore {
   updateWatchlistItem: (pair: string, updates: Partial<WatchlistItem>) => void;
 
   // Selected Trading Pair
-  selectedPair: string | null;
-  setSelectedPair: (pair: string | null) => void;
+  selectedPair: TradingPair | null;
+  setSelectedPair: (pair: TradingPair | null) => void;
 
   // AI Trading Configuration
   aiTradingConfig: AITradingConfig;
   updateAITradingConfig: (updates: Partial<AITradingConfig>) => void;
   resetAITradingConfig: () => void;
 }
-
-// Default AI trading configuration
-const defaultAITradingConfig: AITradingConfig = {
-  analysisOnly: true,
-  customPrompt: "",
-  selectedStrategyId: null,
-  scheduledAnalysis: false,
-  backgroundService: false,
-  analysisInterval: 60, // 1 hour
-  riskPercentage: 1, // 1% risk per trade
-  maxOpenPositions: 3,
-  confirmationRequired: true,
-};
 
 export const useTradingStore = create<TradingStore>()(
   devtools(

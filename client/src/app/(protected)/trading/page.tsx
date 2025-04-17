@@ -18,21 +18,31 @@ import { useQuery } from "@tanstack/react-query";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Bot, BarChart2 } from "lucide-react";
 
+interface TradingPageState {
+  isLoadingBrokers: boolean;
+  brokerConnections: number | undefined;
+  selectedBrokerId: string | null | undefined;
+  isFetching: boolean;
+  previousBrokerId: string | null;
+  selectedCategory: string;
+  watchlistLength: number;
+  watchlistLoading: boolean;
+}
+
 export default function TradingPage() {
   const { brokerConnections, isLoadingBrokers } = useSettings();
   const { selectedPair, setSelectedPair, selectedBroker, setSelectedBroker } = useTradingStore();
   const [tradingPairs, setTradingPairs] = useState<TradingPair[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<string>("manual");
-  // Define as a string with a union type to allow for comparison with "WATCHLIST"
   const selectedCategory: "FOREX" | "WATCHLIST" | "CRYPTOCURRENCIES" | "SHARES" | "INDICES" | "COMMODITIES" = "FOREX";
   const api = useApi();
   const pairsApi = usePairsApi();
 
-  // Use refs to track state without triggering re-renders
   const fetchingRef = useRef(false);
   const previousBrokerIdRef = useRef<string | null>(null);
   const mountedRef = useRef(true);
+  const lastStateRef = useRef<TradingPageState | null>(null);
 
   // Fetch watchlist with React Query for better caching
   const { data: watchlist = [], isLoading: watchlistLoading } = useQuery({
@@ -49,24 +59,41 @@ export default function TradingPage() {
     };
   }, []);
 
-  // Debug logs
+  // Debug logs - only log when values actually change
   useEffect(() => {
-    console.log("Trading Page State:", {
+    const currentState: TradingPageState = {
       isLoadingBrokers,
-      brokerConnections,
-      selectedBroker,
+      brokerConnections: brokerConnections?.length,
+      selectedBrokerId: selectedBroker?.id,
       isFetching: fetchingRef.current,
       previousBrokerId: previousBrokerIdRef.current,
       selectedCategory,
       watchlistLength: watchlist.length,
       watchlistLoading,
-    });
+    };
+
+    // Only log if state has actually changed
+    const lastStateStr = JSON.stringify(lastStateRef.current);
+    const currentStateStr = JSON.stringify(currentState);
+
+    if (lastStateStr !== currentStateStr) {
+      console.log("Trading Page State:", currentState);
+      lastStateRef.current = currentState;
+    }
   }, [isLoadingBrokers, brokerConnections, selectedBroker, selectedCategory, watchlist, watchlistLoading]);
 
   // Prefetch popular categories when component mounts
   useEffect(() => {
     pairsApi.prefetchPopularCategories();
   }, [pairsApi]);
+
+  // Clear state when selectedBroker becomes falsy
+  useEffect(() => {
+    if (!selectedBroker) {
+      setTradingPairs([]);
+      setSelectedPair(null);
+    }
+  }, [selectedBroker]);
 
   // Helper function to fetch trading pair details for watchlist items
   const fetchWatchlistPairs = async (watchlistItems: WatchlistItem[], isCapitalCom: boolean): Promise<TradingPair[]> => {
@@ -100,14 +127,9 @@ export default function TradingPage() {
     return pairs;
   };
 
-  // Fetch trading pairs when selected broker changes
+  // Fetch trading pairs when selected broker changes and is truthy
   useEffect(() => {
-    // Skip if no broker selected
-    if (!selectedBroker) {
-      setTradingPairs([]);
-      setSelectedPair(null);
-      return;
-    }
+    if (!selectedBroker) return;
 
     // Skip if we're already fetching or if the broker hasn't changed
     if (fetchingRef.current || previousBrokerIdRef.current === selectedBroker.id) {
@@ -127,6 +149,7 @@ export default function TradingPage() {
 
         // Start with empty state to ensure a clean display
         setTradingPairs([]);
+        setSelectedPair(null);
 
         // Check if this is a Capital.com broker
         const isCapitalCom = selectedBroker.broker_name.toLowerCase() === "capital.com" || selectedBroker.broker_name.toLowerCase() === "capital_com";
@@ -151,6 +174,7 @@ export default function TradingPage() {
           } else {
             console.log("Watchlist is empty");
             setTradingPairs([]);
+            setSelectedPair(null);
           }
         } else {
           // Load pairs for the selected category
@@ -193,10 +217,10 @@ export default function TradingPage() {
         }
       } catch (error) {
         console.error("Error fetching trading pairs:", error);
-
         if (mountedRef.current) {
           toast.error("Failed to fetch trading pairs");
           setTradingPairs([]);
+          setSelectedPair(null);
         }
       } finally {
         if (mountedRef.current) {
@@ -210,7 +234,7 @@ export default function TradingPage() {
 
     // Explicitly list dependencies to prevent unwanted re-renders
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedBroker?.id, api, pairsApi, selectedCategory, watchlist]);
+  }, [selectedBroker, api, pairsApi, selectedCategory, watchlist]);
 
   const handleBrokerChange = useCallback(
     (broker: BrokerConnection | null) => {
@@ -221,8 +245,9 @@ export default function TradingPage() {
     [selectedBroker, setSelectedBroker]
   );
 
+  // Handler for TradingPairSelect: expects TradingPair | null
   const handlePairChange = useCallback(
-    (pair: string | null) => {
+    (pair: TradingPair | null) => {
       setSelectedPair(pair);
     },
     [setSelectedPair]

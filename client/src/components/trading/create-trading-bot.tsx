@@ -120,6 +120,26 @@ export function CreateTradingBot() {
 
     try {
       const userId = await getCurrentUserId();
+      if (!selectedBroker) {
+        setError("Please select a broker connection");
+        setIsCreating(false);
+        return;
+      }
+      if (!selectedPair) {
+        setError("Please select a trading pair");
+        setIsCreating(false);
+        return;
+      }
+      // Debug: Log all relevant bot creation data
+      console.log('--- CLIENT BOT CREATION DEBUG START ---');
+      console.log('userId:', userId);
+      console.log('userId type:', typeof userId);
+      console.log('strategy:', strategy);
+      console.log('timeframe:', timeframe);
+      console.log('selectedBroker:', selectedBroker);
+      console.log('selectedPair:', selectedPair);
+      console.log('aiTradingConfig:', aiTradingConfig);
+      console.log('--- CLIENT BOT CREATION DEBUG END ---');
       const response = await fetch(`${API_URL}/trading/bot`, {
         method: "POST",
         headers: {
@@ -128,12 +148,13 @@ export function CreateTradingBot() {
           "x-user-id": userId,
         },
         body: JSON.stringify({
-          pair: "BTCUSDT",
+          pair: selectedPair.symbol,
           timeframe,
           strategyId: strategy,
           riskSettings: {
             maxRiskPerTrade: 2, // Default value
           },
+          brokerCredentialId: selectedBroker.id,
         }),
       });
 

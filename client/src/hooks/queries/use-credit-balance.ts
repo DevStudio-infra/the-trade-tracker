@@ -24,7 +24,11 @@ export function useCreditBalance() {
     },
     staleTime: 30 * 1000, // 30 seconds
     refetchInterval: (query) => {
-      const credits = query.state.data?.available ?? Infinity;
+      // Fix: react-query's query object does not have a 'state' property here
+      // Instead, use query?.data?.available
+      const credits = (query && (query as any).data && typeof (query as any).data.available === "number")
+        ? (query as any).data.available
+        : Infinity;
       return credits < 10 ? 10 * 1000 : 30 * 1000;
     },
   });

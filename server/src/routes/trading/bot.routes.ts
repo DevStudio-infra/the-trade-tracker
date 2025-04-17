@@ -134,26 +134,48 @@ const createBotSchema = z.object({
     maxDrawdown: z.number().optional(),
     symbols: z.array(z.string()).optional(),
   }),
+  brokerCredentialId: z.string(),
 });
 
 // Create new bot
 router.post("/", authenticateUser, validateRequest(createBotSchema), async (req, res) => {
   logger.info("Creating new bot", { userId: req.user?.id, config: req.body });
   try {
+    // Ensure user ID is present
+    if (!req.user || !req.user.id) {
+      logger.error("User ID is missing during bot creation", { user: req.user });
+      return res.status(400).json({ error: "User ID is required to create a bot." });
+    }
     // Create bot instance in database
+    console.log('--- BOT CREATION DEBUG START ---');
+    console.log('Request body:', req.body);
+    console.log('Request headers:', req.headers);
+    console.log('Request user:', req.user);
+    console.log('User ID from req.user:', req.user.id);
+    console.log('User ID type:', typeof req.user.id);
+    console.log('Strategy ID:', req.body.strategyId);
+    console.log('Pair:', req.body.pair);
+    console.log('Timeframe:', req.body.timeframe);
+    console.log('Risk Settings:', req.body.riskSettings);
+    console.log('Broker Credential ID:', req.body.brokerCredentialId);
+    console.log('--- BOT CREATION DEBUG END ---');
     const botInstance = await prisma.botInstance.create({
       data: {
-        userId: req.user!.id,
+        userId: req.user.id,
         strategyId: req.body.strategyId,
         pair: req.body.pair,
         timeframe: req.body.timeframe,
         riskSettings: req.body.riskSettings,
         isActive: true,
+        brokerCredentialId: req.body.brokerCredentialId
       },
     });
 
+    // Extra debug: log created bot instance
+    console.log('Created botInstance:', botInstance);
+
     // Initialize trading service
-    const tradingService = await initializeTradingService(req.user!.id, req.body);
+    const tradingService = await initializeTradingService(req.user.id, req.body);
 
     // Start the trading service
     await tradingService.start();
@@ -161,7 +183,11 @@ router.post("/", authenticateUser, validateRequest(createBotSchema), async (req,
     logger.info("Bot created successfully", { botId: botInstance.id });
     res.status(201).json(botInstance);
   } catch (error) {
-    logger.error("Error creating bot:", { error, userId: req.user?.id, config: req.body });
+    logger.error("Error creating bot:", {
+      error: error instanceof Error ? error.stack || error.message : error,
+      userId: req.user?.id,
+      config: req.body
+    });
     res.status(500).json({ error: error instanceof Error ? error.message : "Failed to create bot" });
   }
 });
@@ -179,7 +205,10 @@ router.get("/all", authenticateUser, async (req, res) => {
     });
     res.status(200).json(bots);
   } catch (error) {
-    logger.error("Error fetching all bots:", { error, userId: req.user?.id });
+    logger.error("Error fetching all bots:", {
+      error: error instanceof Error ? error.stack || error.message : error,
+      userId: req.user?.id
+    });
     res.status(500).json({ error: "Failed to fetch bots" });
   }
 });
@@ -232,7 +261,11 @@ router.get("/:id", authenticateUser, async (req, res) => {
         status.positions = positions;
         status.lastCheck = new Date();
       } catch (error) {
-        logger.error("Error getting bot status:", { error, userId: req.user?.id, botId: req.params.id });
+        logger.error("Error getting bot status:", {
+          error: error instanceof Error ? error.stack || error.message : error,
+          userId: req.user?.id,
+          botId: req.params.id
+        });
         status.errors = [error instanceof Error ? error.message : "Failed to get bot status"];
       }
     }
@@ -243,7 +276,11 @@ router.get("/:id", authenticateUser, async (req, res) => {
       status,
     });
   } catch (error) {
-    logger.error("Error fetching bot:", { error, userId: req.user?.id, botId: req.params.id });
+    logger.error("Error fetching bot:", {
+      error: error instanceof Error ? error.stack || error.message : error,
+      userId: req.user?.id,
+      botId: req.params.id
+    });
     res.status(500).json({ error: error instanceof Error ? error.message : "Failed to fetch bot" });
   }
 });
@@ -280,7 +317,11 @@ router.post("/:id/start", authenticateUser, async (req, res) => {
     logger.info("Bot started successfully", { userId: req.user?.id, botId });
     res.status(200).json(updatedBot);
   } catch (error) {
-    logger.error("Error starting bot:", { error, userId: req.user?.id, botId });
+    logger.error("Error starting bot:", {
+      error: error instanceof Error ? error.stack || error.message : error,
+      userId: req.user?.id,
+      botId
+    });
     res.status(500).json({ error: error instanceof Error ? error.message : "Failed to start bot" });
   }
 });
@@ -317,7 +358,11 @@ router.post("/:id/stop", authenticateUser, async (req, res) => {
     logger.info("Bot stopped successfully", { userId: req.user?.id, botId });
     res.status(200).json(updatedBot);
   } catch (error) {
-    logger.error("Error stopping bot:", { error, userId: req.user?.id, botId });
+    logger.error("Error stopping bot:", {
+      error: error instanceof Error ? error.stack || error.message : error,
+      userId: req.user?.id,
+      botId
+    });
     res.status(500).json({ error: error instanceof Error ? error.message : "Failed to stop bot" });
   }
 });
@@ -352,7 +397,11 @@ router.delete("/:id", authenticateUser, async (req, res) => {
     logger.info("Bot deleted successfully", { userId: req.user?.id, botId: req.params.id });
     res.status(204).send();
   } catch (error) {
-    logger.error("Error deleting bot:", { error, userId: req.user?.id, botId: req.params.id });
+    logger.error("Error deleting bot:", {
+      error: error instanceof Error ? error.stack || error.message : error,
+      userId: req.user?.id,
+      botId: req.params.id
+    });
     res.status(500).json({ error: error instanceof Error ? error.message : "Failed to delete bot" });
   }
 });
@@ -381,7 +430,11 @@ router.get("/:id/logs", authenticateUser, async (req, res) => {
     logger.info("Bot logs fetched successfully", { userId: req.user?.id, botId: req.params.id, logsCount: logs.length });
     res.json(logs);
   } catch (error) {
-    logger.error("Error fetching bot logs:", { error, userId: req.user?.id, botId: req.params.id });
+    logger.error("Error fetching bot logs:", {
+      error: error instanceof Error ? error.stack || error.message : error,
+      userId: req.user?.id,
+      botId: req.params.id
+    });
     res.status(500).json({ error: error instanceof Error ? error.message : "Failed to fetch bot logs" });
   }
 });

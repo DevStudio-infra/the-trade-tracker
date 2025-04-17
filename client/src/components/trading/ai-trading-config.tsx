@@ -153,8 +153,8 @@ export function AITradingConfig({ showOnlyActiveBots = false }: AITradingConfigP
   useEffect(() => {
     fetchBots();
 
-    // Set up an interval to refresh bots every 5 seconds
-    const intervalId = setInterval(fetchBots, 5000);
+    // Set up an interval to refresh bots every 5 minutes
+    const intervalId = setInterval(fetchBots, 5 * 60 * 1000);
 
     // Clean up interval on unmount
     return () => clearInterval(intervalId);

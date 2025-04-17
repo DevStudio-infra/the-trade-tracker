@@ -343,9 +343,11 @@ export function useApi() {
     },
 
     // Trading data methods with retry logic
-    sendTradingData: async (credentialsId: string, tradingPair: string, timeframe: string, maxRetries = 3): Promise<CandleDataResponse> => {
+    sendTradingData: async (credentialsId: string, tradingPair: string | { symbol: string }, timeframe: string, maxRetries = 3): Promise<CandleDataResponse> => {
+      // Always send tradingPair as a string symbol
+      const tradingPairSymbol = typeof tradingPair === "string" ? tradingPair : tradingPair.symbol;
       // Create a cache key for this specific request to prevent duplicate in-flight requests
-      const requestKey = `${credentialsId}:${tradingPair}:${timeframe}`;
+      const requestKey = `${credentialsId}:${tradingPairSymbol}:${timeframe}`;
 
       // Define a type for the extended API instance with the inflightRequests property
       interface ExtendedApi extends ReturnType<typeof axios.create> {
@@ -377,13 +379,13 @@ export function useApi() {
             try {
               const { data } = await api.post<CandleDataResponse>("/candles", {
                 credentialsId,
-                tradingPair,
+                tradingPair: tradingPairSymbol, // ensure symbol only
                 timeframe,
               });
 
               // Add precision info to the response if it's successful
               if (data.success && data.data && data.data.candles) {
-                data.data.precision = getSymbolPrecision(tradingPair);
+                data.data.precision = getSymbolPrecision(tradingPairSymbol);
               }
 
               return data;

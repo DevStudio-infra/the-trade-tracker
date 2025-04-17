@@ -30,12 +30,14 @@ const createBotSchema = z.object({
   pair: z.string(),
   timeframe: z.string(),
   riskSettings: z.object({
-    maxPositionSize: z.number().min(0.1).max(100),
-    maxDailyLoss: z.number().min(0.1).max(10),
-    maxDrawdown: z.number().min(1).max(50),
-    stopLossPercent: z.number().min(0.1).max(5),
-    takeProfitRatio: z.number().min(1).max(10),
+    maxPositionSize: z.number().min(0.1).max(100).optional(),
+    maxDailyLoss: z.number().min(0.1).max(10).optional(),
+    maxDrawdown: z.number().min(1).max(50).optional(),
+    stopLossPercent: z.number().min(0.1).max(5).optional(),
+    takeProfitRatio: z.number().min(1).max(10).optional(),
+    maxRiskPerTrade: z.number().min(0.1).max(100).optional(),
   }),
+  brokerCredentialId: z.string().uuid(),
 });
 
 // Create new bot

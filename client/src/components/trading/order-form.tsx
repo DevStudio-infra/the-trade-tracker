@@ -7,7 +7,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState } from "react";
 
 interface OrderFormProps {
-  pair: string | null;
+  pair: import("@/lib/api").TradingPair | null;
 }
 
 export function OrderForm({ pair }: OrderFormProps) {
@@ -47,13 +47,15 @@ export function OrderForm({ pair }: OrderFormProps) {
         <Button
           variant={side === "buy" ? "default" : "outline"}
           onClick={() => setSide("buy")}
-          className={`w-full font-semibold ${side === "buy" ? "bg-blue-500 hover:bg-blue-600 text-white" : "border-slate-200 dark:border-slate-800"}`}>
+          className={`w-full font-semibold ${side === "buy" ? "bg-blue-500 hover:bg-blue-600 text-white" : "border-slate-200 dark:border-slate-800"}`}
+        >
           Buy
         </Button>
         <Button
           variant={side === "sell" ? "destructive" : "outline"}
           onClick={() => setSide("sell")}
-          className={`w-full font-semibold ${side === "sell" ? "bg-red-500 hover:bg-red-600 text-white" : "border-slate-200 dark:border-slate-800"}`}>
+          className={`w-full font-semibold ${side === "sell" ? "bg-red-500 hover:bg-red-600 text-white" : "border-slate-200 dark:border-slate-800"}`}
+        >
           Sell
         </Button>
       </div>
@@ -102,7 +104,7 @@ export function OrderForm({ pair }: OrderFormProps) {
 
         <div className="pt-4 space-y-3">
           <Button className={`w-full font-semibold ${side === "buy" ? "bg-blue-500 hover:bg-blue-600" : "bg-red-500 hover:bg-red-600"} text-white`} size="lg">
-            {side === "buy" ? "Buy" : "Sell"} {pair}
+            {side === "buy" ? "Buy" : "Sell"} {pair.symbol}
           </Button>
           <div className="text-sm text-center text-slate-500 dark:text-slate-400">
             Available Balance: <span className="font-mono text-slate-900 dark:text-white">$25,000.00</span>

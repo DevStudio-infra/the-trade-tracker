@@ -17,46 +17,17 @@ declare global {
 
 export const authenticateUser = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    // For development, accept any request without authentication
-    // In a production environment, you would use proper authentication
-    if (process.env.NODE_ENV === "development") {
-      // Check if user ID is provided in headers
-      const userId = req.headers["x-user-id"] as string;
-
-      // Set user from headers or use default for development
-      req.user = {
-        id: userId || "dev-user-id",
-        email: userId ? `${userId}@example.com` : "dev@example.com",
-      };
-
-      return next();
+    // Remove dev mode: always require x-user-id header
+    const userId = req.headers["x-user-id"] as string;
+    if (!userId) {
+      logger.warn("Missing x-user-id header");
+      return res.status(401).json({ error: "Missing x-user-id header" });
     }
-
-    // Get the authorization header
-    const authHeader = req.headers.authorization;
-    if (!authHeader) {
-      logger.warn("No authorization header");
-      return res.status(401).json({ error: "No authorization header" });
-    }
-
-    // Extract the token
-    const token = authHeader.split(" ")[1];
-    if (!token) {
-      logger.warn("No token provided");
-      return res.status(401).json({ error: "No token provided" });
-    }
-
-    // TODO: Implement proper JWT validation
-    if (token === "development-token") {
-      req.user = {
-        id: "dev-user-id",
-        email: "dev@example.com",
-      };
-      next();
-    } else {
-      logger.warn("Invalid token");
-      res.status(401).json({ error: "Invalid token" });
-    }
+    req.user = {
+      id: userId,
+      email: `${userId}@example.com`, // Optionally, fetch real email if needed
+    };
+    return next();
   } catch (error) {
     logger.error("Authentication error:", error);
     res.status(500).json({ error: "Authentication failed" });

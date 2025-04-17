@@ -7,9 +7,10 @@ import { IndicatorControls } from "./indicators/IndicatorControls";
 import { useIndicatorStore } from "./indicators/indicatorStore";
 import { FormattedCandle, ChartApiWithPanes } from "./core/ChartTypes";
 import { useApi } from "@/lib/api";
+import { useTradingStore } from "@/stores/trading-store";
 
 interface TradingChartProps {
-  pair: string | null;
+  pair: import("@/lib/api").TradingPair | null;
   width?: number;
   height?: number;
 }
@@ -22,6 +23,7 @@ interface TradingChartProps {
 export function TradingChart({ pair, width = 800, height = 500 }: TradingChartProps) {
   const [candles, setCandles] = useState<FormattedCandle[]>([]);
   const api = useApi();
+  const { selectedBroker } = useTradingStore();
 
   // Get indicators from store
   const { getIndicators, setChartInstance, updateData } = useIndicatorStore();
@@ -33,15 +35,29 @@ export function TradingChart({ pair, width = 800, height = 500 }: TradingChartPr
   // Fetch candle data when pair changes
   useEffect(() => {
     async function fetchCandles() {
-      if (!pair) {
+      if (!pair || !selectedBroker) {
         setCandles([]);
         return;
       }
 
       try {
-        const data = await api.getCandles(pair);
-        setCandles(data);
-        updateData(data);
+        const timeframe = "1h";
+        const candleResp = await api.sendTradingData(selectedBroker.id, pair.symbol, timeframe);
+        // Convert Candle[] to FormattedCandle[] (add 'time' field)
+        if (candleResp.success && candleResp.data && candleResp.data.candles) {
+          const formattedCandles = candleResp.data.candles.map((candle: any) => ({
+            time: candle.timestamp / 1000 as import("lightweight-charts").Time,
+            open: candle.open,
+            high: candle.high,
+            low: candle.low,
+            close: candle.close,
+            volume: candle.volume,
+          }));
+          setCandles(formattedCandles);
+          updateData(formattedCandles);
+        } else {
+          setCandles([]);
+        }
       } catch (error) {
         console.error("Error fetching candles:", error);
         setCandles([]);
@@ -49,7 +65,7 @@ export function TradingChart({ pair, width = 800, height = 500 }: TradingChartPr
     }
 
     fetchCandles();
-  }, [pair, api, updateData]);
+  }, [pair, api, updateData, selectedBroker]);
 
   // Handle chart instance ready
   const handleChartReady = (chart: ChartApiWithPanes) => {
