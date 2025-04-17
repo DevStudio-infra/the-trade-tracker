@@ -34,10 +34,18 @@ export const validateAuth = (req: Request, res: Response, next: NextFunction) =>
       return res.status(401).json({ error: "Unauthorized" });
     }
 
+    // Backward compatibility: set req.user
+    if ((req as any).auth && (req as any).auth.userId) {
+      req.user = {
+        id: (req as any).auth.userId,
+        email: (req as any).auth.email || undefined,
+      };
+    }
+
     logger.info({
       message: "Authentication successful",
       path: req.path,
-      userId: (req as AuthenticatedRequest).auth?.userId,
+      userId: (req as any).auth?.userId,
     });
 
     next();

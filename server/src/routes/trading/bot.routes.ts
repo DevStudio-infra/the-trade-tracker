@@ -2,7 +2,7 @@ import { Router } from "express";
 import { AutomatedTradingService } from "../../services/trading/automated-trading.service";
 import { validateRequest } from "../../middleware/validate-request";
 import { z } from "zod";
-import { authenticateUser } from "../../middleware/auth";
+import { validateAuth } from "../../middleware/auth.middleware";
 import { createLogger } from "../../utils/logger";
 import { AIService } from "../../services/ai/ai.service";
 import { ChartAnalysisService } from "../../services/ai/chart-analysis.service";
@@ -138,7 +138,7 @@ const createBotSchema = z.object({
 });
 
 // Create new bot
-router.post("/", authenticateUser, validateRequest(createBotSchema), async (req, res) => {
+router.post("/", validateAuth, validateRequest(createBotSchema), async (req, res) => {
   logger.info("Creating new bot", { userId: req.user?.id, config: req.body });
   try {
     // Ensure user ID is present
@@ -193,7 +193,7 @@ router.post("/", authenticateUser, validateRequest(createBotSchema), async (req,
 });
 
 // Get all bots for a user
-router.get("/all", authenticateUser, async (req, res) => {
+router.get("/all", validateAuth, async (req, res) => {
   logger.info("Fetching all bots for user", { userId: req.user?.id });
   try {
     const bots = await prisma.botInstance.findMany({
@@ -214,7 +214,7 @@ router.get("/all", authenticateUser, async (req, res) => {
 });
 
 // Get specific bot
-router.get("/:id", authenticateUser, async (req, res) => {
+router.get("/:id", validateAuth, async (req, res) => {
   logger.info("Fetching specific bot", { userId: req.user?.id, botId: req.params.id });
   try {
     // Get bot details
@@ -286,7 +286,7 @@ router.get("/:id", authenticateUser, async (req, res) => {
 });
 
 // Start a bot
-router.post("/:id/start", authenticateUser, async (req, res) => {
+router.post("/:id/start", validateAuth, async (req, res) => {
   const botId = req.params.id;
   logger.info("Starting bot", { userId: req.user?.id, botId });
   try {
@@ -327,7 +327,7 @@ router.post("/:id/start", authenticateUser, async (req, res) => {
 });
 
 // Stop a bot
-router.post("/:id/stop", authenticateUser, async (req, res) => {
+router.post("/:id/stop", validateAuth, async (req, res) => {
   const botId = req.params.id;
   logger.info("Stopping bot", { userId: req.user?.id, botId });
   try {
@@ -368,7 +368,7 @@ router.post("/:id/stop", authenticateUser, async (req, res) => {
 });
 
 // Delete/stop bot
-router.delete("/:id", authenticateUser, async (req, res) => {
+router.delete("/:id", validateAuth, async (req, res) => {
   logger.info("Deleting bot", { userId: req.user?.id, botId: req.params.id });
   try {
     // Get bot details
@@ -407,7 +407,7 @@ router.delete("/:id", authenticateUser, async (req, res) => {
 });
 
 // Get bot logs
-router.get("/:id/logs", authenticateUser, async (req, res) => {
+router.get("/:id/logs", validateAuth, async (req, res) => {
   logger.info("Fetching bot logs", { userId: req.user?.id, botId: req.params.id });
   try {
     // Get bot details

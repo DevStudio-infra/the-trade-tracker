@@ -144,8 +144,7 @@ export function CreateTradingBot() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "dev-auth": "true",
-          "x-user-id": userId,
+          ...(typeof window !== "undefined" && window.Clerk && window.Clerk.session && window.Clerk.session.getToken ? { Authorization: `Bearer ${await window.Clerk.session.getToken()}` } : {}),
         },
         body: JSON.stringify({
           pair: selectedPair.symbol,
