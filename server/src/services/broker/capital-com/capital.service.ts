@@ -14,10 +14,13 @@ interface RetryConfig extends InternalAxiosRequestConfig {
   __retryCount?: number;
 }
 
-interface CapitalConfig extends IBrokerCredentials {
+interface CapitalConfig {
+  apiKey: string;
+  identifier: string;
+  password: string;
+  isDemo?: boolean;
   baseUrl?: string;
   timeout?: number;
-  isDemo?: boolean;
 }
 
 const logger = createLogger("capital-service");
@@ -26,7 +29,8 @@ export class CapitalService extends EventEmitter implements IBroker {
   private readonly baseUrl: string;
   private readonly wsUrl: string;
   private readonly apiKey: string;
-  private readonly apiSecret: string;
+  private readonly identifier: string;
+  private readonly password: string;
   private readonly isDemo: boolean;
   private sessionToken?: string;
   private client: AxiosInstance;
@@ -52,7 +56,8 @@ export class CapitalService extends EventEmitter implements IBroker {
   constructor(private readonly config: CapitalConfig) {
     super();
     this.apiKey = this.config.apiKey;
-    this.apiSecret = this.config.apiSecret;
+    this.identifier = this.config.identifier;
+    this.password = this.config.password;
     this.isDemo = this.config.isDemo || false;
     this.baseUrl = this.isDemo ? "https://demo-api-capital.backend-capital.com/api/v1" : "https://api-capital.backend-capital.com/api/v1";
     this.wsUrl = this.isDemo ? "wss://demo-streaming.capital.com/connect" : "wss://streaming.capital.com/connect";
@@ -159,8 +164,6 @@ export class CapitalService extends EventEmitter implements IBroker {
     this.marketDataStream.on("candle", ({ symbol, timeframe, candle }) => {
       this.emit("candle", symbol, timeframe, candle);
     });
-
-    this.setupWebSocket();
   }
 
   private setupWebSocket(): void {
@@ -654,7 +657,8 @@ export class CapitalService extends EventEmitter implements IBroker {
     try {
       const response = await this.client.post("/session", {
         apiKey: this.apiKey,
-        apiSecret: this.apiSecret,
+        identifier: this.identifier,
+        password: this.password,
       });
       this.sessionToken = response.data.token;
       if (this.sessionToken) {
@@ -798,5 +802,31 @@ export class CapitalService extends EventEmitter implements IBroker {
    */
   public getLastError(): Error | null {
     return this.lastError;
+  }
+
+  /**
+   * Authenticate with Capital.com and set up WebSocket after sessionToken is obtained
+   */
+  public async authenticate(): Promise<void> {
+    try {
+      // Example login request: adjust endpoint/fields as needed
+      const response = await this.client.post("/session", {
+        identifier: this.identifier,
+        password: this.password,
+      }, {
+        headers: {
+          "X-CAP-API-KEY": this.apiKey,
+        },
+      });
+      this.sessionToken = response.data?.token || response.data?.securityToken || response.headers["x-security-token"];
+      if (!this.sessionToken) {
+        throw new Error("Authentication failed: No session token returned");
+      }
+      // Now safe to connect WebSocket
+      this.setupWebSocket();
+    } catch (error) {
+      this.handleError("Failed to authenticate with Capital.com", error);
+      throw error;
+    }
   }
 }
